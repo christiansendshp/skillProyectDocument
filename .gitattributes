@@ -1,0 +1,4 @@
+# Los scripts POSIX deben conservar saltos de línea LF en cualquier plataforma
+# (CRLF rompe el shebang / los comandos). El resto, normalización automática.
+* text=auto
+*.sh text eol=lf
