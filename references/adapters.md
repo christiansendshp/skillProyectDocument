@@ -1,65 +1,44 @@
-# adapters.md — cómo se instala en cada runtime
+# Runtime adapters
 
-La skill vive **una sola vez** en `skillProyectDocument/`. Cada runtime la
-consume vía un archivo de entrada delgado que **apunta** a `SKILL.md`, sin
-duplicar contenido. Si un runtime no soporta "skills", su adapter incluye el
-protocolo completo en línea (es autosuficiente).
+Install the skill once with canonical folder name `project-documentation`.
+Accept `skillProyectDocument` as a legacy folder during transition, but never
+load both copies.
 
-| Runtime | Punto de entrada | Nota |
-|---|---|---|
-| Claude Code | `.claude/skills/skillProyectDocument/SKILL.md` + `CLAUDE.md` | `CLAUDE.md` referencia la skill |
-| Codex | `AGENTS.md` en la raíz | Cargado automáticamente |
-| OpenCode | `AGENTS.md` + `opencode.json` | Mismo `AGENTS.md` que Codex |
-| Antigravity | `.antigravity/rules.md` | Reglas persistentes del workspace |
+| Runtime | Thin entry point |
+|---|---|
+| Claude Code | `.claude/skills/project-documentation/SKILL.md` plus merged `CLAUDE.md` block |
+| Codex | installed skill plus merged root `AGENTS.md` block |
+| OpenCode | merged root `AGENTS.md`; configure it as the sole instruction source |
+| Antigravity | merged `.antigravity/rules.md` block |
 
-Cada adapter contiene, como mínimo: la regla dura ("antes de codear, leé los 6
-archivos; después de codear, actualizalos"), la lista de los 6 archivos, y un
-puntero explícito a `SKILL.md`.
+Adapters intentionally contain only four operations: `init`, `context`,
+`append-log`, and `rotate` plus `check`. `SKILL.md` remains the canonical
+workflow; adapters must not inline the full reference material.
 
-## Claude Code
+## Launchers
 
-Copiar la skill dentro del repo del proyecto:
-
-```sh
-mkdir -p .claude/skills
-cp -r /ruta/a/skillProyectDocument .claude/skills/skillProyectDocument
-cp /ruta/a/skillProyectDocument/adapters/CLAUDE.md ./CLAUDE.md   # o mergear si ya existe
-```
-
-Claude Code autodescubre `.claude/skills/*/SKILL.md`. El `CLAUDE.md` en la raíz
-refuerza el trigger para que la skill se dispare aunque el pedido no mencione docs.
-
-## Codex
+POSIX:
 
 ```sh
-cp /ruta/a/skillProyectDocument/adapters/AGENTS.md ./AGENTS.md   # o mergear
+sh path/to/project-documentation/scripts/project_docs.sh init .
+sh path/to/project-documentation/scripts/project_docs.sh context .
 ```
 
-Codex carga `AGENTS.md` de la raíz automáticamente. El adapter es autosuficiente:
-trae el protocolo completo, así no depende de soporte de skills.
+PowerShell:
 
-## OpenCode
-
-```sh
-cp /ruta/a/skillProyectDocument/adapters/AGENTS.md ./AGENTS.md
-cp /ruta/a/skillProyectDocument/adapters/opencode.json ./opencode.json   # o mergear
+```powershell
+& path\to\project-documentation\scripts\project_docs.ps1 init .
+& path\to\project-documentation\scripts\project_docs.ps1 context .
 ```
 
-OpenCode usa el mismo `AGENTS.md` que Codex y respeta `opencode.json` para
-instrucciones y permisos (p.ej. permitir `git mv`, pedir confirmación en deploy).
+Use `append-log`, `rotate`, and `check` with the same launcher.
 
-## Antigravity
+## Merge, do not overwrite
 
-```sh
-mkdir -p .antigravity
-cp /ruta/a/skillProyectDocument/adapters/.antigravity/rules.md .antigravity/rules.md
-```
+If the target already has `AGENTS.md`, `CLAUDE.md`, OpenCode instructions, or
+Antigravity rules, merge the compact adapter block. Preserve existing
+repository instructions and approval boundaries.
 
-`.antigravity/rules.md` son reglas persistentes del workspace; el adapter incluye
-el protocolo completo en línea.
-
-## Convivencia con instrucciones existentes
-
-Si el proyecto ya tiene `CLAUDE.md` / `AGENTS.md` / reglas propias, **no las pises**:
-agregá una sección "Documentación obligatoria (skillProyectDocument)" con la regla
-dura y el puntero a `SKILL.md`. La skill complementa, no reemplaza, las reglas del repo.
+The legacy `init_docs.sh` and `check_docs.sh` wrappers remain available for
+existing automation. New integrations should call `project_docs.sh` or
+`project_docs.ps1`.

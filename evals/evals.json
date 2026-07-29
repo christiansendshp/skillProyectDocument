@@ -1,0 +1,41 @@
+{
+  "skill_name": "project-documentation",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Start a new application in a project path that contains spaces. Initialize the required project memory, then initialize it again after I add a custom repository rule.",
+      "expected_output": "Exactly six contract files are created on the first run, the second run creates none, and the custom rule is preserved byte-for-byte.",
+      "files": [],
+      "expectations": [
+        "All six exact contract filenames exist under docs/",
+        "Repeated initialization reports zero created files",
+        "No pre-existing contract file is modified"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Open an existing project with one missing documentation file and a long agent history. Recover the missing file and prepare only the context needed to fix the active Roadmap task.",
+      "expected_output": "Only the missing file is created and startup context stays within 8 KiB while including repository rules, active work, summaries, and no more than five recent entries.",
+      "files": [],
+      "expectations": [
+        "Exactly one missing contract file is recovered",
+        "The context output is at most 8192 UTF-8 bytes",
+        "The context contains no more than five real ledger entries",
+        "Cold history is not loaded"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Record more than 200 logical changes, rotate the hot ledger, and validate the project memory.",
+      "expected_output": "The oversized ledger is archived once, verified by SHA-256, replaced with a compact hot ledger that links to the archive, and validation passes without losing history.",
+      "files": [],
+      "expectations": [
+        "Validation requires rotation before the oversized ledger can pass",
+        "Exactly one uniquely named history segment is created",
+        "The archive hash matches the pre-rotation ledger hash",
+        "The new hot ledger records the archive path and SHA-256",
+        "Validation passes after rotation"
+      ]
+    }
+  ]
+}

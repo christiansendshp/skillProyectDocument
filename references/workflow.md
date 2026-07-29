@@ -1,86 +1,104 @@
-# workflow.md — protocolo detallado
+# Compact project-memory workflow
 
-Detalle largo del comportamiento que impone `skillProyectDocument`. El resumen
-operativo vive en `SKILL.md`; acá está el porqué y los casos borde.
+## Principles
 
-## Dónde viven los documentos
+- Keep the six contract files present from project initialization onward.
+- Separate hot context from cold history.
+- Document one logical change, not every individual edit or tool call.
+- Point to code, tests, commits, issues, and detailed files instead of copying
+  their contents.
+- Use `CONFIRMED`, `UNKNOWN`, `HYPOTHESIS`, or `N/A` for facts whose certainty
+  matters.
+- Never store secrets, credentials, real environment values, or sensitive
+  command output.
 
-Por defecto, en `docs/` en la raíz del proyecto. Si el proyecto ya usa la raíz
-para estos archivos (algunos monorepos lo hacen), respetá esa ubicación y dejalo
-anotado en `Agents.md`. Lo importante es que existan y estén sincronizados; la
-carpeta es secundaria. Los scripts asumen `docs/`.
+## Context budget
 
-## Protocolo de arranque (lectura obligatoria)
+The `context` command emits:
 
-Antes de escribir una línea de código, leer en este orden:
+1. all of `Agents.md`;
+2. the bounded `Operational summary` blocks from Product, Stack, and Features;
+3. active Roadmap rows;
+4. the five latest Agentslog entries, capped to the hot ledger.
 
-1. `Agents.md` — reglas del repo (rama, qué requiere aprobación, convenciones).
-2. `ProductDescription.md` — qué se está construyendo y para quién.
-3. `Stack_Tecnologies.md` — con qué, y qué decisiones ya están tomadas.
-4. `Features.md` — qué ya existe y funciona (no reimplementar).
-5. `Roadmap.md` — qué falta y cuál es la próxima tarea.
-6. Últimas 20 entradas de `Agentslog.md` — qué se tocó recién y por qué.
+The result must remain at or below 8 KiB. If it exceeds the limit, compact the
+summaries or split detail into `docs/features/` or `docs/history/`. Never
+truncate repository rules silently.
 
-El orden importa: `Agents.md` puede cambiar todas las reglas siguientes; el
-`Agentslog.md` va último porque es contexto reciente, no norma.
+Read full documents only by task:
 
-## Ciclo de una tarea
+| Task changes or needs | Read/update |
+|---|---|
+| user outcomes, roles, domain rules | `ProductDescription.md` |
+| dependencies, architecture, security, data, commands | `Stack_Tecnologies.md` |
+| active scope, ownership, acceptance criteria | `Roadmap.md` |
+| existing verified behavior | `Features.md` |
+| recent coordination or a referenced past decision | `Agentslog.md` or its archive |
 
-1. Elegí una tarea `PENDIENTE` del `Roadmap.md` (respetando dependencias).
-2. Marcala `EN CURSO` con tu `<ID-agente>` y timestamp. Commit chico solo de esa marca
-   si trabajás en paralelo con otros agentes.
-3. Implementá.
-4. Testeá contra el **criterio de aceptación** de la tarea. Sin test que lo
-   verifique, la tarea no pasa a `COMPLETADO`.
-5. Actualizá documentación:
-   - `Roadmap.md`: nuevo estado. Si la funcionalidad quedó 100% cerrada y testeada,
-     mové su resumen a `Features.md` y dejá en el Roadmap solo la referencia.
-   - `Features.md`: alta de la feature (si corresponde).
-   - `Stack_Tecnologies.md`: si cambiaron deps, entidades o decisiones técnicas
-     (nueva fila en la tabla de decisiones; no editar filas viejas).
-6. Escribí la entrada en `Agentslog.md` (una por cambio de código).
-7. Corré `scripts/check_docs.sh <proyecto>`; debe dar exit 0.
+## New project
 
-## Multi-agente: evitar trabajo pisado
+1. Run `init`; it creates only missing files.
+2. Replace known placeholders with confirmed facts from the request or project.
+3. Leave unknowns explicit instead of delaying harmless implementation.
+4. Add the initial active Roadmap task with an acceptance check.
+5. Implement, verify, update affected truth, and append one log entry.
 
-- `Roadmap.md` es el semáforo: una tarea `EN CURSO` con ID de otro agente **no se toca**.
-- Antes de empezar, revisá las últimas entradas de `Agentslog.md` para ver qué se
-  modificó recién.
-- **Conflicto de criterios:** no decidas en silencio ni pises la decisión del otro.
-  Registrá **ambas** opciones en `Agentslog.md` (con pros/cons) y escalá al humano.
-  La decisión final se refleja como fila nueva en la tabla de decisiones de
-  `Stack_Tecnologies.md`.
+## Existing project
 
-## Gate de cierre
+1. Run `init` to recover only missing contract files.
+2. Run `context`.
+3. Reconstruct facts from source files, dependency manifests, tests, and
+   configuration. Mark uncertain inferences as `HYPOTHESIS` with a verification
+   step.
+4. Do not rewrite intact project documentation merely to match the templates.
 
-Una tarea NO está terminada si:
+## Multi-agent coordination
 
-- `check_docs.sh` devuelve exit ≠ 0, o
-- falta la entrada en `Agentslog.md` correspondiente al cambio.
+- Use Roadmap ownership only for work that may overlap.
+- Format owner as `<agent>@<timestamp>`.
+- Do not touch a row owned by another active agent unless coordinating.
+- Store decisions in Stack; store the resulting action and pointers in the log.
+- Escalate incompatible concurrent decisions instead of silently overwriting
+  another agent's work.
 
-## Anti-deriva (documentación siempre veraz)
+## Ledger and rotation
 
-Si al leer el código detectás que contradice lo documentado:
+Use one log entry per logical change:
 
-1. Corregí la documentación en el **mismo commit** que el cambio de código.
-2. Registrá la discrepancia detectada y cómo se resolvió en `Agentslog.md`.
+```markdown
+## [YYYY-MM-DDTHH:mm:ssZ] | agent | TASK-ID | DONE
+- Summary: observable outcome
+- Files: compact paths or component names
+- Verify: command and result
+- Follow-up: none or one pointer
+```
 
-La documentación nunca se deja desactualizada "para después".
+Keep entries under six lines and approximately 700 characters. The hot ledger
+rotates after 200 entries or 128 KiB. Rotation must:
 
-## Ingeniería inversa (proyecto existente sin docs)
+1. copy the complete ledger to a unique `docs/history/Agentslog-*.md`;
+2. verify the archived copy by hash;
+3. replace the hot ledger atomically;
+4. record the archive path and hash in the new ledger.
 
-Si falta alguno de los 6 archivos en un repo con código:
+Archives are immutable. Read one only when a current entry or decision points to
+it.
 
-1. Corré `init_docs.sh` para traer el/los template(s) faltante(s).
-2. Completá su contenido **leyendo el código real** (no inventes): stack real,
-   entidades reales, features que ya existen → `Features.md`, lo pendiente → `Roadmap.md`.
-3. Dejá una entrada en `Agentslog.md` explicando que se reconstruyó la doc por
-   ingeniería inversa y qué quedó como supuesto a confirmar.
+## Content maintenance
 
-## Reglas transversales
+- Product keeps stable functional truth, not implementation plans.
+- Stack keeps current technical truth plus a compact decision table. Put long
+  ADRs in `docs/decisions/` and link them.
+- Roadmap contains active and near-term work. Remove completed detail after
+  preserving the verified capability in Features and the change in Agentslog.
+- Features is an index. Put long runbooks or feature specifications in
+  `docs/features/` and link them.
+- Git is the recovery mechanism for normal deletions. Archive only audit history
+  and superseded decisions that remain useful; do not enforce “nothing is ever
+  deleted.”
 
-- **Nada se borra:** obsoleto → `docs/old/` con `git mv`.
-- Documentación en español; código/commits en inglés (salvo que `Agents.md` diga otra cosa).
-- Cero secretos ni valores reales de entorno en ningún archivo.
-- Placeholders `<!-- COMPLETAR: ... -->`: nunca dejar contenido inventado en su lugar;
-  si no hay dato, se deja el placeholder o se pregunta al humano.
+## Gate
+
+Run `check` after documentation updates. It verifies the six files, required
+sections, the 8 KiB context budget, and ledger rotation thresholds. A task is
+not complete while the command exits non-zero.

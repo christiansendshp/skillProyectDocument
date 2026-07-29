@@ -1,4 +1,8 @@
 # Los scripts POSIX deben conservar saltos de línea LF en cualquier plataforma
 # (CRLF rompe el shebang / los comandos). El resto, normalización automática.
 * text=auto
+*.md text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
 *.sh text eol=lf
+*.ps1 text eol=lf

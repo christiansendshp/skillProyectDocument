@@ -1,61 +1,52 @@
-# Stack_Tecnologies.md
+# Stack technologies
 
-> La verdad técnica del proyecto. Se actualiza cada vez que cambia una dependencia,
-> una entidad o una decisión de arquitectura.
+> The legacy filename `Stack_Tecnologies.md` is intentionally preserved.
 
-## Backend
+## Operational summary
 
-<!-- COMPLETAR: lenguaje, framework, versiones. -->
+- Runtime: `UNKNOWN`
+- Architecture: `UNKNOWN`
+- Data: `UNKNOWN`
+- Test command: `UNKNOWN`
+- Delivery: `UNKNOWN`
 
-## Frontend
+<!-- context:end -->
 
-<!-- COMPLETAR: lenguaje, framework, librería de UI, versiones. Poner "N/A" si no aplica. -->
+## Components
 
-## Base de datos
-
-<!-- COMPLETAR: motor, ORM, estrategia de migraciones, modelo de aislamiento si aplica. -->
-
-## Arquitectura general
-
-<!-- COMPLETAR: monolito / modular / microservicios. Diagrama en texto o Mermaid.
-     Comunicación entre servicios (HTTP, colas, eventos). -->
-
-## Seguridad
-
-<!-- COMPLETAR: autenticación, autorización, manejo de secretos, políticas a nivel
-     de datos, hardening. -->
-
-## Estructura de carpetas
-
-<!-- COMPLETAR: árbol de carpetas comentado (qué vive en cada una). -->
-
-## Entidades y relaciones
-
-<!-- COMPLETAR: principales tablas/entidades y sus relaciones. Los nombres deben
-     coincidir con el Glosario de ProductDescription.md. -->
-
-## Variables de entorno
-
-> **Nunca valores reales.** Solo nombre, propósito, obligatoriedad y un ejemplo genérico.
-
-| Variable | Para qué sirve | Obligatoria | Ejemplo |
+| Area | Technology and version | Source | Status |
 |---|---|---|---|
-| <!-- COMPLETAR --> | <!-- COMPLETAR --> | sí/no | <!-- COMPLETAR (genérico) --> |
+| Application | UNKNOWN | manifest or code | UNKNOWN |
+| Data | N/A | manifest or code | UNKNOWN |
+| Infrastructure | N/A | config | UNKNOWN |
 
-## Testing
+## Architecture anchors
 
-<!-- COMPLETAR: niveles (unit / integración / e2e), herramientas, comandos,
-     criterio de cobertura mínima. -->
+| Concern | Current truth | Authoritative artifact |
+|---|---|---|
+| Boundaries | UNKNOWN | UNKNOWN |
+| Data flow | UNKNOWN | UNKNOWN |
+| Security | UNKNOWN | UNKNOWN |
 
-## Infraestructura y despliegue
+## Commands
 
-<!-- COMPLETAR: contenedores, proxy, entornos, ramas por entorno. -->
+| Purpose | Command | Status |
+|---|---|---|
+| Test | UNKNOWN | UNKNOWN |
+| Lint or check | UNKNOWN | UNKNOWN |
 
-## Decisiones técnicas
+## Environment variables
 
-> Toda decisión técnica adoptada se registra acá. Cambiarla exige una fila nueva
-> (no editar filas viejas: marcarlas `Reemplazada`).
+Names and purpose only; never store real values.
 
-| Fecha | Decisión | Alternativas evaluadas | Motivo | Estado |
-|---|---|---|---|---|
-| <!-- COMPLETAR --> | <!-- COMPLETAR --> | <!-- COMPLETAR --> | <!-- COMPLETAR --> | Vigente |
+| Name | Purpose | Required |
+|---|---|---|
+| UNKNOWN | UNKNOWN | UNKNOWN |
+
+## Decisions
+
+Keep this table compact. Link long records from `docs/decisions/`.
+
+| ID | Date | Decision | Reason | Status | Detail |
+|---|---|---|---|---|---|
+| ADR-001 | UNKNOWN | UNKNOWN | UNKNOWN | HYPOTHESIS | — |
