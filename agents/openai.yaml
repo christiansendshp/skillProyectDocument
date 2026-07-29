@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Documentation"
+  short_description: "Keep compact AI project memory current"
+  default_prompt: "Use $project-documentation to initialize and maintain compact project memory for this task."

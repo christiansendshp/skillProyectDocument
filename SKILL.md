@@ -1,101 +1,74 @@
 ---
-name: skillProyectDocument
-description: >
-  Crea y mantiene los 6 archivos de documentación obligatorios de todo proyecto
-  (Agents.md, Agentslog.md, ProductDescription.md, Stack_Tecnologies.md,
-  Roadmap.md, Features.md). Usá esta skill SIEMPRE que se pida crear una app,
-  iniciar un proyecto, armar/scaffoldear un repo, agregar una funcionalidad,
-  refactorizar o modificar código —aunque el usuario NO mencione documentación—.
-  Es OBLIGATORIA antes de escribir cualquier línea de código y al cerrar cada
-  cambio. Si dudás si aplica, aplica.
+name: project-documentation
+description: >-
+  Initialize and maintain a compact six-file project memory for AI-assisted
+  software work. Use whenever an agent creates, opens, scaffolds, implements,
+  fixes, refactors, or otherwise changes a project, even when documentation is
+  not requested. Create missing project documents before coding, load only the
+  bounded task-relevant context, record each logical change, and validate the
+  documentation before closing the task.
 ---
 
-# skillProyectDocument
+# Project Documentation
 
-Skill agnóstica de lenguaje, framework y dominio. Su único trabajo es garantizar
-que todo proyecto tenga —y mantenga vivos— **6 archivos de documentación
-obligatorios**, y que ningún agente escriba código sin leerlos primero ni cierre
-una tarea sin actualizarlos.
+Maintain a small, durable project memory without loading the full history into
+every agent turn.
 
-## CUÁNDO SE DISPARA (leer con atención — el fallo típico es no dispararse)
+## Contract
 
-Activá esta skill ante CUALQUIERA de estas señales, mencione o no el usuario la
-palabra "documentación":
+Keep these exact files in `<project>/docs/`:
 
-- "creá/armá/generá una app / un proyecto / un backend / un frontend / un script".
-- "agregá / implementá / sacá una funcionalidad", "arreglá este bug", "refactorizá".
-- "modificá / cambiá / tocá" cualquier archivo de código.
-- Abrís un repo para trabajar en él (aunque sea para una sola línea).
+- `Agents.md`: repository rules and context-loading policy.
+- `Agentslog.md`: recent append-only work ledger.
+- `ProductDescription.md`: current functional truth.
+- `Stack_Tecnologies.md`: current technical truth. The misspelling is retained
+  for backward compatibility.
+- `Roadmap.md`: active and near-term work only.
+- `Features.md`: compact index of verified capabilities.
 
-Ante la duda, **se dispara**. Es más barato leer los 6 archivos de más que dejar
-el proyecto sin trazabilidad.
+Projects may contain any additional files. Put cold history under
+`docs/history/` and detailed feature material under `docs/features/`; do not
+load those folders unless the current task needs them.
 
-## Los 6 archivos (nombres EXACTOS, respetar mayúsculas y guión bajo)
+## Start every project or session
 
-Viven en `docs/` del proyecto (configurable; ver `references/workflow.md`).
+1. Locate the project root. Prefer the runtime-native launcher:
+   - POSIX: `sh <skill>/scripts/project_docs.sh init <project>`
+   - PowerShell: `& <skill>/scripts/project_docs.ps1 init <project>`
+2. Run `context` with the same launcher. Keep its output at or below 8 KiB.
+3. Read the complete `docs/Agents.md`, the active Roadmap rows, and at most the
+   five latest log entries included by `context`.
+4. Read Product, Stack, or Features beyond their short summaries only when the
+   task changes or depends on functional, technical, or verification details.
+5. Mark a Roadmap item `IN_PROGRESS` before implementation when multiple agents
+   may work concurrently.
 
-1. **`Agents.md`** — reglas de operación para todos los agentes del repo.
-2. **`Agentslog.md`** — bitácora append-only; una entrada por cada cambio de código.
-3. **`ProductDescription.md`** — el producto en términos funcionales (cero tecnología).
-4. **`Stack_Tecnologies.md`** — la verdad técnica (stack, arquitectura, decisiones).
-5. **`Roadmap.md`** — el único lugar donde vive el trabajo pendiente.
-6. **`Features.md`** — catálogo de lo ya implementado y testeado.
+Never block an unrelated small task merely to fill unknown documentation.
+Represent missing knowledge explicitly as `UNKNOWN` or `HYPOTHESIS`, including
+a source or verification step. Never present inference as confirmed fact.
 
-Plantillas base: `templates/` de esta skill. Copialas con `scripts/init_docs.sh`.
+## Close each logical change
 
-## PROTOCOLO — proyecto nuevo
+1. Update only the documents affected by the change:
+   - functional truth -> `ProductDescription.md`
+   - technical truth or decision -> `Stack_Tecnologies.md`
+   - active work state -> `Roadmap.md`
+   - verified capability -> `Features.md`
+2. Append one compact ledger entry for the logical change. Prefer `append-log`;
+   keep the entry under six lines and roughly 700 characters.
+3. Run `rotate`. It archives and verifies an oversized ledger before resetting
+   the hot log.
+4. Run `check`. Do not report completion while it fails.
 
-1. `sh scripts/init_docs.sh <ruta-proyecto>` → crea `docs/` con los 6 archivos
-   desde `templates/` (idempotente; no pisa lo existente).
-2. Completá `ProductDescription.md` y `Stack_Tecnologies.md` entrevistando al
-   usuario o infiriendo del pedido. Reemplazá los `<!-- COMPLETAR: ... -->`.
-   **Nunca inventes** dependencias, entidades ni decisiones.
-3. Desglosá el pedido en `Roadmap.md` con IDs (`F01-S02-T03`) y criterios de
-   aceptación, **antes** de codear.
-4. Recién ahí, empezá a escribir código.
-5. Escribí la primera entrada en `Agentslog.md`.
+Do not duplicate implementation detail already discoverable in code, tests,
+commits, or issues. Record stable facts, decisions, verification commands,
+task state, and pointers to authoritative artifacts.
 
-## PROTOCOLO — proyecto existente
+## Compatibility
 
-1. Leé los 6 archivos en este ORDEN: `Agents.md` → `ProductDescription.md` →
-   `Stack_Tecnologies.md` → `Features.md` → `Roadmap.md` → últimas 20 entradas de
-   `Agentslog.md`.
-2. Si falta alguno → generalo por ingeniería inversa del repo antes de continuar
-   (`init_docs.sh` crea el que falte; completá su contenido leyendo el código).
-3. Tomá una tarea del `Roadmap.md` y marcala `EN CURSO` con tu ID de agente y
-   timestamp (evita trabajo pisado en multi-agente).
-4. Implementá.
-5. Testeá contra el criterio de aceptación de la tarea.
-6. Actualizá `Roadmap.md`; si la funcionalidad quedó 100% completa y testeada,
-   moves su resumen a `Features.md`. Actualizá `Stack_Tecnologies.md` si cambió
-   algo técnico (deps, entidades, decisiones).
-7. Escribí la entrada correspondiente en `Agentslog.md`.
+The canonical skill name is `project-documentation`. Accept the legacy
+installation folder `skillProyectDocument` during transition. Do not create two
+active copies of the skill.
 
-## GATE DE CIERRE (no negociable)
-
-Una tarea NO está terminada si:
-
-- `sh scripts/check_docs.sh <ruta-proyecto>` devuelve exit code ≠ 0, **o**
-- no escribiste tu entrada en `Agentslog.md` para este cambio.
-
-## ANTI-DERIVA
-
-Si el código contradice lo documentado, se corrige la **documentación** en el
-mismo commit y se registra la discrepancia en `Agentslog.md`. La documentación
-nunca queda desactualizada a propósito.
-
-## REGLAS TRANSVERSALES
-
-- **Nada se borra.** Contenido obsoleto se mueve a `docs/old/` con `git mv`.
-- Documentación en **español**; nombres de archivos/código/variables/commits en
-  **inglés** (salvo que `Agents.md` del proyecto diga lo contrario).
-- Cero secretos, credenciales ni valores reales de entorno en ningún archivo.
-- Los nombres de entidades en el código deben coincidir con el **Glosario** de
-  `ProductDescription.md`.
-
-## MÁS DETALLE
-
-- Protocolo completo (arranque, cierre, multi-agente): `references/workflow.md`.
-- Instalación por runtime (Claude Code, Codex, OpenCode, Antigravity):
-  `references/adapters.md` y la carpeta `adapters/`.
-- Verificación: `scripts/check_docs.sh` valida existencia + secciones mínimas.
+Use `references/workflow.md` for edge cases and command details. Read
+`references/adapters.md` only when installing or updating a runtime adapter.

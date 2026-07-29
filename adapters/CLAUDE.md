@@ -1,31 +1,16 @@
-# CLAUDE.md
+# Compact project documentation
 
-## Documentación obligatoria (skillProyectDocument)
+Use the `project-documentation` skill before and after every logical software
+change, even when documentation was not requested. Accept
+`.claude/skills/skillProyectDocument/` only as a legacy installation path.
 
-Este repo usa la skill **`skillProyectDocument`** (en
-`.claude/skills/skillProyectDocument/SKILL.md`). Es de uso obligatorio.
+Before coding, run the skill's `project_docs.sh init .` and `context .`. Read the
+bounded context output; open full Product, Stack, Features, or history only when
+the task needs it.
 
-**Regla dura:** antes de escribir o modificar **cualquier** código —crear una app,
-agregar/quitar una funcionalidad, arreglar un bug, refactorizar—, leé los 6 archivos
-de documentación; después de cada cambio, actualizalos. Aplica aunque el pedido no
-mencione documentación.
+After coding, update only affected truths, append one compact Agentslog entry,
+run `rotate`, and require `check` to pass.
 
-**Los 6 archivos** (en `docs/`, nombres exactos):
-`Agents.md`, `Agentslog.md`, `ProductDescription.md`, `Stack_Tecnologies.md`,
-`Roadmap.md`, `Features.md`.
-
-**Antes de codear** (orden de lectura):
-`Agents.md` → `ProductDescription.md` → `Stack_Tecnologies.md` → `Features.md` →
-`Roadmap.md` → últimas 20 entradas de `Agentslog.md`. Si falta alguno, crealo con
-`sh .claude/skills/skillProyectDocument/scripts/init_docs.sh .` y completalo.
-
-**Después de codear:** actualizá `Roadmap.md` (y `Features.md` si se cerró una
-funcionalidad, y `Stack_Tecnologies.md` si cambió algo técnico), escribí la entrada
-en `Agentslog.md`, y corré
-`sh .claude/skills/skillProyectDocument/scripts/check_docs.sh .` (debe dar exit 0).
-
-**Gate de cierre:** una tarea no está terminada si `check_docs.sh` falla o si no
-escribiste tu entrada en `Agentslog.md`.
-
-El protocolo completo está en `.claude/skills/skillProyectDocument/SKILL.md` y en
-su carpeta `references/`.
+Keep the exact six files under `docs/`: `Agents.md`, `Agentslog.md`,
+`ProductDescription.md`, `Stack_Tecnologies.md`, `Roadmap.md`, and
+`Features.md`. Never invent facts or record secrets.

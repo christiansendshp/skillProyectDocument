@@ -1,23 +1,18 @@
-# Features.md
+# Features
 
-> Catálogo de lo **ya implementado y testeado**. Nada pendiente vive acá.
-> Si a una feature existente se le agrega algo nuevo, **eso va al `Roadmap.md`**,
-> no acá. Este archivo refleja solo lo que existe y funciona hoy.
+## Operational summary
 
-## Índice
+- Verified capabilities: 0
+- Latest verification: `UNKNOWN`
+- Known limitation: `UNKNOWN`
 
-<!-- COMPLETAR: lista de features completadas con link a su sección. -->
+<!-- context:end -->
 
-## Features
+## Verified capabilities
 
-<!-- COMPLETAR: una sección por feature, con la plantilla de abajo. -->
+Use one row per stable capability. Link long specifications or runbooks from
+`docs/features/`.
 
-### <!-- COMPLETAR: nombre de la feature -->
-
-- **ID Roadmap:** <!-- COMPLETAR: p.ej. F01 -->
-- **Fecha de completado:** <!-- COMPLETAR: YYYY-MM-DD -->
-- **Versión:** <!-- COMPLETAR -->
-- **Descripción funcional:** <!-- COMPLETAR: qué hace para el usuario. -->
-- **Detalle técnico:** <!-- COMPLETAR: endpoints, componentes, tablas, servicios, jobs involucrados. -->
-- **Cómo se testeó / re-verifica:** <!-- COMPLETAR: comandos concretos para re-correr los tests. -->
-- **Limitaciones conocidas:** <!-- COMPLETAR -->
+| ID | Capability | Verification | Source or detail | Updated |
+|---|---|---|---|---|
+| — | — | — | — | — |

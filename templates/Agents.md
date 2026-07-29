@@ -1,64 +1,35 @@
-# Agents.md
+# Agents
 
-> Reglas de operación para todos los agentes de IA que trabajen en este repo.
-> Se lee PRIMERO, siempre, antes de tocar código.
+## Repository rules
 
-## Propósito
+- Scope: all AI agents and contributors in this repository.
+- Work branch: `UNKNOWN` — confirm from repository or user instructions.
+- Approval boundaries: follow the active runtime and repository instructions.
+- Never expose secrets or real environment values in documentation.
+- Treat `UNKNOWN` and `HYPOTHESIS` as unresolved, not as facts.
 
-<!-- COMPLETAR: alcance de este archivo y a quién obliga (todos los agentes y humanos que commitean). -->
+## Startup
 
-Este archivo define cómo se trabaja en el repo. Su cumplimiento es condición para
-cerrar cualquier tarea.
+1. Run the project-documentation `init` command.
+2. Run `context`; keep its output at or below 8 KiB.
+3. Read this file completely, active Roadmap rows, and the five latest log
+   entries.
+4. Read full Product, Stack, or Features only when relevant to the task.
 
-## Reglas duras (no negociables)
+## Close
 
-- **Rama de trabajo:** <!-- COMPLETAR: p.ej. todo el trabajo va a `develop`; `main` solo por merge tras validación. -->
-- **Nada se borra:** todo contenido obsoleto (código o docs) se archiva en `old/`
-  (o `docs/old/`) con `git mv`. Nunca `rm`.
-- **Requiere aprobación humana explícita:** migraciones de base de datos, cambios
-  de esquema, manejo de credenciales/secretos, y deploy a producción.
-- **Nunca se commitean secretos** ni valores reales de entorno.
+1. Update only the affected project truths.
+2. Append one compact log entry per logical change.
+3. Run `rotate`, then `check`.
 
-## Protocolo de arranque
+## Multi-agent coordination
 
-Orden obligatorio de lectura antes de escribir código:
+- Claim overlapping work in Roadmap as `IN_PROGRESS` with `agent@timestamp`.
+- Do not modify work actively owned by another agent without coordination.
+- Record durable decisions in Stack and link them from the log.
 
-1. `Agents.md` (este archivo)
-2. `ProductDescription.md`
-3. `Stack_Tecnologies.md`
-4. `Features.md`
-5. `Roadmap.md`
-6. Últimas 20 entradas de `Agentslog.md`
+## Project conventions
 
-## Protocolo de cierre
-
-Antes de dar una tarea por terminada, actualizar según corresponda:
-
-- `Roadmap.md` (estado de la tarea; mover a `Features.md` si quedó completa).
-- `Features.md` (si se completó y testeó una funcionalidad).
-- `Stack_Tecnologies.md` (si cambiaron deps, entidades o decisiones técnicas).
-- `Agentslog.md` (**siempre**: una entrada por cada cambio de código).
-- Correr `scripts/check_docs.sh` y que dé exit code 0.
-
-## Trabajo colaborativo multi-agente
-
-- Para tomar una tarea del `Roadmap.md`: marcarla `EN CURSO` con `<ID-agente>` y
-  timestamp. Otro agente no toma una tarea `EN CURSO`.
-- Para evitar trabajo pisado: verificar en `Agentslog.md` qué se tocó recientemente.
-- Ante conflicto de criterios: registrar **ambas** opciones en `Agentslog.md` y
-  escalar al humano. No decidir en silencio ni pisar la decisión del otro agente.
-
-## Convenciones de código y commits
-
-- <!-- COMPLETAR: estilo de código, linter/formatter, convención de nombres. -->
-- <!-- COMPLETAR: formato de mensajes de commit (p.ej. Conventional Commits). -->
-- Idioma: documentación en español; código/variables/commits en inglés (salvo
-  indicación contraria acá).
-
-## Prohibido
-
-- Inventar dependencias, librerías, endpoints o entidades que no existen.
-- Cambiar decisiones técnicas ya registradas en `Stack_Tecnologies.md` sin dejar
-  constancia (nueva fila en la tabla de decisiones + entrada en `Agentslog.md`).
-- Borrar o deshabilitar tests para "hacer pasar" una tarea.
-- Commitear secretos, tokens o credenciales.
+- Code style: `UNKNOWN` — infer from checked-in configuration.
+- Test command: `UNKNOWN` — record the confirmed command in Stack.
+- Documentation language: match the project unless the user specifies one.

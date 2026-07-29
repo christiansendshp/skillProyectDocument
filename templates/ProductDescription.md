@@ -1,45 +1,38 @@
-# ProductDescription.md
+# Product description
 
-> El core funcional del producto. **Cero tecnología acá** (nada de frameworks,
-> lenguajes ni infraestructura: eso vive en `Stack_Tecnologies.md`).
+## Operational summary
 
-## Qué es
+- Product: `UNKNOWN`
+- Primary user: `UNKNOWN`
+- Core outcome: `UNKNOWN`
+- Critical invariant: `UNKNOWN`
 
-<!-- COMPLETAR: qué es el producto en una frase, y el problema concreto que resuelve. -->
+<!-- context:end -->
 
-## Objetivo y métricas de éxito
+## Users and outcomes
 
-<!-- COMPLETAR: objetivo del producto y cómo se mide que funciona (métricas concretas). -->
+| User or role | Needed outcome | Status | Source |
+|---|---|---|---|
+| UNKNOWN | UNKNOWN | UNKNOWN | user request or artifact |
 
-## Usuarios y roles
+## Business rules
 
-<!-- COMPLETAR: tipos de usuario/rol y sus permisos FUNCIONALES (qué puede hacer cada uno). -->
+| ID | Rule | Status | Source or verification |
+|---|---|---|---|
+| BR-001 | UNKNOWN | UNKNOWN | UNKNOWN |
 
-## Funcionalidades
+## Main flows
 
-<!-- COMPLETAR: funcionalidades principales, cada una con sus características. -->
+| Flow | Start -> outcome | Status |
+|---|---|---|
+| UNKNOWN | UNKNOWN | UNKNOWN |
 
-## Casos de uso y flujos
+## Glossary
 
-<!-- COMPLETAR: casos de uso y flujos de usuario end-to-end (paso a paso). -->
+| Term | Meaning | Status |
+|---|---|---|
+| UNKNOWN | UNKNOWN | UNKNOWN |
 
-## Reglas de negocio
+## Out of scope
 
-<!-- COMPLETAR: reglas de negocio no negociables (validaciones, invariantes, límites). -->
-
-## Reglas de diseño y UX
-
-<!-- COMPLETAR: tono, criterios de interfaz, accesibilidad, idioma de la UI. -->
-
-## Glosario
-
-> Fuente de verdad del vocabulario del dominio. Los nombres de entidades en el
-> código DEBEN coincidir con estos términos.
-
-| Término | Definición |
-|---|---|
-| <!-- COMPLETAR --> | <!-- COMPLETAR --> |
-
-## Fuera de alcance
-
-<!-- COMPLETAR: lo que el producto explícitamente NO hace (para cortar expectativas). -->
+- `UNKNOWN`

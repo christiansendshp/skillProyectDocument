@@ -1,13 +1,12 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "instructions": [
-    "AGENTS.md",
-    "skillProyectDocument/SKILL.md",
-    "skillProyectDocument/references/workflow.md"
+    "AGENTS.md"
   ],
   "permission": {
     "bash": {
       "git mv *": "allow",
+      "sh project-documentation/scripts/*": "allow",
       "sh skillProyectDocument/scripts/*": "allow",
       "rm *": "ask",
       "git push *": "ask",
