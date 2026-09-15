@@ -7,7 +7,11 @@ set -u
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 SH_BIN="$SCRIPT_DIR/project_docs.sh"
 PS1_BIN="$SCRIPT_DIR/project_docs.ps1"
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/project-docs-smoke.XXXXXX")"
+# A space in every project path here is deliberate: the prompt requires
+# spaces-in-path support (eval #1), and it is otherwise easy for a quoting
+# mistake in either script to go unnoticed.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/project-docs-smoke.XXXXXX")/a project dir"
+mkdir -p "$WORK"
 PASS=0
 FAIL=0
 

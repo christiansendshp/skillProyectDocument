@@ -818,14 +818,14 @@ function Invoke-Migrate {
 function Test-Need([string]$Rel, [string[]]$Markers) {
     $path = Join-Path $Project $Rel
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        Write-Error "MISSING: $Rel" -ErrorAction Continue
+        [Console]::Error.WriteLine("MISSING: $Rel")
         $script:CheckFail = $true
         return
     }
     $content = [System.IO.File]::ReadAllText($path, $Utf8)
     foreach ($marker in $Markers) {
         if (-not $content.Contains($marker)) {
-            Write-Error "INVALID $Rel`: missing '$marker'" -ErrorAction Continue
+            [Console]::Error.WriteLine("INVALID $Rel`: missing '$marker'")
             $script:CheckFail = $true
         }
     }
@@ -836,7 +836,7 @@ function Test-LogRotationNeeded {
     $bytes = (Get-Item -LiteralPath $log).Length
     $entries = Get-LogEntryCount $log
     if ($bytes -gt $LogBytesLimit -or $entries -gt $LogEntriesLimit) {
-        Write-Error "ROTATE REQUIRED: Agentslog has $entries entries / $bytes bytes" -ErrorAction Continue
+        [Console]::Error.WriteLine("ROTATE REQUIRED: Agentslog has $entries entries / $bytes bytes")
         $script:CheckFail = $true
     }
 }
@@ -870,39 +870,39 @@ function Test-LogEntries {
     }
     foreach ($e in $entries) {
         if ($e.ConflictMsg) {
-            Write-Error $e.ConflictMsg -ErrorAction Continue
+            [Console]::Error.WriteLine($e.ConflictMsg)
             $script:CheckFail = $true
         }
         if ($e.Status -notin @("IN_PROGRESS", "PAUSE", "DONE")) {
-            Write-Error "ERROR: invalid status in entry: $($e.Hdr)" -ErrorAction Continue
+            [Console]::Error.WriteLine("ERROR: invalid status in entry: $($e.Hdr)")
             $script:CheckFail = $true
         }
         if ($e.Status -eq "PAUSE") {
             if (-not $e.PauseLine) {
-                Write-Error "ERROR: PAUSE entry missing Pause line: $($e.Hdr)" -ErrorAction Continue
+                [Console]::Error.WriteLine("ERROR: PAUSE entry missing Pause line: $($e.Hdr)")
                 $script:CheckFail = $true
             } else {
                 $body = $e.PauseLine -replace '^- Pause: ', ''
                 $dash = $body.IndexOf(" - ")
                 if ($dash -ge 0) { $cat = $body.Substring(0, $dash); $detail = $body.Substring($dash + 3) } else { $cat = $body; $detail = "" }
                 if ($cat -notin @("LIMITE", "ESPERA_RESPUESTA", "BLOQUEO", "OTRO")) {
-                    Write-Error "ERROR: PAUSE entry has invalid category: $($e.Hdr)" -ErrorAction Continue
+                    [Console]::Error.WriteLine("ERROR: PAUSE entry has invalid category: $($e.Hdr)")
                     $script:CheckFail = $true
                 }
                 if (-not $detail) {
-                    Write-Error "ERROR: PAUSE entry missing detail: $($e.Hdr)" -ErrorAction Continue
+                    [Console]::Error.WriteLine("ERROR: PAUSE entry missing detail: $($e.Hdr)")
                     $script:CheckFail = $true
                 }
             }
         }
         if ($e.Status -eq "DONE") {
             if (-not $e.VerifyLine) {
-                Write-Error "ERROR: DONE entry missing Verify line: $($e.Hdr)" -ErrorAction Continue
+                [Console]::Error.WriteLine("ERROR: DONE entry missing Verify line: $($e.Hdr)")
                 $script:CheckFail = $true
             } else {
                 $body = ($e.VerifyLine -replace '^- Verify: ', '').Trim()
                 if (-not $body -or $body -eq "pending") {
-                    Write-Error "ERROR: DONE entry has empty or pending Verify: $($e.Hdr)" -ErrorAction Continue
+                    [Console]::Error.WriteLine("ERROR: DONE entry has empty or pending Verify: $($e.Hdr)")
                     $script:CheckFail = $true
                 }
             }
@@ -946,7 +946,7 @@ function Test-RoadmapFeaturesIds {
     $states = @(Get-TaskStates)
     foreach ($s in $states) {
         if (-not ($rmIds -contains $s.Task) -and -not ($ftIds -contains $s.Task)) {
-            Write-Error "ERROR: log ID $($s.Task) not found in Roadmap or Features" -ErrorAction Continue
+            [Console]::Error.WriteLine("ERROR: log ID $($s.Task) not found in Roadmap or Features")
             $script:CheckFail = $true
         }
     }
@@ -960,7 +960,7 @@ function Test-RoadmapFeaturesIds {
             if (Test-HistoryHasDone $fid) { $ok = $true }
         }
         if (-not $ok) {
-            Write-Error "ERROR: Features ID $fid has no DONE entry in the log" -ErrorAction Continue
+            [Console]::Error.WriteLine("ERROR: Features ID $fid has no DONE entry in the log")
             $script:CheckFail = $true
         }
     }
@@ -1018,7 +1018,7 @@ function Invoke-Check {
 
     if (-not $script:CheckFail) {
         try { $null = Get-HotContext } catch {
-            Write-Error $_ -ErrorAction Continue
+            [Console]::Error.WriteLine($_)
             $script:CheckFail = $true
         }
     }

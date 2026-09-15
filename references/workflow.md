@@ -133,7 +133,10 @@ separate `BLOCKED` state: a blocked item is `PAUSE` with category `BLOQUEO`.
   `ESPERA_RESPUESTA` and `BLOQUEO` only once the blocking reason is resolved
   (recorded in a new entry's Summary). An `IN_PROGRESS` untouched for longer
   than `PROJECT_DOCS_STALE_HOURS` (default 24) is considered abandoned and can
-  be reclaimed by another agent.
+  be reclaimed by another agent. Age is computed from the entry's ISO-8601
+  timestamp using GNU `date -d` (sh) or `[DateTime]::Parse` (PowerShell); on a
+  system with neither GNU nor a compatible `date`, age shows as `?h` and
+  staleness never triggers automatically — pause and reclaim by hand instead.
 - Locking: `claim`/`pause`/`done` take a short-lived lock (`docs/.lock`) so
   concurrent runs in the *same working copy* don't race. Across machines,
   commit and push a `claim` entry immediately so other agents see it before
