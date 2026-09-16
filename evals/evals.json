@@ -36,6 +36,122 @@
         "The new hot ledger records the archive path and SHA-256",
         "Validation passes after rotation"
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "In an empty folder, ask for 'a booking app'. Initialize project memory, answer only what the intake asks, and let the agent build the plan.",
+      "expected_output": "Exactly six contract files exist, the agent asks only for fields not already inferable from the request, and after answering, Roadmap.md has a complete ## Plan with the first task in ## Active work.",
+      "files": [],
+      "expectations": [
+        "AGENTS.md exists at the project root and the five docs/ files exist",
+        "Questions asked are limited to fields references/intake.md could not fill from the request",
+        "Roadmap.md ## Plan contains a Fase -> Epic -> Tarea hierarchy after answers are given",
+        "## Active work has exactly one task after planning"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "In a project with an existing CLAUDE.md and .cursorrules that both contain custom rules, run link. Run it a second time.",
+      "expected_output": "link adds a delimited pointer block to both files without altering the rest of either file, and the second run changes nothing.",
+      "files": [],
+      "expectations": [
+        "CLAUDE.md and .cursorrules each contain the project-documentation block",
+        "The pre-existing custom content in both files is preserved byte-for-byte",
+        "A second run produces byte-identical files"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Two agents both run claim on the same task ID.",
+      "expected_output": "The first claim succeeds; the second fails with a clear message naming the current owner.",
+      "files": [],
+      "expectations": [
+        "The first claim appends an IN_PROGRESS entry and updates the Roadmap row",
+        "The second claim exits non-zero and names the owning agent"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "pause a task with category LIMITE, then have a different agent claim it.",
+      "expected_output": "The claim is allowed and its log entry follows the paused one.",
+      "files": [],
+      "expectations": [
+        "pause requires and records a non-empty detail",
+        "A different agent's claim after a LIMITE pause succeeds"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "pause a task with category ESPERA_RESPUESTA, then have a different agent try to claim it.",
+      "expected_output": "The claim fails until the blocking reason is resolved.",
+      "files": [],
+      "expectations": [
+        "A different agent's claim after an ESPERA_RESPUESTA pause fails",
+        "The task's original owner can still reclaim it"
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "Claim a task, then record more than 200 log entries so the task's original claim entry falls out of the five latest, and run context.",
+      "expected_output": "The open task still appears in context under its own section, even though it is not among the five latest entries.",
+      "files": [],
+      "expectations": [
+        "context includes an Open tasks section listing the still-open task",
+        "context stays at or below 8 KiB"
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "Claim a task, pad the ledger past the rotation threshold, and rotate.",
+      "expected_output": "The archived ledger keeps the full history; the new hot ledger carries forward a compact re-opened entry for the still-open task, and check passes.",
+      "files": [],
+      "expectations": [
+        "status still reports the task as open after rotation",
+        "check passes after rotation with no missing-history errors"
+      ]
+    },
+    {
+      "id": 11,
+      "prompt": "Run done on a task with an empty verify argument, and separately append a log entry with an invalid status.",
+      "expected_output": "check fails on both: the empty-Verify DONE entry and the invalid-status entry are each reported as errors.",
+      "files": [],
+      "expectations": [
+        "done itself rejects an empty verify before writing the entry",
+        "check reports the invalid-status entry as an error"
+      ]
+    },
+    {
+      "id": 12,
+      "prompt": "In a project still using docs/Agents.md with a custom repository rule, run check, then migrate, then check again. Run migrate a second time.",
+      "expected_output": "check fails first, naming migrate. migrate leaves a single root AGENTS.md with the custom rule preserved and docs/Agents.md removed; check then passes. The second migrate changes nothing.",
+      "files": [],
+      "expectations": [
+        "check fails and its message names migrate before migration",
+        "AGENTS.md exists at the root and contains the custom rule after migrate",
+        "docs/Agents.md no longer exists after migrate",
+        "check passes after migrate",
+        "A second migrate run produces byte-identical AGENTS.md"
+      ]
+    },
+    {
+      "id": 13,
+      "prompt": "In a project with a hand-written root AGENTS.md containing project-specific rules, run init.",
+      "expected_output": "init inserts the skill's block into AGENTS.md without altering the existing content, and a second init changes nothing.",
+      "files": [],
+      "expectations": [
+        "The pre-existing AGENTS.md content is preserved byte-for-byte outside the inserted block",
+        "A second init run produces a byte-identical AGENTS.md"
+      ]
+    },
+    {
+      "id": 14,
+      "prompt": "On a case-sensitive filesystem, create both AGENTS.md and Agents.md at the project root, then run check.",
+      "expected_output": "check fails, reporting that more than one case variant of AGENTS.md coexists.",
+      "files": [],
+      "expectations": [
+        "check exits non-zero when both AGENTS.md and Agents.md exist at the root",
+        "The error names AGENTS.md case coexistence, not an unrelated failure"
+      ]
     }
   ]
 }

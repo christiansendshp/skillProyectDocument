@@ -8,6 +8,7 @@
       "git mv *": "allow",
       "sh project-documentation/scripts/*": "allow",
       "sh skillProyectDocument/scripts/*": "allow",
+      "mkdir *": "allow",
       "rm *": "ask",
       "git push *": "ask",
       "*": "ask"
