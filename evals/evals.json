@@ -152,6 +152,86 @@
         "check exits non-zero when both AGENTS.md and Agents.md exist at the root",
         "The error names AGENTS.md case coexistence, not an unrelated failure"
       ]
+    },
+    {
+      "id": 15,
+      "prompt": "Build a PHASE -> EPIC -> TASK hierarchy in Roadmap.md using `parent` fields, then run check.",
+      "expected_output": "check passes: parent references resolve, and the hierarchy is not expressed through heading depth or type alone.",
+      "files": [],
+      "expectations": [
+        "A TASK's parent field names an existing EPIC id",
+        "check does not require heading nesting to match the parent chain",
+        "check passes with no dangling-reference errors"
+      ]
+    },
+    {
+      "id": 16,
+      "prompt": "Add a TASK whose depends_on and parent name IDs that don't exist anywhere in Roadmap.md or Features.md, then run check.",
+      "expected_output": "check fails, reporting each dangling reference by field name and the missing ID.",
+      "files": [],
+      "expectations": [
+        "check reports the invalid parent reference",
+        "check reports the invalid depends_on reference",
+        "Each error names the offending ID"
+      ]
+    },
+    {
+      "id": 17,
+      "prompt": "Add a DECISION entry with status PENDING blocking a TASK via blocked_by, then resolve the decision (status DECIDED) and update the task, then run check.",
+      "expected_output": "check passes throughout; the DECISION's own status vocabulary (PENDING/DECIDED) is accepted even though it differs from the base Roadmap state vocabulary.",
+      "files": [],
+      "expectations": [
+        "A DECISION entry with status PENDING does not fail check's status validation",
+        "A TASK's blocked_by referencing the DECISION's id passes reference validation",
+        "check still passes after the DECISION is marked DECIDED"
+      ]
+    },
+    {
+      "id": 18,
+      "prompt": "claim a TASK entry that has an owner field already set to a human, then inspect the entry afterward.",
+      "expected_output": "claim sets status, executor, and assigned_agent, but leaves the owner field exactly as it was.",
+      "files": [],
+      "expectations": [
+        "The owner field is unchanged after claim",
+        "executor and assigned_agent reflect the claiming agent",
+        "status is IN_PROGRESS"
+      ]
+    },
+    {
+      "id": 19,
+      "prompt": "Claim, then done, a TASK entry that has acceptance_criteria and definition_of_done fields with real content.",
+      "expected_output": "done succeeds (it does not itself verify acceptance_criteria/definition_of_done — that is the agent's responsibility per AGENTS.md), records the capability in Features.md, and removes the entry from Roadmap.md.",
+      "files": [],
+      "expectations": [
+        "done does not require acceptance_criteria items to be individually marked complete",
+        "Features.md gets a new row for the closed id",
+        "The entry no longer appears in Roadmap.md after done"
+      ]
+    },
+    {
+      "id": 20,
+      "prompt": "In a project with a legacy table-format Roadmap.md (## Active work / ## Plan with Fase/Epic headings / ## Gaps and defects), run check, then migrate, then check again.",
+      "expected_output": "check fails first, naming migrate. migrate converts every row into a per-entry yaml block without losing IDs, Outcome/Description text, Status, Owner's agent, or Depends on; check then passes. A second migrate changes nothing.",
+      "files": [],
+      "expectations": [
+        "check fails and its message names migrate before conversion",
+        "Every legacy row's ID is present as a yaml entry's id after migrate",
+        "No legacy row's Outcome/Description text is lost",
+        "check passes after migrate",
+        "A second migrate run produces a byte-identical Roadmap.md"
+      ]
+    },
+    {
+      "id": 21,
+      "prompt": "done the last remaining TASK entry whose parent is an EPIC entry, then check Roadmap.md, Features.md, and Agentslog.md.",
+      "expected_output": "The task is closed and removed; the epic, having no remaining children, is also closed: it gets a Features.md row, a normal DONE log entry, and is removed from Roadmap.md. check passes.",
+      "files": [],
+      "expectations": [
+        "Features.md has one row for the task and one rollup row for the epic",
+        "Agentslog.md has a DONE entry for the epic id, not only the task id",
+        "The epic entry no longer appears in Roadmap.md",
+        "check passes with no Features/log ID mismatch errors"
+      ]
     }
   ]
 }
