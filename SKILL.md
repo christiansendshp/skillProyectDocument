@@ -28,7 +28,9 @@ Keep these exact files:
 - `docs/ProductDescription.md`: current functional truth.
 - `docs/Stack_Tecnologies.md`: current technical truth. The misspelling is
   retained for backward compatibility.
-- `docs/Roadmap.md`: active work, the full pending plan, and gaps/defects.
+- `docs/Roadmap.md`: hierarchical plan and cross-cutting work (gaps, bugs,
+  decisions, blockers) as per-entry `yaml` blocks — see
+  `references/roadmap-schema.md` for the full schema.
 - `docs/Features.md`: compact index of verified capabilities.
 
 Projects may contain any additional files. Put cold history under
@@ -92,5 +94,6 @@ installation folder `skillProyectDocument` during transition. Do not create two
 active copies of the skill.
 
 Use `references/workflow.md` for edge cases and command details,
-`references/intake.md` when starting a new app or product, and
+`references/roadmap-schema.md` for the full Roadmap type taxonomy and field
+reference, `references/intake.md` when starting a new app or product, and
 `references/adapters.md` only when installing or updating a runtime adapter.
