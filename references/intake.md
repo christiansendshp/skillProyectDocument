@@ -70,8 +70,8 @@ Environment variables:
 
 1. Fill Product/Stack with confirmed answers; mark anything still unresolved
    `UNKNOWN` with where to verify it.
-2. Build the `## Plan` in `Roadmap.md` (Fase -> Epic -> Tarea) from the
-   flows and rules above.
-3. Put the first actionable task in `## Active work`.
+2. Build the `## Plan` in `Roadmap.md` (`PHASE`/`EPIC`/`TASK` entries, per
+   `references/roadmap-schema.md`) from the flows and rules above.
+3. Set the first actionable task's `status` to `READY`.
 4. Do not block a small, unrelated task on this questionnaire — only run it
    for a new app/product or a fresh mid-project install (see `SKILL.md`).

@@ -23,7 +23,11 @@ The `context` command emits:
 
 1. all of `AGENTS.md`;
 2. the bounded `Operational summary` blocks from Product, Stack, and Features;
-3. active Roadmap rows (`## Active work`);
+3. `## Active work` — computed, not stored: one compact line
+   (`ID | type | title | status`) per Roadmap entry whose `status` is not
+   `IDEA`/`BACKLOG`/`DONE`/`CANCELLED`/`DEFERRED`/`DECIDED`, capped at 20
+   entries (`... and N more` beyond that — read `docs/Roadmap.md` directly
+   for the rest);
 4. `## Open tasks` — every task whose latest log state is `IN_PROGRESS` or
    `PAUSE`, one compact line each (`TASK-ID | agent | STATUS | age | reason`),
    so a task taken out of the five latest entries below is still visible;
@@ -39,7 +43,7 @@ Read full documents only by task:
 |---|---|
 | user outcomes, roles, domain rules | `ProductDescription.md` |
 | dependencies, architecture, security, data, commands | `Stack_Tecnologies.md` |
-| full pending work, acceptance criteria | `Roadmap.md` (`## Plan`) |
+| full pending work, hierarchy, dependencies, acceptance criteria | `Roadmap.md` (`## Plan`, `## Cross-cutting`) — full field/type reference in `references/roadmap-schema.md` |
 | existing verified behavior | `Features.md` |
 | recent coordination or a referenced past decision | `Agentslog.md` or its archive |
 
@@ -50,8 +54,9 @@ Read full documents only by task:
 2. Replace known placeholders with confirmed facts from the request or
    project.
 3. Leave unknowns explicit instead of delaying harmless implementation.
-4. Add the task to `Roadmap.md` with an ID (`## Plan`, or `## Active work` if
-   it starts immediately) before implementing.
+4. Add the task to `Roadmap.md` with an ID under `## Plan` before
+   implementing (status `READY` if it starts immediately, `BACKLOG`
+   otherwise).
 5. `claim` it, implement, verify, update affected truth, then `done`.
 
 ## Existing project
@@ -77,7 +82,8 @@ when installing the skill mid-project with Product/Stack still mostly
 3. Ask the user only what's missing, in one batch, using
    `references/intake.md`. Never re-ask an answered field.
 4. With the answers, build the complete `## Plan` in `Roadmap.md`
-   (Fase -> Epic -> Tarea) and put the first task in `## Active work`.
+   (PHASE -> EPIC -> TASK entries, per `references/roadmap-schema.md`) and
+   set the first task's `status` to `READY`.
 5. Only then `claim` and start implementing.
 
 Small, unrelated tasks do not trigger this questionnaire; use the existing
@@ -85,48 +91,67 @@ Small, unrelated tasks do not trigger this questionnaire; use the existing
 
 ## Task IDs
 
-- New convention: `F01-E01-T01` (Fase-Epic-Tarea); subtasks append
-  `.01` (`F01-E01-T01.01`); defects use `F01-BUG-001` or `F01-GAP-001`.
-- Legacy `F0x-Sxx-Txx` IDs (no explicit Epic) remain valid exactly as written;
-  never rewrite an existing ID to the new shape.
+- New convention: `TYPE-NN` (`PHASE-01`, `EPIC-04`, `TASK-42`); subtasks
+  append a dot-suffix (`SUBTASK-42.1`); abbreviated prefixes for common
+  cross-cutting types (`DEC-07`, `BLOCK-03`). Full reference:
+  `references/roadmap-schema.md`.
+- Legacy `F01-E01-T01`-style IDs (from the pre-rewrite table format) remain
+  valid exactly as written; `migrate` never rewrites an existing ID.
 - IDs are stable and never reused, in either convention.
 - `check` validates that an ID referenced by the log exists in `Roadmap.md` or
-  `Features.md`; it never validates ID shape, so legacy IDs always pass.
+  `Features.md`, and that every `parent`/`depends_on`/`blocks`/`blocked_by`/
+  `affects` reference resolves to a known ID; it never validates ID shape, so
+  legacy IDs always pass.
 
 ## Roadmap structure
 
-- `## Active work` (before `<!-- context:end -->`): only tasks in progress,
-  paused, or next to take.
-- `## Near term`: work further out; promoted into `## Plan` manually when it
-  becomes actionable. `claim` does not read this table.
-- `## Plan`: the full Fase -> Epic -> Tarea -> Subtarea hierarchy of pending
-  work, organized under `###`/`####` headings.
-- `## Gaps and defects`: errors or significant gaps found by any agent, with
-  ID, severity, and phase.
+Full taxonomy, schema, states, and a complete worked example live in
+`references/roadmap-schema.md`. Summary:
 
-Every row `claim`/`pause`/`done` can touch — in `## Active work`, `## Plan`,
-and `## Gaps and defects` — ends in the same four columns, in this order:
-Status, Owner, Depends on, Pause reason. `claim` edits by column position
-from the end, so keep that order when adding rows by hand.
+- Every entry is a `### TYPE-ID — Title` heading followed by a fenced `yaml`
+  block; the block is what `claim`/`pause`/`done`/`check` read and edit.
+- `## Plan` holds the hierarchical spine (`VISION -> PHASE -> THEME -> EPIC
+  -> FEATURE -> TASK -> SUBTASK`), linked by each entry's `parent` field —
+  never by heading depth, which stays flat `###` throughout.
+- `## Cross-cutting` holds `GAP`, `BUG`, `IMPROVEMENT`, `REFACTOR`, `SPIKE`,
+  `DECISION`, `BLOCKER`, `DEPENDENCY`, `TECH_DEBT`, `DOC`, `TEST`,
+  `SECURITY`, `UX` — entries that relate to any spine level via `affects`,
+  `depends_on`, `blocks`, or `blocked_by` instead of `parent`.
+- There is no physical "active work" section any more: `context`/`check`
+  compute it from every entry's `status`.
 
-Item states: `TODO`, `IN_PROGRESS` (taken), `PAUSE`, `DONE`. There is no
-separate `BLOCKED` state: a blocked item is `PAUSE` with category `BLOQUEO`.
+`claim`/`pause`/`done` edit only `status`, `executor`, `assigned_agent`, and
+`updated_at` in place; `done` additionally removes the whole entry (heading +
+block). Every other field (`description`, `acceptance_criteria`,
+`depends_on`, `next_action`, ...) is edited by hand, by whichever agent is
+working the entry.
+
+States: `IDEA`, `BACKLOG`, `READY`, `IN_PROGRESS`, `REVIEW`, `TESTING`,
+`BLOCKED`, `DONE`, `CANCELLED`, `DEFERRED` (a `DECISION` entry uses
+`PENDING`/`DECIDED`/`CANCELLED` instead). This is a distinct vocabulary from
+an Agentslog entry's own status (`IN_PROGRESS`/`PAUSE`/`DONE`, unchanged
+below) — the log tracks who currently holds a task, the Roadmap `status`
+tracks its planning state.
 
 ## Taking and closing a task
 
 - `claim <project> <agent> <task-id> <summary>`: fails if the ID is not in
   `Roadmap.md`, or if its last log state is `IN_PROGRESS` by another agent
   (unless that claim is stale) or `PAUSE` not yet retakeable. On success it
-  appends an `IN_PROGRESS` log entry and moves/updates the Roadmap row
-  (`## Plan` -> `## Active work`, or in place for `## Active work`/`## Gaps
-  and defects`).
+  appends an `IN_PROGRESS` log entry and sets the entry's `status:
+  IN_PROGRESS`, `executor: AI`, `assigned_agent: <agent>` — it never touches
+  `owner`, which tracks accountability (often human), a different fact.
 - `pause <project> <agent> <task-id> <category> <detail>`: category is one of
   `LIMITE`, `ESPERA_RESPUESTA`, `BLOQUEO`, `OTRO`; detail must be non-empty.
-  Only the current owner may pause.
+  Only the current owner may pause. Maps to Roadmap `status`: `LIMITE`/`OTRO`
+  -> `READY` (released, no structural blocker), `ESPERA_RESPUESTA`/`BLOQUEO`
+  -> `BLOCKED`.
 - `done <project> <agent> <task-id> <summary> <files> <verify>`: `verify`
-  must be non-empty. Appends a `DONE` entry, removes the task's Roadmap row,
-  and adds it to `Features.md#Verified capabilities`. When every task under
-  an Epic is `DONE`, the Epic itself also gets a Features row.
+  must be non-empty. Appends a `DONE` entry, removes the entry from
+  `Roadmap.md`, and adds it to `Features.md#Verified capabilities`. When it
+  was the last direct child (by `parent`) of an `EPIC` entry, the epic is
+  rolled up too: a Features row, a normal `DONE` log entry for the epic, and
+  removal of the epic's own Roadmap entry.
 - `status <project>`: lists every `IN_PROGRESS`/`PAUSE` task with owner, age,
   and reason; flags stale `IN_PROGRESS` claims.
 - Retaking a `PAUSE`: `LIMITE` can be reclaimed by any agent immediately;
@@ -203,20 +228,25 @@ to it, or when `check` needs to confirm an older `DONE` for a Features ID.
 3. If `docs/Agents.md` still exists, merges its content into `AGENTS.md`'s
    managed block (preserving custom rules, never duplicating the skill's own
    template) and removes `docs/Agents.md`.
-4. Adds any missing `Roadmap.md` sections (`## Plan`, `## Gaps and defects`,
-   the `Pause reason` column) without touching existing content.
+4. If `docs/Roadmap.md` still uses the old table format (`## Active work`,
+   `## Near term`, or `## Gaps and defects`), converts every row into a
+   per-entry `yaml` block under the new `## Plan`/`## Cross-cutting`
+   sections, non-destructively (full field mapping in
+   `references/roadmap-schema.md` #18). IDs are kept exactly as written.
 
-While a project still has `docs/Agents.md`, `check` fails with a message
-pointing at `migrate`.
+While a project still has `docs/Agents.md`, or `docs/Roadmap.md` still uses
+the table format, `check` fails with a message pointing at `migrate`.
 
 ## Content maintenance
 
 - Product keeps stable functional truth, not implementation plans.
 - Stack keeps current technical truth plus a compact decision table. Put long
   ADRs in `docs/decisions/` and link them.
-- Roadmap's `## Active work` stays small; full pending detail lives in
-  `## Plan`. Remove completed detail after preserving the verified capability
-  in Features and the change in Agentslog (this is what `done` does).
+- Roadmap keeps only entries relevant to planning; `done` removes a closed
+  entry after preserving the verified capability in Features and the change
+  in Agentslog. Never put agent-behavior rules (task selection, when to ask
+  a human, commit/push timing) in Roadmap.md — those belong in `AGENTS.md`
+  (`references/roadmap-schema.md` explains the split in full).
 - Features is an index. Put long runbooks or feature specifications in
   `docs/features/` and link them.
 - Git is the recovery mechanism for normal deletions. Archive only audit
@@ -231,6 +261,10 @@ Run `check` after documentation updates. It exits non-zero only on errors:
   one case variant of `AGENTS.md` coexisting;
 - a missing required section in any contract file, or the 8 KiB context
   budget exceeded;
+- `docs/Roadmap.md` still using the pre-rewrite table format;
+- a Roadmap entry with an unknown `type`, a `status` outside its vocabulary,
+  or a `parent`/`depends_on`/`blocks`/`blocked_by`/`affects` value that names
+  no known ID;
 - an Agentslog entry with a state outside `IN_PROGRESS`/`PAUSE`/`DONE`;
 - a `PAUSE` entry without a valid category or non-empty detail;
 - a `DONE` entry with an empty or `"pending"` Verify;

@@ -19,7 +19,7 @@ Every project receives these exact files:
 | `docs/Agentslog.md` | Append-only ledger; source of truth for task ownership |
 | `docs/ProductDescription.md` | Current functional truth |
 | `docs/Stack_Tecnologies.md` | Current technical truth; legacy spelling retained |
-| `docs/Roadmap.md` | Active work, full pending plan, gaps/defects |
+| `docs/Roadmap.md` | Hierarchical plan + cross-cutting entries (per-entry `yaml`, see `references/roadmap-schema.md`) |
 | `docs/Features.md` | Index of verified capabilities |
 
 Additional detail may live under `docs/features/`, `docs/decisions/`, or
@@ -66,6 +66,14 @@ every open task. The hot log rotates after 200 entries or 128 KiB.
 
 ## Changelog
 
+- **Human + AI Roadmap schema**: `docs/Roadmap.md` moves from Markdown tables
+  to a per-entry `### TYPE-ID — Title` + fenced `yaml` block format with a
+  full type taxonomy (VISION/PHASE/THEME/EPIC/FEATURE/TASK/SUBTASK plus
+  GAP/BUG/DECISION/BLOCKER/... cross-cutting types), explicit
+  dependencies/blockers/decisions, Human+AI ownership fields
+  (`owner`/`executor`/`assigned_agent`), and a `check` that validates type,
+  status, and every ID reference. `migrate` converts the old table format
+  non-destructively. Full reference: `references/roadmap-schema.md`.
 - **Multi-agent coordination protocol**: single root `AGENTS.md` (replaces
   `docs/Agents.md`), `link`/`migrate` commands, `claim`/`pause`/`done`/`status`
   task lifecycle backed by the Agentslog, `Roadmap.md` `## Plan` +
