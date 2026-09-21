@@ -418,30 +418,6 @@ function Get-OpenTasksLines {
     return $lines
 }
 
-# Computed, not stored: a per-entry YAML block has no natural "move between
-# sections" operation, so unlike Product/Stack/Features (bounded physical
-# sections) Active work is derived fresh from every entry's own `status`,
-# capped so a large Plan can't blow the 8 KiB context budget on its own.
-$ActiveSummaryCap = 20
-function Get-RoadmapActiveSummary {
-    $lines = [System.Collections.Generic.List[string]]::new()
-    $lines.Add("## Active work")
-    $excluded = @("", "IDEA", "BACKLOG", "DONE", "CANCELLED", "DEFERRED", "DECIDED")
-    $total = 0
-    foreach ($e in @(Get-RoadmapEntries)) {
-        if ($excluded -contains $e.Status) { continue }
-        $total++
-        if ($total -gt $ActiveSummaryCap) { continue }
-        $title = $e.Title
-        if ($title.Length -gt 50) { $title = $title.Substring(0, 47) + "..." }
-        $lines.Add("$($e.Id) | $($e.Type) | $title | $($e.Status)")
-    }
-    if ($total -gt $ActiveSummaryCap) {
-        $lines.Add("... and $($total - $ActiveSummaryCap) more (see docs/Roadmap.md)")
-    }
-    return $lines
-}
-
 function Get-HotContext {
     $agents = Join-Path $Project "AGENTS.md"
     if (-not (Test-Path -LiteralPath $agents -PathType Leaf)) {
@@ -452,13 +428,12 @@ function Get-HotContext {
     foreach ($item in @(
         @("ProductDescription.md", "## Operational summary"),
         @("Stack_Tecnologies.md", "## Operational summary"),
-        @("Features.md", "## Operational summary")
+        @("Features.md", "## Operational summary"),
+        @("Roadmap.md", "## Active work")
     )) {
         $parts.Add("")
         foreach ($line in @(Get-ContextBlock (Join-Path $DocsDir $item[0]) $item[1])) { $parts.Add([string]$line) }
     }
-    $parts.Add("")
-    foreach ($line in @(Get-RoadmapActiveSummary)) { $parts.Add([string]$line) }
     $parts.Add("")
     $parts.Add("## Open tasks")
     foreach ($line in @(Get-OpenTasksLines)) { $parts.Add([string]$line) }
@@ -474,8 +449,13 @@ function Get-HotContext {
 }
 
 # ---------------------------------------------------------------------------
-# Features.md stays a plain table (unchanged by the Roadmap rewrite below).
+# Table row helpers, shared by Roadmap.md and Features.md.
 # ---------------------------------------------------------------------------
+function Split-TableCells([string]$Line) {
+    $line = $Line -replace '^\|', '' -replace '\|[ \t]*$', ''
+    return @($line -split '\|' | ForEach-Object { $_.Trim() })
+}
+
 function Get-TableIds([string]$File) {
     if (-not (Test-Path -LiteralPath $File -PathType Leaf)) { return @() }
     $ids = [System.Collections.Generic.List[string]]::new()
@@ -494,223 +474,124 @@ function Get-TableIds([string]$File) {
 function Get-FeaturesIds { return Get-TableIds (Join-Path $DocsDir "Features.md") }
 
 # ---------------------------------------------------------------------------
-# Roadmap entries: each is a "### TYPE-ID -- Title" heading immediately
-# followed by a fenced ```yaml block; the block is the source of truth,
-# addressed by its top-level (column 0) `id:` line so nested keys (e.g. a
-# `- id: AC-1` inside acceptance_criteria) never collide. See
-# references/roadmap-schema.md for the full field/type reference.
+# Roadmap/Features table rows. Every table this tool edits ends in the same
+# four trailing columns (Status, Owner, Depends on, Pause reason), so cells
+# are addressed from the end regardless of how many columns precede them.
 # ---------------------------------------------------------------------------
-function Get-RoadmapIds {
-    $file = Join-Path $DocsDir "Roadmap.md"
-    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return @() }
-    $ids = [System.Collections.Generic.List[string]]::new()
-    $inFence = $false
-    foreach ($line in @(Get-ContentUtf8 -LiteralPath $file)) {
-        if (-not $inFence) {
-            if ($line -match '^```yaml') { $inFence = $true }
-            continue
-        }
-        if ($line -match '^```[ \t]*$') { $inFence = $false; continue }
-        if ($line -match '^id:[ \t]*(.*)$') { $ids.Add($Matches[1].Trim().Trim('"')) }
-    }
-    return $ids
-}
+function Get-RoadmapIds { return Get-TableIds (Join-Path $DocsDir "Roadmap.md") }
 
 function Test-RoadmapHasId([string]$Id) {
     return ((@(Get-RoadmapIds)) -contains $Id)
 }
 
-function ConvertFrom-YamlInlineList([string]$Value) {
-    $s = $Value.Trim()
-    if ($s -eq "") { return "" }
-    if ($s.StartsWith("[") -and $s.EndsWith("]")) {
-        $inner = $s.Substring(1, $s.Length - 2).Trim()
-        if ($inner -eq "") { return "" }
-        $items = @($inner -split ',' | ForEach-Object { $_.Trim().Trim('"') } | Where-Object { $_ -ne "" })
-        return ($items -join ";")
-    }
-    return $s.Trim('"')
+function Test-RoadmapHasIdPrefix([string]$Prefix) {
+    foreach ($id in @(Get-RoadmapIds)) { if ($id.StartsWith($Prefix)) { return $true } }
+    return $false
 }
 
-# One object per entry: Id, Type, Title, Status, Parent, DependsOn, Blocks,
-# BlockedBy, Affects (list fields ';'-joined; both inline `[a, b]` and block
-# `- a` / `- b` YAML list forms are accepted).
-function Get-RoadmapEntries {
+function Get-RoadmapSectionOf([string]$Id) {
     $file = Join-Path $DocsDir "Roadmap.md"
-    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return @() }
-    $result = [System.Collections.Generic.List[object]]::new()
-    $inFence = $false
-    $id = ""; $type = ""; $title = ""; $status = ""; $parent = ""
-    $dep = ""; $blk = ""; $bby = ""; $aff = ""; $pendKey = ""
+    $sect = ""
     foreach ($line in @(Get-ContentUtf8 -LiteralPath $file)) {
-        if (-not $inFence) {
-            if ($line -match '^```yaml') {
-                $inFence = $true
-                $id = ""; $type = ""; $title = ""; $status = ""; $parent = ""
-                $dep = ""; $blk = ""; $bby = ""; $aff = ""; $pendKey = ""
-            }
-            continue
+        if ($line -match '^## Active work') { $sect = "active"; continue }
+        if ($line -match '^## Plan') { $sect = "plan"; continue }
+        if ($line -match '^## Gaps, Bugs & Technical Debt') { $sect = "gaps"; continue }
+        if ($line -match '^## Near term') { $sect = "near"; continue }
+        if ($line.StartsWith("|")) {
+            $cells = @($line -split '\|')
+            if ($cells.Count -ge 2 -and $cells[1].Trim() -eq $Id) { return $sect }
         }
-        if ($line -match '^```[ \t]*$') {
-            $inFence = $false
-            if ($id -ne "") {
-                $result.Add([PSCustomObject]@{
-                    Id = $id; Type = $type; Title = $title; Status = $status; Parent = $parent
-                    DependsOn = $dep; Blocks = $blk; BlockedBy = $bby; Affects = $aff
-                })
-            }
-            continue
-        }
-        if ($line -match '^([A-Za-z_][A-Za-z0-9_]*):[ \t]*(.*)$') {
-            $key = $Matches[1]
-            $val = $Matches[2].Trim()
-            switch ($key) {
-                "id" { $id = $val.Trim('"'); $pendKey = "" }
-                "type" { $type = $val; $pendKey = "" }
-                "title" { $title = $val.Trim('"'); $pendKey = "" }
-                "status" { $status = $val; $pendKey = "" }
-                "parent" { $parent = $val.Trim('"'); $pendKey = "" }
-                "depends_on" { $dep = ConvertFrom-YamlInlineList $val; $pendKey = "dep" }
-                "blocks" { $blk = ConvertFrom-YamlInlineList $val; $pendKey = "blk" }
-                "blocked_by" { $bby = ConvertFrom-YamlInlineList $val; $pendKey = "bby" }
-                "affects" { $aff = ConvertFrom-YamlInlineList $val; $pendKey = "aff" }
-                default { $pendKey = "" }
-            }
-            continue
-        }
-        if ($pendKey -ne "" -and $line -match '^[ \t]+-[ \t]+(.*)$') {
-            $item = $Matches[1].Trim().Trim('"')
-            if ($item -ne "") {
-                switch ($pendKey) {
-                    "dep" { $dep = if ($dep -eq "") { $item } else { "$dep;$item" } }
-                    "blk" { $blk = if ($blk -eq "") { $item } else { "$blk;$item" } }
-                    "bby" { $bby = if ($bby -eq "") { $item } else { "$bby;$item" } }
-                    "aff" { $aff = if ($aff -eq "") { $item } else { "$aff;$item" } }
-                }
-            }
-            continue
-        }
-        if ($line -match '^[ \t]') { continue }
-        $pendKey = ""
     }
-    return $result
+    return ""
 }
 
-# 0-based, inclusive [start, end] line range of the yaml fence CONTENT
-# (excluding the ``` markers) for the entry whose top-level id matches, or
-# $null if not found.
-function Get-RoadmapEntryRange([string]$Id) {
+function Set-RoadmapRowInPlace([string]$Id, [string]$Status, [string]$Owner, [string]$PauseReason) {
     $file = Join-Path $DocsDir "Roadmap.md"
     $lines = @(Get-ContentUtf8 -LiteralPath $file)
-    $n = $lines.Count
-    for ($i = 0; $i -lt $n; $i++) {
-        if ($lines[$i] -match '^```yaml') {
-            $fs = $i
-            $fe = -1
-            for ($j = $i + 1; $j -lt $n; $j++) { if ($lines[$j] -match '^```[ \t]*$') { $fe = $j; break } }
-            if ($fe -lt 0) { break }
-            $found = $false
-            for ($k = $fs + 1; $k -lt $fe; $k++) {
-                if ($lines[$k] -match '^id:[ \t]*(.*)$') {
-                    if ($Matches[1].Trim().Trim('"') -eq $Id) { $found = $true }
-                }
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i].StartsWith("|")) {
+            $cells = @($lines[$i] -split '\|')
+            if ($cells.Count -ge 2 -and $cells[1].Trim() -eq $Id) {
+                $n = $cells.Count
+                $cells[$n - 5] = " $Status "
+                $cells[$n - 4] = " $Owner "
+                $cells[$n - 2] = " $PauseReason "
+                $lines[$i] = ($cells -join '|')
             }
-            if ($found) { return @(($fs + 1), ($fe - 1)) }
-            $i = $fe
         }
     }
-    return $null
+    Write-Utf8File $file (ConvertTo-JoinedLines $lines)
 }
 
-function Get-RoadmapField([string]$Id, [string]$Key) {
-    $range = Get-RoadmapEntryRange $Id
-    if (-not $range) { return $null }
+function Move-RoadmapRowToActive([string]$Id, [string]$Status, [string]$Owner, [string]$PauseReason) {
     $file = Join-Path $DocsDir "Roadmap.md"
     $lines = @(Get-ContentUtf8 -LiteralPath $file)
-    $pattern = '^' + [regex]::Escape($Key) + ':[ \t]*(.*)$'
-    for ($i = $range[0]; $i -le $range[1]; $i++) {
-        if ($lines[$i] -match $pattern) { return $Matches[1] }
-    }
-    return $null
-}
-
-# Double-quote a value for safe embedding as a YAML scalar (used for
-# free-form values such as an agent name, never for script-controlled enums).
-function ConvertTo-YamlQuote([string]$Value) {
-    return ($Value -replace '\\', '\\\\' -replace '"', '\"')
-}
-
-function Set-RoadmapField([string]$Id, [string]$Key, [string]$Value) {
-    $range = Get-RoadmapEntryRange $Id
-    if (-not $range) { throw "Set-RoadmapField: $Id not found in docs/Roadmap.md" }
-    $file = Join-Path $DocsDir "Roadmap.md"
-    $lines = @(Get-ContentUtf8 -LiteralPath $file)
-    $pattern = '^' + [regex]::Escape($Key) + ':'
-    $hasKey = $false
-    $idLineIdx = -1
-    for ($i = $range[0]; $i -le $range[1]; $i++) {
-        if ($lines[$i] -match '^id:') { $idLineIdx = $i }
-        if ($lines[$i] -match $pattern) { $lines[$i] = $Key + ": " + $Value; $hasKey = $true }
-    }
-    if (-not $hasKey) {
-        $newLines = [System.Collections.Generic.List[string]]::new()
-        for ($i = 0; $i -lt $lines.Count; $i++) {
-            $newLines.Add([string]$lines[$i])
-            if ($i -eq $idLineIdx) { $newLines.Add($Key + ": " + $Value) }
-        }
-        $lines = $newLines.ToArray()
-    }
-    Write-Utf8File $file (ConvertTo-JoinedLines ([string[]]$lines))
-}
-
-# Remove a whole entry: its "### TYPE-ID -- Title" heading through the
-# closing yaml fence, plus one trailing blank line. A no-op if the ID isn't
-# a Roadmap entry (mirrors the old table version's tolerance of unknown IDs).
-function Remove-RoadmapEntry([string]$Id) {
-    $file = Join-Path $DocsDir "Roadmap.md"
-    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return }
-    $lines = @(Get-ContentUtf8 -LiteralPath $file)
-    $n = $lines.Count
-    $delStart = -1; $delEnd = -1
-    for ($i = 0; $i -lt $n; $i++) {
-        if ($lines[$i] -match '^```yaml') {
-            $fs = $i
-            $fe = -1
-            for ($j = $i + 1; $j -lt $n; $j++) { if ($lines[$j] -match '^```[ \t]*$') { $fe = $j; break } }
-            if ($fe -lt 0) { break }
-            $found = $false
-            for ($k = $fs + 1; $k -lt $fe; $k++) {
-                if ($lines[$k] -match '^id:[ \t]*(.*)$') {
-                    if ($Matches[1].Trim().Trim('"') -eq $Id) { $found = $true }
-                }
-            }
-            if ($found) {
-                $h = $fs - 1
-                $crossed = $false
-                while ($h -ge 0 -and $lines[$h] -notmatch '^### ') {
-                    if ($lines[$h] -match '^## ' -or $lines[$h] -match '^```') { $crossed = $true; break }
-                    $h--
-                }
-                $delStart = if ($crossed -or $h -lt 0 -or $lines[$h] -notmatch '^### ') { $fs } else { $h }
-                $delEnd = $fe
-                if ($delEnd + 1 -lt $n -and $lines[$delEnd + 1] -match '^[ \t]*$') { $delEnd = $delEnd + 1 }
-            }
-            $i = $fe
+    $rowIdx = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i].StartsWith("|")) {
+            $cells = @($lines[$i] -split '\|')
+            if ($cells.Count -ge 2 -and $cells[1].Trim() -eq $Id) { $rowIdx = $i; break }
         }
     }
-    if ($delStart -lt 0) { return }
+    if ($rowIdx -lt 0) { return }
+    $cells = @($lines[$rowIdx] -split '\|')
+    $n = $cells.Count
+    $cells[$n - 5] = " $Status "
+    $cells[$n - 4] = " $Owner "
+    $cells[$n - 2] = " $PauseReason "
+    $newRow = ($cells -join '|')
+    # The row becomes the LAST row of the Active work table (walking back from
+    # the context:end marker over the blank line that separates them), not a
+    # line just above the marker, which would detach it from the table and
+    # break Markdown rendering. The empty-table placeholder row goes away.
+    $aw = -1; $m = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($aw -lt 0 -and $lines[$i] -eq "## Active work") { $aw = $i }
+        if ($m -lt 0 -and $lines[$i] -eq "<!-- context:end -->") { $m = $i }
+    }
+    $k = -1
+    if ($m -ge 0) {
+        for ($i = $m - 1; $i -ge 0; $i--) {
+            if ($lines[$i].StartsWith("|")) { $k = $i; break }
+            if ($lines[$i].StartsWith("#")) { break }
+        }
+    }
     $result = [System.Collections.Generic.List[string]]::new()
-    for ($i = 0; $i -lt $n; $i++) {
-        if ($i -ge $delStart -and $i -le $delEnd) { continue }
-        $result.Add([string]$lines[$i])
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($i -eq $rowIdx) { continue }
+        $skip = $false
+        if ($aw -ge 0 -and $m -ge 0 -and $i -gt $aw -and $i -lt $m -and $lines[$i].StartsWith("|")) {
+            if (($lines[$i] -replace "[|\s$EmDash]", "") -eq "") { $skip = $true }
+        }
+        if ($k -lt 0 -and $i -eq $m) { $result.Add($newRow) }
+        if (-not $skip) { $result.Add($lines[$i]) }
+        if ($i -eq $k) { $result.Add($newRow) }
+    }
+    if ($m -lt 0) { $result.Add($newRow) }
+    Write-Utf8File $file (ConvertTo-JoinedLines ([string[]]$result))
+}
+
+function Remove-RoadmapRow([string]$Id) {
+    $file = Join-Path $DocsDir "Roadmap.md"
+    $result = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $file)) {
+        if ($line.StartsWith("|")) {
+            $cells = @($line -split '\|')
+            if ($cells.Count -ge 2 -and $cells[1].Trim() -eq $Id) { continue }
+        }
+        $result.Add($line)
     }
     Write-Utf8File $file (ConvertTo-JoinedLines ([string[]]$result))
 }
 
-# True if some other entry's top-level `parent:` still names ParentId.
-function Test-RoadmapHasChildOf([string]$ParentId) {
-    foreach ($e in @(Get-RoadmapEntries)) { if ($e.Parent -eq $ParentId) { return $true } }
-    return $false
+function Invoke-RoadmapClaimRow([string]$Id, [string]$Agent, [string]$Timestamp) {
+    $owner = "$Agent@$Timestamp"
+    $section = Get-RoadmapSectionOf $Id
+    if ($section -eq "plan") {
+        Move-RoadmapRowToActive $Id "IN_PROGRESS" $owner $EmDash
+    } else {
+        Set-RoadmapRowInPlace $Id "IN_PROGRESS" $owner $EmDash
+    }
 }
 
 function Update-FeaturesSummary([string]$Verify, [string]$DateOnly) {
@@ -724,11 +605,11 @@ function Update-FeaturesSummary([string]$Verify, [string]$DateOnly) {
     Write-Utf8File $file (ConvertTo-JoinedLines $lines)
 }
 
-# Records a closed entry in Features.md. When it was the last direct child
-# (by `parent`) of an EPIC entry, also rolls the epic up: a Features row, a
-# normal synthetic DONE log entry (so check needs no epic-shape special case
-# going forward), and removal of the epic's own now-closed Roadmap entry.
-function Add-FeaturesCapability([string]$Id, [string]$Summary, [string]$Verify, [string]$Timestamp, [string]$Parent = "") {
+# Records a closed task in Features.md. When its ID is a task under an EPIC
+# (`F01-E01-T01`, inferred from the ID shape, not a stored field) and no
+# other Roadmap row still shares that epic prefix, also rolls the epic up
+# with its own Features row.
+function Add-FeaturesCapability([string]$Id, [string]$Summary, [string]$Verify, [string]$Timestamp) {
     $file = Join-Path $DocsDir "Features.md"
     $dateOnly = $Timestamp.Split('T')[0]
     $lines = [System.Collections.Generic.List[string]]::new()
@@ -737,21 +618,12 @@ function Add-FeaturesCapability([string]$Id, [string]$Summary, [string]$Verify, 
         $lines.Add($line)
     }
     $lines.Add("| $Id | $Summary | $Verify | log:$Id | $dateOnly |")
-    if ($Parent) {
-        $ptype = Get-RoadmapField $Parent "type"
+    if ($Id -match '^(F\d+-E\d+)-') {
+        $epic = $Matches[1]
+        $prefix = "$epic-"
         $existingIds = @(Get-TableIds $file)
-        if ($ptype -eq "EPIC" -and -not (Test-RoadmapHasChildOf $Parent) -and -not ($existingIds -contains $Parent)) {
-            $lines.Add("| $Parent | Epic complete | all tasks DONE | log:$Id | $dateOnly |")
-            $log = Join-Path $DocsDir "Agentslog.md"
-            $entry = (@(
-                "",
-                "## [$Timestamp] | rollup | $Parent | DONE",
-                "- Summary: all direct children of $Parent are DONE",
-                "- Files: -",
-                "- Verify: rollup from $Id"
-            ) -join "`n") + "`n"
-            [System.IO.File]::AppendAllText($log, $entry, $Utf8)
-            Remove-RoadmapEntry $Parent
+        if (-not (Test-RoadmapHasIdPrefix $prefix) -and -not ($existingIds -contains $epic)) {
+            $lines.Add("| $epic | Epic complete | all tasks DONE | log:$Id | $dateOnly |")
         }
     }
     Write-Utf8File $file (ConvertTo-JoinedLines ([string[]]$lines))
@@ -800,9 +672,6 @@ function Invoke-Claim {
     $log = Join-Path $DocsDir "Agentslog.md"
     if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "run init first" }
     if (-not (Test-RoadmapHasId $task)) { throw "claim failed: $task not found in docs/Roadmap.md" }
-    if ((Get-RoadmapField $task "type") -eq "DECISION") {
-        throw "claim failed: $task is a DECISION; resolve it by hand (see references/roadmap-schema.md #9), not with claim"
-    }
     Enter-DocsLock
     try {
         $state = Get-TaskState $task
@@ -825,12 +694,7 @@ function Invoke-Claim {
             "- Verify: pending"
         ) -join "`n") + "`n"
         [System.IO.File]::AppendAllText($log, $entry, $Utf8)
-        if (Test-RoadmapHasId $task) {
-            Set-RoadmapField $task "status" "IN_PROGRESS"
-            Set-RoadmapField $task "executor" "AI"
-            Set-RoadmapField $task "assigned_agent" ('"' + (ConvertTo-YamlQuote $agent) + '"')
-            Set-RoadmapField $task "updated_at" $timestamp
-        }
+        Invoke-RoadmapClaimRow $task $agent $timestamp
         Write-Output "project_docs claim: $task claimed by $agent"
     } finally {
         Exit-DocsLock
@@ -861,11 +725,7 @@ function Invoke-Pause {
             "- Pause: $category - $detail"
         ) -join "`n") + "`n"
         [System.IO.File]::AppendAllText($log, $entry, $Utf8)
-        if (Test-RoadmapHasId $task) {
-            $newStatus = if ($category -eq "LIMITE" -or $category -eq "OTRO") { "READY" } else { "BLOCKED" }
-            Set-RoadmapField $task "status" $newStatus
-            Set-RoadmapField $task "updated_at" $timestamp
-        }
+        Set-RoadmapRowInPlace $task "PAUSE" "$agent@$timestamp" $category
         Write-Output "project_docs pause: $task paused ($category)"
     } finally {
         Exit-DocsLock
@@ -892,10 +752,8 @@ function Invoke-Done {
             "- Verify: $verify"
         ) -join "`n") + "`n"
         [System.IO.File]::AppendAllText($log, $entry, $Utf8)
-        $parent = Get-RoadmapField $task "parent"
-        if (-not $parent) { $parent = "" }
-        Remove-RoadmapEntry $task
-        Add-FeaturesCapability $task $summary $verify $timestamp $parent
+        Remove-RoadmapRow $task
+        Add-FeaturesCapability $task $summary $verify $timestamp
         Write-Output "project_docs done: $task closed"
     } finally {
         Exit-DocsLock
@@ -923,173 +781,292 @@ function Invoke-Status {
 # its three old section headings). A file already in the new per-entry YAML
 # format, or a fresh one just scaffolded from the template, has none of
 # these, so this is also the idempotency check for the conversion below.
-function Test-RoadmapNeedsTableMigration {
+function Set-RoadmapSectionsEnsured {
+    $file = Join-Path $DocsDir "Roadmap.md"
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return }
+    $content = [System.IO.File]::ReadAllText($file, $Utf8)
+    $changed = $false
+    if (-not $content.Contains("## Plan")) {
+        $content += "`n## Plan`n`nFull PHASE -> EPIC -> TASK -> SUBTASK hierarchy for pending work.`n"
+        $changed = $true
+    }
+    if (-not $content.Contains("## Gaps, Bugs & Technical Debt")) {
+        $content += "`n## Gaps, Bugs & Technical Debt`n`n| ID | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |`n|---|---|---|---|---|---|---|---|`n| $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash |`n"
+        $changed = $true
+    }
+    if (-not $content.Contains("## Out of scope")) {
+        $content += "`n## Out of scope`n`n- ``UNKNOWN```n"
+        $changed = $true
+    }
+    if ($changed) { Write-Utf8File $file $content }
+    $lines = @(Get-ContentUtf8 -LiteralPath $file)
+    $activeHasPauseReason = $false
+    $activeCheck = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^## Active work') { $activeCheck = $true; continue }
+        if ($lines[$i] -match '^## Near term') { break }
+        if ($activeCheck -and $lines[$i] -match '^\| ID \|') {
+            $activeHasPauseReason = $lines[$i].Contains("Pause reason")
+            break
+        }
+    }
+    if (-not $activeHasPauseReason) {
+        $active = $false
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^## Active work') { $active = $true; continue }
+            if ($lines[$i] -match '^## (Near term|Plan)') { $active = $false; continue }
+            if ($active -and $lines[$i] -match '^\| ID \|') { $lines[$i] = $lines[$i] + " Pause reason |"; continue }
+            if ($active -and $lines[$i] -match '^\|---') { $lines[$i] = $lines[$i] + "---|"; continue }
+            if ($active -and $lines[$i].StartsWith("|")) { $lines[$i] = $lines[$i] -replace '\|\s*$', "| $EmDash |"; continue }
+        }
+        Write-Utf8File $file (ConvertTo-JoinedLines $lines)
+    }
+}
+
+# True if docs/Roadmap.md still uses the per-entry YAML block format from the
+# short-lived schema this skill used before reverting to Markdown tables.
+function Test-RoadmapNeedsYamlMigration {
     $file = Join-Path $DocsDir "Roadmap.md"
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return $false }
     foreach ($line in @(Get-ContentUtf8 -LiteralPath $file)) {
-        if ($line -eq "## Active work" -or $line -eq "## Near term" -or $line -eq "## Gaps and defects") { return $true }
+        if ($line -match '^```yaml[ \t]*$') { return $true }
     }
     return $false
 }
 
-function ConvertTo-MigratedStatus([string]$S) {
+function ConvertTo-MigratedWfStatus([string]$S) {
     switch ($S.Trim()) {
-        "TODO" { return "BACKLOG" }
-        "IN_PROGRESS" { return "IN_PROGRESS" }
-        "PAUSE" { return "BLOCKED" }
-        "DONE" { return "DONE" }
-        default { return "BACKLOG" }
+        { $_ -in @("IDEA", "BACKLOG", "READY", "PENDING") } { return "TODO" }
+        { $_ -in @("IN_PROGRESS", "REVIEW", "TESTING") } { return "IN_PROGRESS" }
+        "BLOCKED" { return "PAUSE" }
+        { $_ -in @("DONE", "DECIDED") } { return "DONE" }
+        { $_ -in @("CANCELLED", "DEFERRED") } { return "TODO" }
+        default { return "TODO" }
     }
 }
 
-function Test-PlaceholderCell([string]$V) {
-    $v = $V.Trim()
-    return ($v -eq "" -or $v -eq $EmDash -or $v -eq "-" -or $v -match '^-+$')
-}
-
-function Get-AgentFromOwnerCell([string]$Owner) {
-    $v = $Owner.Trim()
-    if (Test-PlaceholderCell $v) { return "" }
-    $at = $v.IndexOf("@")
-    if ($at -ge 0) { return $v.Substring(0, $at) }
-    return $v
-}
-
-function ConvertTo-DepsList([string]$D) {
-    $v = $D.Trim()
-    if (Test-PlaceholderCell $v) { return "" }
-    $v = $v -replace ',\s*', ';'
-    $v = $v -replace '\s+', ';'
-    return $v
-}
-
-function Split-TableCells([string]$Line) {
-    $line = $Line -replace '^\|', '' -replace '\|[ \t]*$', ''
-    return @($line -split '\|' | ForEach-Object { $_.Trim() })
-}
-
-# Emits one "### TYPE-ID -- Title" heading + fenced yaml block, in the same
-# shape as templates/Roadmap.md, as a list of lines.
-function New-RoadmapEntryLines {
-    param(
-        [string]$Id, [string]$Type, [string]$Title, [string]$Status, [string]$Parent,
-        [string]$Description, [string]$Acceptance, [string]$AssignedAgent, [string]$Deps,
-        [string]$Severity, [string]$Phase
-    )
-    $sep = " " + $EmDash + " "
-    $out = [System.Collections.Generic.List[string]]::new()
-    $out.Add("")
-    $out.Add("### " + $Id + $sep + $Title)
-    $out.Add("")
-    $out.Add('```yaml')
-    $out.Add("id: " + $Id)
-    $out.Add("type: " + $Type)
-    $out.Add("title: " + $Title)
-    $out.Add("status: " + $Status)
-    if ($Parent) { $out.Add("parent: " + $Parent) }
-    if ($AssignedAgent) { $out.Add('assigned_agent: "' + (ConvertTo-YamlQuote $AssignedAgent) + '"') }
-    if ($Deps) {
-        $out.Add("depends_on:")
-        foreach ($d in ($Deps -split ';')) { if ($d) { $out.Add("  - " + $d) } }
-    }
-    if ($Severity) { $out.Add("severity: " + $Severity) }
-    if ($Phase) { $out.Add("phase: " + $Phase) }
-    if ($Description) { $out.Add("description: >"); $out.Add("  " + $Description) }
-    if ($Acceptance) {
-        $out.Add("acceptance_criteria:")
-        $out.Add("  - id: AC-1")
-        $out.Add("    description: " + $Acceptance)
-        $out.Add("    status: pending")
-    }
-    $out.Add('```')
-    return $out
-}
-
-# Non-destructive table -> per-entry YAML conversion (references/roadmap-
-# schema.md #18). Old "## Active work"/"## Plan" rows and Fase/Epic headings
-# become PHASE/EPIC/TASK entries under the new "## Plan"; "## Gaps and
-# defects" rows become GAP entries under "## Cross-cutting". IDs are kept
-# exactly as written (ADR-001); Outcome -> description, Acceptance check ->
-# one acceptance_criteria item, Owner's agent part -> assigned_agent (the
-# old cell mixed agent+timestamp and was never the accountability `owner`
-# this schema defines, so `owner` is left for a human to fill in), Depends
-# on -> depends_on, Severity/Phase (Gaps and defects only) -> their own
-# fields. `type` is inferred TASK for Active work/Plan/Near term rows and
-# GAP for Gaps and defects rows regardless of what the row's ID or
-# description imply; adjust by hand afterward if a row is really a BUG.
-function Convert-RoadmapTableToYaml {
+# Non-destructive per-entry YAML -> table conversion. Every entry keeps its
+# ID; PHASE/THEME/EPIC/FEATURE become headings (the spine's `parent` chain
+# is walked, up to 8 hops, to place each heading under its nearest PHASE and
+# each TASK/SUBTASK/FEATURE row under its nearest EPIC); cross-cutting
+# entries (GAP/BUG/DECISION/BLOCKER/...) become rows in "## Gaps, Bugs &
+# Technical Debt" (a DECISION's question/options/decision fields have no
+# table equivalent and are dropped after converting its ID and title).
+# TASK/SUBTASK/FEATURE rows mapped to IN_PROGRESS/PAUSE are routed into
+# "## Active work" instead of their Plan-section table. An entry whose
+# parent chain never reaches a PHASE lands under a synthesized
+# "F00-ORPHANED" phase for manual placement, never silently dropped.
+function Convert-RoadmapYamlToTable {
     $file = Join-Path $DocsDir "Roadmap.md"
-    if (-not (Test-RoadmapNeedsTableMigration)) { return $false }
-    $sep = " " + $EmDash + " "
-    $planOut = [System.Collections.Generic.List[string]]::new()
-    $crossOut = [System.Collections.Generic.List[string]]::new()
-    $section = ""
-    $phaseId = ""
-    $epicId = ""
-    foreach ($line in @(Get-ContentUtf8 -LiteralPath $file)) {
-        if ($line -eq "## Active work") { $section = "active"; continue }
-        if ($line -eq "## Near term") { $section = "near"; continue }
-        if ($line -eq "## Plan") { $section = "plan"; continue }
-        if ($line -eq "## Gaps and defects") { $section = "gaps"; continue }
-        if ($line -eq "<!-- context:end -->") { continue }
+    if (-not (Test-RoadmapNeedsYamlMigration)) { return $false }
 
-        if ($section -eq "plan" -and $line -match '^### (.*)$') {
-            $headingText = $Matches[1]
-            $dash = $headingText.IndexOf($sep)
-            if ($dash -ge 0) { $hid = $headingText.Substring(0, $dash).Trim(); $htitle = $headingText.Substring($dash + $sep.Length).Trim() }
-            else { $hid = $headingText.Trim(); $htitle = $hid }
-            $phaseId = $hid; $epicId = ""
-            $planOut.AddRange([string[]](New-RoadmapEntryLines $hid "PHASE" $htitle "BACKLOG" "" "" "" "" "" "" ""))
+    $etype = @{}; $etitle = @{}; $estatus = @{}; $eparent = @{}; $eagent = @{}
+    $edesc = @{}; $eaccept = @{}; $esev = @{}; $ephase = @{}; $edeps = @{}; $esection = @{}
+    $order = [System.Collections.Generic.List[string]]::new()
+    $seen = @{}
+
+    $inSection = ""; $inFence = $false
+    $id = ""; $type = ""; $title = ""; $status = ""; $parent = ""; $agent = ""
+    $desc = ""; $accept = ""; $sev = ""; $ph = ""; $deps = ""; $pendKey = ""; $capturedAc = $false
+
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $file)) {
+        if ($line -eq "## Plan") { $inSection = "plan"; continue }
+        if ($line -eq "## Cross-cutting") { $inSection = "cross"; continue }
+        if (-not $inFence) {
+            if ($line -match '^```yaml') {
+                $inFence = $true
+                $id = ""; $type = ""; $title = ""; $status = ""; $parent = ""; $agent = ""
+                $desc = ""; $accept = ""; $sev = ""; $ph = ""; $deps = ""; $pendKey = ""; $capturedAc = $false
+            }
             continue
         }
-        if ($section -eq "plan" -and $line -match '^#### (.*)$') {
-            $headingText = $Matches[1]
-            $dash = $headingText.IndexOf($sep)
-            if ($dash -ge 0) { $hid = $headingText.Substring(0, $dash).Trim(); $htitle = $headingText.Substring($dash + $sep.Length).Trim() }
-            else { $hid = $headingText.Trim(); $htitle = $hid }
-            $epicId = $hid
-            $planOut.AddRange([string[]](New-RoadmapEntryLines $hid "EPIC" $htitle "BACKLOG" $phaseId "" "" "" "" "" ""))
+        if ($line -match '^```[ \t]*$') {
+            $inFence = $false
+            if ($id -ne "" -and -not $seen.ContainsKey($id)) {
+                $seen[$id] = $true; $order.Add($id)
+                $etype[$id] = $type; $etitle[$id] = $title; $estatus[$id] = $status; $eparent[$id] = $parent
+                $eagent[$id] = $agent; $edesc[$id] = $desc; $eaccept[$id] = $accept; $esev[$id] = $sev
+                $ephase[$id] = $ph; $edeps[$id] = $deps; $esection[$id] = $inSection
+            }
             continue
         }
-        if ($line.StartsWith("|")) {
-            $cells = @(Split-TableCells $line)
-            if ($cells.Count -lt 1) { continue }
-            if ($cells[0] -eq "ID" -or (Test-PlaceholderCell $cells[0])) { continue }
-            if ($section -eq "active" -or ($section -eq "plan" -and $cells.Count -eq 7)) {
-                $id = $cells[0]; $outcome = $cells[1]; $accept = $cells[2]; $status = $cells[3]; $owner = $cells[4]; $deps = $cells[5]
-                $planOut.AddRange([string[]](New-RoadmapEntryLines $id "TASK" $outcome (ConvertTo-MigratedStatus $status) $epicId $outcome $accept (Get-AgentFromOwnerCell $owner) (ConvertTo-DepsList $deps) "" ""))
-                continue
+        if ($line -match '^([A-Za-z_][A-Za-z0-9_]*):[ \t]*(.*)$') {
+            $key = $Matches[1]; $val = $Matches[2].Trim()
+            $pendKey = ""
+            switch ($key) {
+                "id" { $id = $val }
+                "type" { $type = $val }
+                "title" { $title = $val.Trim('"') }
+                "status" { $status = $val }
+                "parent" { $parent = $val.Trim('"') }
+                "assigned_agent" { $agent = $val.Trim('"') }
+                "severity" { $sev = $val }
+                "phase" { $ph = $val }
+                "depends_on" { $pendKey = "dep" }
+                "description" {
+                    if ($val -eq "" -or $val -eq ">" -or $val -eq "|") { $pendKey = "desc"; $desc = "" }
+                    else { $desc = $val.Trim('"') }
+                }
+                "acceptance_criteria" { $pendKey = "ac"; $capturedAc = $false }
             }
-            if ($section -eq "near" -and $cells.Count -eq 5) {
-                $id = $cells[0]; $outcome = $cells[1]; $accept = $cells[2]; $status = $cells[3]; $deps = $cells[4]
-                $planOut.AddRange([string[]](New-RoadmapEntryLines $id "TASK" $outcome (ConvertTo-MigratedStatus $status) "" $outcome $accept "" (ConvertTo-DepsList $deps) "" ""))
-                continue
-            }
-            if ($section -eq "gaps" -and $cells.Count -eq 8) {
-                $id = $cells[0]; $sevv = $cells[1]; $ph = $cells[2]; $desc = $cells[3]; $status = $cells[4]; $owner = $cells[5]; $deps = $cells[6]
-                $crossOut.AddRange([string[]](New-RoadmapEntryLines $id "GAP" $desc (ConvertTo-MigratedStatus $status) "" $desc "" (Get-AgentFromOwnerCell $owner) (ConvertTo-DepsList $deps) $sevv $ph))
-                continue
-            }
+            continue
+        }
+        if ($line -match '^[ \t]+-[ \t]+(.*)$') {
+            $item = $Matches[1].Trim().Trim('"')
+            if ($pendKey -eq "dep") { if ($item) { $deps = if ($deps -eq "") { $item } else { "$deps;$item" } } }
+            elseif ($pendKey -eq "ac") { $capturedAc = $true }
+            continue
+        }
+        if ($pendKey -eq "desc" -and $line -match '^[ \t]+(.*)$') {
+            $t = $Matches[1].Trim()
+            $desc = if ($desc -eq "") { $t } else { "$desc $t" }
+            continue
+        }
+        if ($pendKey -eq "ac" -and $capturedAc -and $line -match '^[ \t]+description:[ \t]*(.*)$') {
+            $t = $Matches[1].Trim().Trim('"')
+            if ($accept -eq "") { $accept = $t }
+            continue
+        }
+        if ($line -match '^[ \t]') { continue }
+        $pendKey = ""
+    }
+
+    function Get-WalkUpForType([string]$StartId, [string]$WantType) {
+        $cur = $StartId; $hops = 0
+        while ($cur -and $hops -lt 8) {
+            if ($etype.ContainsKey($cur) -and $etype[$cur] -eq $WantType) { return $cur }
+            $cur = if ($eparent.ContainsKey($cur)) { $eparent[$cur] } else { "" }
+            $hops++
+        }
+        return ""
+    }
+    function Get-OrField([string]$V) { if ($V -eq "") { return $EmDash } else { return $V } }
+    function Get-OrStr([string]$V, [string]$Fb) { if ($V -eq "") { return $Fb } else { return $V } }
+    function Format-RoadmapRow([string]$Id) {
+        $st = ConvertTo-MigratedWfStatus $estatus[$Id]
+        $ag = Get-OrField $eagent[$Id]
+        $dp = (Get-OrField $edeps[$Id]) -replace ';', ', '
+        return "| $Id | $(Get-OrStr $edesc[$Id] $etitle[$Id]) | $(Get-OrStr $eaccept[$Id] 'UNKNOWN') | $st | $ag | $dp | $EmDash |"
+    }
+    function Format-GapRow([string]$Id) {
+        $st = ConvertTo-MigratedWfStatus $estatus[$Id]
+        $ag = Get-OrField $eagent[$Id]
+        $dp = (Get-OrField $edeps[$Id]) -replace ';', ', '
+        return "| $Id | $(Get-OrField $esev[$Id]) | $(Get-OrField $ephase[$Id]) | $(Get-OrStr $edesc[$Id] $etitle[$Id]) | $st | $ag | $dp | $EmDash |"
+    }
+
+    $epicPhase = @{}; $themePhase = @{}; $rowEpic = @{}; $rowPhase = @{}; $isActive = @{}
+    foreach ($eid in $order) {
+        if ($esection[$eid] -ne "plan") { continue }
+        $t = $etype[$eid]
+        if ($t -eq "EPIC") { $epicPhase[$eid] = Get-WalkUpForType $eparent[$eid] "PHASE" }
+        elseif ($t -eq "THEME") { $themePhase[$eid] = Get-WalkUpForType $eparent[$eid] "PHASE" }
+        elseif ($t -in @("TASK", "SUBTASK", "FEATURE")) {
+            $rowEpic[$eid] = Get-WalkUpForType $eparent[$eid] "EPIC"
+            if ($rowEpic[$eid] -eq "") { $rowPhase[$eid] = Get-WalkUpForType $eparent[$eid] "PHASE" }
+            $wfst = ConvertTo-MigratedWfStatus $estatus[$eid]
+            if ($wfst -eq "IN_PROGRESS" -or $wfst -eq "PAUSE") { $isActive[$eid] = $true }
         }
     }
-    $intro = [System.Collections.Generic.List[string]]::new()
+
+    $out = [System.Collections.Generic.List[string]]::new()
+    $out.Add("## Active work"); $out.Add("")
+    $out.Add("| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |")
+    $out.Add("|---|---|---|---|---|---|---|")
+    $activeCount = 0
+    foreach ($eid in $order) { if ($isActive.ContainsKey($eid)) { $out.Add((Format-RoadmapRow $eid)); $activeCount++ } }
+    if ($activeCount -eq 0) { $out.Add("| $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash |") }
+    $out.Add(""); $out.Add("<!-- context:end -->"); $out.Add("")
+    $nearStarted = $false
     foreach ($tline in @(Get-ContentUtf8 -LiteralPath (Join-Path $TemplatesDir "Roadmap.md"))) {
         if ($tline -eq "## Plan") { break }
+        if ($tline -eq "## Near term") { $nearStarted = $true }
+        if ($nearStarted) { $out.Add([string]$tline) }
+    }
+    $out.Add("## Plan"); $out.Add("")
+    $visionId = ""
+    foreach ($eid in $order) { if ($etype[$eid] -eq "VISION") { $visionId = $eid; break } }
+    if ($visionId -ne "") { $out.Add("**Vision:** $(Get-OrStr $edesc[$visionId] $etitle[$visionId])") }
+    else { $out.Add("**Vision:** ``UNKNOWN``") }
+    $out.Add("")
+    $anyPhase = $false
+    foreach ($eid in $order) { if ($esection[$eid] -eq "plan" -and $etype[$eid] -eq "PHASE") { $anyPhase = $true } }
+    if (-not $anyPhase) {
+        $out.Add("### F01 $EmDash UNKNOWN phase name"); $out.Add("")
+        $out.Add("#### F01-E01 $EmDash UNKNOWN epic name"); $out.Add("")
+        $out.Add("| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |")
+        $out.Add("|---|---|---|---|---|---|---|")
+        $out.Add("| F01-E01-T01 | UNKNOWN | UNKNOWN | TODO | $EmDash | $EmDash | $EmDash |")
+    }
+    foreach ($phid in $order) {
+        if ($esection[$phid] -ne "plan" -or $etype[$phid] -ne "PHASE") { continue }
+        $out.Add(""); $out.Add("### $phid $EmDash $($etitle[$phid])")
+        if ($edesc[$phid] -and $edesc[$phid] -ne $etitle[$phid]) { $out.Add(""); $out.Add($edesc[$phid]) }
+        foreach ($tid in $order) {
+            if ($esection[$tid] -eq "plan" -and $etype[$tid] -eq "THEME" -and $themePhase[$tid] -eq $phid) {
+                $out.Add(""); $out.Add("#### $tid $EmDash $($etitle[$tid])")
+                if ($edesc[$tid] -and $edesc[$tid] -ne $etitle[$tid]) { $out.Add(""); $out.Add($edesc[$tid]) }
+            }
+        }
+        $directRows = @($order | Where-Object { $esection[$_] -eq "plan" -and $etype[$_] -in @("TASK", "SUBTASK", "FEATURE") -and $rowPhase.ContainsKey($_) -and $rowPhase[$_] -eq $phid -and -not $isActive.ContainsKey($_) })
+        if ($directRows.Count -gt 0) {
+            $out.Add("")
+            $out.Add("| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |")
+            $out.Add("|---|---|---|---|---|---|---|")
+            foreach ($rid in $directRows) { $out.Add((Format-RoadmapRow $rid)) }
+        }
+        foreach ($eid in $order) {
+            if ($esection[$eid] -eq "plan" -and $etype[$eid] -eq "EPIC" -and $epicPhase[$eid] -eq $phid) {
+                $out.Add(""); $out.Add("##### $eid $EmDash $($etitle[$eid])")
+                if ($edesc[$eid] -and $edesc[$eid] -ne $etitle[$eid]) { $out.Add(""); $out.Add($edesc[$eid]) }
+                $out.Add("")
+                $out.Add("| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |")
+                $out.Add("|---|---|---|---|---|---|---|")
+                $epicRows = @($order | Where-Object { $esection[$_] -eq "plan" -and $etype[$_] -in @("TASK", "SUBTASK", "FEATURE") -and $rowEpic.ContainsKey($_) -and $rowEpic[$_] -eq $eid -and -not $isActive.ContainsKey($_) })
+                foreach ($rid in $epicRows) { $out.Add((Format-RoadmapRow $rid)) }
+                if ($epicRows.Count -eq 0) { $out.Add("| $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash |") }
+            }
+        }
+    }
+    $orphanHdr = $false
+    foreach ($eid in $order) {
+        if ($esection[$eid] -ne "plan" -or $isActive.ContainsKey($eid)) { continue }
+        $t = $etype[$eid]; $isOrphan = $false
+        if ($t -eq "EPIC" -and $epicPhase[$eid] -eq "") { $isOrphan = $true }
+        elseif ($t -eq "THEME" -and $themePhase[$eid] -eq "") { $isOrphan = $true }
+        elseif ($t -in @("TASK", "SUBTASK", "FEATURE") -and $rowEpic[$eid] -eq "" -and $rowPhase[$eid] -eq "") { $isOrphan = $true }
+        if ($isOrphan) {
+            if (-not $orphanHdr) {
+                $out.Add(""); $out.Add("### F00-ORPHANED $EmDash Migrated entries needing manual placement"); $out.Add("")
+                $out.Add("| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |")
+                $out.Add("|---|---|---|---|---|---|---|")
+                $orphanHdr = $true
+            }
+            $out.Add((Format-RoadmapRow $eid))
+        }
+    }
+    $out.Add("")
+    $out.Add("## Gaps, Bugs & Technical Debt"); $out.Add("")
+    $out.Add("Errors, defects, or significant technical debt found by any agent. Same")
+    $out.Add("trailing columns as above, so an entry can be ``claim``ed and ``done`` like any")
+    $out.Add("task. ID prefix marks the kind: ``Fxx-GAP-xx`` (missing capability),")
+    $out.Add("``Fxx-BUG-xx`` (defect), ``Fxx-DEBT-xx`` (technical debt).")
+    $out.Add("")
+    $out.Add("| ID | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |")
+    $out.Add("|---|---|---|---|---|---|---|---|")
+    $gapRows = @($order | Where-Object { $esection[$_] -eq "cross" })
+    foreach ($gid in $gapRows) { $out.Add((Format-GapRow $gid)) }
+    if ($gapRows.Count -eq 0) { $out.Add("| $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash |") }
+    $out.Add(""); $out.Add("## Out of scope"); $out.Add(""); $out.Add("- ``UNKNOWN``")
+
+    $intro = [System.Collections.Generic.List[string]]::new()
+    foreach ($tline in @(Get-ContentUtf8 -LiteralPath (Join-Path $TemplatesDir "Roadmap.md"))) {
+        if ($tline -eq "## Active work") { break }
         $intro.Add([string]$tline)
     }
     $final = [System.Collections.Generic.List[string]]::new()
     $final.AddRange([string[]]$intro)
-    $final.Add("## Plan")
-    $final.AddRange([string[]]$planOut)
-    $final.Add("")
-    $final.Add("## Cross-cutting")
-    if ($crossOut.Count -gt 0) {
-        $final.AddRange([string[]]$crossOut)
-    } else {
-        $final.Add("")
-        $noEntriesLine = 'No entries yet. Add a `### TYPE-ID ' + $EmDash + ' Title` heading and `yaml` block here for a GAP, BUG, DECISION, BLOCKER, or other cross-cutting entry when one is found.'
-        $final.Add($noEntriesLine)
-    }
+    $final.AddRange([string[]]$out)
     Write-Utf8File $file (ConvertTo-JoinedLines ([string[]]$final))
     return $true
 }
@@ -1122,10 +1099,12 @@ function Invoke-Migrate {
         $changed++
         Write-Output "= migrated: docs/$legacy -> AGENTS.md (content preserved, file removed)"
     }
-    if (Convert-RoadmapTableToYaml) {
+    if (Convert-RoadmapYamlToTable) {
         $changed++
-        Write-Output "= converted: docs/Roadmap.md table rows -> per-entry YAML (references/roadmap-schema.md)"
+        Write-Output "= converted: docs/Roadmap.md per-entry YAML -> tables (IDs preserved; review"
+        Write-Output "  DECISION entries and any F00-ORPHANED rows by hand)"
     }
+    Set-RoadmapSectionsEnsured
     Write-Output "project_docs migrate: $changed change(s)"
 }
 
@@ -1283,78 +1262,69 @@ function Test-RoadmapFeaturesIds {
     }
 }
 
-# Structural validation of every Roadmap entry (references/roadmap-schema.md
-# #2, #6): unknown `type`, `status` outside its vocabulary (DECISION uses
-# PENDING/DECIDED/CANCELLED instead of the base one), and a `parent`/
-# `depends_on`/`blocks`/`blocked_by`/`affects` value that names no known ID
-# in either Roadmap.md or Features.md.
-# A fenced yaml block with no top-level `id:` line is invisible to every
-# other primitive (Get-RoadmapIds/Get-RoadmapEntries skip it), so it would
-# otherwise fail silently instead of erroring.
-function Test-RoadmapHeadlessBlocks {
-    $file = Join-Path $DocsDir "Roadmap.md"
-    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return }
-    $inFence = $false
-    $fenceStart = 0
-    $hasId = $false
-    $lineNo = 0
-    foreach ($line in @(Get-ContentUtf8 -LiteralPath $file)) {
-        $lineNo++
-        if (-not $inFence) {
-            if ($line -match '^```yaml') { $inFence = $true; $fenceStart = $lineNo; $hasId = $false }
+# ---------------------------------------------------------------------------
+# Epistemic taxonomy and canonical-ID hardening. Two disjoint Status
+# vocabularies exist by design: fact tables in ProductDescription.md and
+# Stack_Tecnologies.md use the epistemic one (CONFIRMED/HYPOTHESIS/UNKNOWN);
+# work-item tables in Roadmap.md use the workflow one
+# (TODO/IN_PROGRESS/PAUSE/DONE). Never mix the two.
+# ---------------------------------------------------------------------------
+
+# Validates every table's Status column in $Rel against $Allowed, file-wide.
+# Detects each table's own header (the first `|` row after a non-`|` line)
+# so it re-locates the Status column per table instead of assuming a fixed
+# position; placeholder rows (id blank/em-dash/dashes) are skipped.
+function Test-TableStatusEnum([string]$Rel, [string[]]$Allowed, [string]$Label) {
+    $path = Join-Path $Project $Rel
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
+    $expectHeader = $true
+    $statusCol = -1
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $path)) {
+        if (-not $line.StartsWith("|")) { $expectHeader = $true; continue }
+        $cells = @(Split-TableCells $line)
+        if ($expectHeader) {
+            $statusCol = -1
+            for ($i = 0; $i -lt $cells.Count; $i++) { if ($cells[$i] -eq "Status") { $statusCol = $i } }
+            $expectHeader = $false
             continue
         }
-        if ($line -match '^```[ \t]*$') {
-            $inFence = $false
-            if (-not $hasId) {
-                [Console]::Error.WriteLine("ERROR: yaml block starting at Roadmap.md:$fenceStart has no top-level id: field")
+        if ($cells.Count -lt 1) { continue }
+        $id = $cells[0]
+        if ($id -eq "" -or $id -eq $EmDash -or $id -match '^-+$') { continue }
+        if ($statusCol -ge 0 -and $statusCol -lt $cells.Count) {
+            $st = $cells[$statusCol]
+            if ($Allowed -notcontains $st) {
+                [Console]::Error.WriteLine("ERROR: $Rel row '$id' has invalid $Label Status: $st")
                 $script:CheckFail = $true
             }
-            continue
         }
-        if ($line -match '^id: ') { $hasId = $true }
     }
 }
 
-function Test-RoadmapEntries {
-    $validTypes = @("VISION", "PHASE", "THEME", "EPIC", "FEATURE", "TASK", "SUBTASK", "GAP", "BUG", "IMPROVEMENT", "REFACTOR", "SPIKE", "DECISION", "BLOCKER", "DEPENDENCY", "TECH_DEBT", "DOC", "TEST", "SECURITY", "UX")
-    $validStatuses = @("IDEA", "BACKLOG", "READY", "IN_PROGRESS", "REVIEW", "TESTING", "BLOCKED", "DONE", "CANCELLED", "DEFERRED")
-    $validDecisionStatuses = @("PENDING", "DECIDED", "CANCELLED")
-    $known = @{}
-    foreach ($rid in @(Get-RoadmapIds)) { $known[$rid] = $true }
-    foreach ($fid in @(Get-FeaturesIds)) { $known[$fid] = $true }
-    foreach ($e in @(Get-RoadmapEntries)) {
-        if (-not $e.Id) { continue }
-        if ($validTypes -notcontains $e.Type) {
-            [Console]::Error.WriteLine("ERROR: $($e.Id) has unknown type: $($e.Type)")
-            $script:CheckFail = $true
-        }
-        if ($e.Type -eq "DECISION") {
-            if ($validDecisionStatuses -notcontains $e.Status) {
-                [Console]::Error.WriteLine("ERROR: $($e.Id) (DECISION) has invalid status: $($e.Status)")
+# Validates every row's ID (first column) under the exact "## <heading>"
+# section of $Rel against regex $Pattern.
+# Rows under "### F00-ORPHANED" are exempt: migrate places them there
+# verbatim (ID preserved, not reshaped) specifically for manual review, so a
+# legacy ID that doesn't fit the current convention is expected, not an error.
+function Test-IdFormatInSection([string]$Rel, [string]$Heading, [string]$Pattern, [string]$Label) {
+    $path = Join-Path $Project $Rel
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
+    $inSec = $false
+    $orphan = $false
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $path)) {
+        if ($line -eq $Heading) { $inSec = $true; continue }
+        if ($inSec -and $line -match '^## ') { $inSec = $false; $orphan = $false }
+        if ($inSec -and $line -match '^### F00-ORPHANED') { $orphan = $true }
+        elseif ($inSec -and $orphan -and $line -match '^#') { $orphan = $false }
+        if ($inSec -and $line.StartsWith("|")) {
+            $cells = @(Split-TableCells $line)
+            if ($cells.Count -lt 1) { continue }
+            $id = $cells[0]
+            if ($id -eq "" -or $id -eq "ID" -or $id -eq $EmDash -or $id -match '^-+$') { continue }
+            if ($orphan) { continue }
+            if ($id -notmatch $Pattern) {
+                [Console]::Error.WriteLine("ERROR: $Rel $Label has invalid ID format: $id")
                 $script:CheckFail = $true
-            }
-        } elseif ($validStatuses -notcontains $e.Status) {
-            [Console]::Error.WriteLine("ERROR: $($e.Id) has invalid status: $($e.Status)")
-            $script:CheckFail = $true
-        }
-        if ($e.Parent -and -not $known.ContainsKey($e.Parent)) {
-            [Console]::Error.WriteLine("ERROR: $($e.Id) parent references unknown ID: $($e.Parent)")
-            $script:CheckFail = $true
-        }
-        foreach ($ref in @(
-            @($e.DependsOn, "depends_on"),
-            @($e.Blocks, "blocks"),
-            @($e.BlockedBy, "blocked_by"),
-            @($e.Affects, "affects")
-        )) {
-            $field = $ref[0]; $label = $ref[1]
-            if (-not $field) { continue }
-            foreach ($rid in ($field -split ';')) {
-                if ($rid -and -not $known.ContainsKey($rid)) {
-                    [Console]::Error.WriteLine("ERROR: $($e.Id) $label references unknown ID: $rid")
-                    $script:CheckFail = $true
-                }
             }
         }
     }
@@ -1405,13 +1375,30 @@ function Invoke-Check {
         $script:CheckFail = $true
     }
     Test-Need "docs/Agentslog.md" @("## Entry format", "## Entries")
-    Test-Need "docs/ProductDescription.md" @("## Operational summary", "## Business rules")
-    Test-Need "docs/Stack_Tecnologies.md" @("## Operational summary", "## Decisions")
-    Test-Need "docs/Roadmap.md" @("## Plan", "## Cross-cutting")
+    Test-Need "docs/ProductDescription.md" @(
+        "## Operational summary", "<!-- context:end -->",
+        "## Users and outcomes", "| User or role | Needed outcome | Status | Source |",
+        "## Business rules", "| ID | Rule | Status | Source or verification |",
+        "## Main flows", "| Flow | Start -> outcome | Status |",
+        "## Glossary", "| Term | Meaning | Status |",
+        "## Out of scope"
+    )
+    Test-Need "docs/Stack_Tecnologies.md" @(
+        "## Operational summary", "<!-- context:end -->",
+        "## Architecture & Data",
+        "## Critical commands",
+        "## Environment variables & secrets", "| Variable | Purpose | Required | Example (Non-secret) |",
+        "## Technical decisions (ADRs)", "| ID | Decision | Context/Reason | Status | Date |",
+        "## Out of scope"
+    )
+    Test-Need "docs/Roadmap.md" @(
+        "## Active work", "<!-- context:end -->",
+        "## Near term", "## Plan", "## Gaps, Bugs & Technical Debt", "## Out of scope"
+    )
     Test-Need "docs/Features.md" @("## Operational summary", "## Verified capabilities")
 
-    if (Test-RoadmapNeedsTableMigration) {
-        [Console]::Error.WriteLine("MIGRATION REQUIRED: docs/Roadmap.md still uses the table format; run 'migrate'")
+    if (Test-RoadmapNeedsYamlMigration) {
+        [Console]::Error.WriteLine("MIGRATION REQUIRED: docs/Roadmap.md still uses the per-entry YAML format; run 'migrate'")
         $script:CheckFail = $true
     }
 
@@ -1429,10 +1416,12 @@ function Invoke-Check {
         Test-RoadmapFeaturesIds
     }
 
-    if (Test-Path -LiteralPath (Join-Path $DocsDir "Roadmap.md") -PathType Leaf) {
-        Test-RoadmapHeadlessBlocks
-        Test-RoadmapEntries
-    }
+    Test-IdFormatInSection "docs/ProductDescription.md" "## Business rules" '^BR-[0-9][0-9][0-9]+$' "Business rules"
+    Test-IdFormatInSection "docs/Stack_Tecnologies.md" "## Technical decisions (ADRs)" '^ADR-[0-9][0-9][0-9]+$' "Technical decisions"
+    Test-IdFormatInSection "docs/Roadmap.md" "## Plan" '^F[0-9]' "Plan"
+    Test-TableStatusEnum "docs/ProductDescription.md" @("CONFIRMED", "HYPOTHESIS", "UNKNOWN") "epistemic"
+    Test-TableStatusEnum "docs/Stack_Tecnologies.md" @("CONFIRMED", "HYPOTHESIS", "UNKNOWN") "epistemic"
+    Test-TableStatusEnum "docs/Roadmap.md" @("TODO", "IN_PROGRESS", "PAUSE", "DONE") "workflow"
 
     Write-CheckWarnings
 

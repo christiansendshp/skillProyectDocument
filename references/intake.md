@@ -1,7 +1,7 @@
 # Intake questionnaire
 
-Use when starting a brand-new app/system/product (see the "quiero una app"
-flow in `SKILL.md`) or when installing the skill mid-project and Product or
+Use when starting a brand-new app/system/product (see "Building a new app or
+product" in `SKILL.md`) or when installing the skill mid-project and Product or
 Stack stay mostly `UNKNOWN` after reconstruction from code.
 
 Fill every field first from what the user already said or what the project
@@ -32,46 +32,50 @@ Main flows:
 
 7. What are the two or three flows that matter most, start to outcome?
 
+Glossary:
+
+8. Any domain term that means something specific here (or differs between
+   frontend/backend/DB naming) that the whole team should use consistently?
+
 Out of scope:
 
-8. What is explicitly not being built (this phase)?
+9. What is explicitly not being built (this phase)?
 
 ## Stack (-> `Stack_Tecnologies.md`)
 
-Runtime:
+Operational summary:
 
-9. Language/framework and version, if already decided?
+10. Stack base, runtime, datastore, and deploy target, in one line each, if
+    already decided?
 
-Architecture:
+Architecture & Data:
 
-10. Monolith, services, client/server split — anything already decided?
+11. Monolith, services, client/server split, required third-party
+    integrations, module boundaries, data schema — anything already
+    decided?
 
-Data:
+Critical commands:
 
-11. Datastore(s), if already decided?
+12. How will tests run? Lint/typecheck? Build? Migrations? Dev server?
 
-Components:
+Environment variables & secrets:
 
-12. Any required third-party integration or component?
+13. Names and purpose only (never values) of configuration the system will
+    need.
 
-Commands:
+Technical decisions:
 
-13. How will tests run? How will it lint or type-check?
-
-Delivery:
-
-14. How does this ship — deploy target, packaging, CI?
-
-Environment variables:
-
-15. Names only (never values) of configuration the system will need.
+14. Any architectural decision already made that a later agent shouldn't
+    second-guess without cause?
 
 ## After the answers
 
-1. Fill Product/Stack with confirmed answers; mark anything still unresolved
-   `UNKNOWN` with where to verify it.
-2. Build the `## Plan` in `Roadmap.md` (`PHASE`/`EPIC`/`TASK` entries, per
-   `references/roadmap-schema.md`) from the flows and rules above.
-3. Set the first actionable task's `status` to `READY`.
+1. Fill Product/Stack with confirmed answers (`CONFIRMED`); mark anything
+   still unresolved `UNKNOWN` or `HYPOTHESIS` with where to verify it —
+   never `N/A` or any other value.
+2. Build the `## Plan` in `Roadmap.md`: a `### Fnn — <phase>` heading, an
+   `#### Fnn-Enn — <epic>` heading under it, and a task-row table
+   (`Fnn-Enn-Tnn`) from the flows and rules above.
+3. Leave the first actionable task's row `TODO`, ready for `claim`.
 4. Do not block a small, unrelated task on this questionnaire — only run it
    for a new app/product or a fresh mid-project install (see `SKILL.md`).

@@ -2,9 +2,9 @@
 
 ## Operational summary
 
-- Verified capabilities: 7
-- Latest verification: `sh scripts/smoke_test.sh -> 72 passed, 0 failed (sh + powershell.exe)` (2026-09-15)
-- Known limitation: `UNKNOWN`
+- Verified capabilities: 11
+- Latest verification: `sh scripts/smoke_test.sh -> 162 passed, 0 failed (sh + powershell.exe); sh scripts/project_docs.sh check . -> OK` (2026-09-21)
+- Known limitation: the AGENTS.md/Agents.md case collision cannot be tested end to end on Windows or macOS.
 
 <!-- context:end -->
 
@@ -22,5 +22,7 @@ Use one row per stable capability. Link long specifications or runbooks from
 | F01-E02-T05 | check now errors on: missing root AGENTS.md, leftover docs/Agents.md, root AGENTS.md case-variant coexistence, invalid log status, PAUSE without category/detail, DONE without Verify, conflicting concurrent claims, log IDs missing from Roadmap/Features, Features IDs without a DONE (hot log or docs/history fallback); warns on UNKNOWN fields, missing link blocks, stale claims. Templates, adapters/, agents/openai.yaml, README.md updated | manual tests cover every error/warning condition sh+ps1; case-variant coexistence verified by construction (untestable on Windows/macOS filesystems) | log:F01-E02-T05 | 2026-09-15 |
 | F01-E02-T06 | evals.json extended from 3 to 14 scenarios; scripts/smoke_test.sh runs the full lifecycle against sh and, when pwsh/powershell.exe is on PATH, ps1 too | sh scripts/smoke_test.sh -> 72 passed, 0 failed (sh + powershell.exe) | log:F01-E02-T06 | 2026-09-15 |
 | F01-E02 | Epic complete | all tasks DONE | log:F01-E02-T06 | 2026-09-15 |
-| F02-E01-T01 | Rewrote docs/Roadmap.md to per-entry YAML blocks (full type taxonomy, hierarchy via parent, dependencies/blockers/decisions, owner/executor/assigned_agent, states, progress, acceptance_criteria, DoD, next_action); reworked claim/pause/done/status/context/check/migrate in sh+ps1 to parse/edit YAML entries; moved task-selection/decision-escalation/DoD-verification rules into AGENTS.md; added references/roadmap-schema.md | sh scripts/smoke_test.sh -> 116 passed, 0 failed (sh + powershell.exe) | log:F02-E01-T01 | 2026-09-16 |
+| F02-E01-T01 | Rewrote docs/Roadmap.md to per-entry YAML blocks (full type taxonomy, hierarchy via parent, dependencies/blockers/decisions, owner/executor/assigned_agent, states, progress, acceptance_criteria, DoD, next_action); reworked claim/pause/done/status/context/check/migrate in sh+ps1 to parse/edit YAML entries; moved task-selection/decision-escalation/DoD-verification rules into AGENTS.md; added references/roadmap-schema.md. Superseded by F03-E01-T01: the YAML schema was reverted to Markdown tables and that file removed | sh scripts/smoke_test.sh -> 116 passed, 0 failed (sh + powershell.exe) | log:F02-E01-T01 | 2026-09-16 |
 | F02-E01 | Epic complete | all tasks DONE | log:F02-E01-T01 | 2026-09-16 |
+| F03-E01-T01 | Markdown hardening closed: Roadmap back to tables, canonical BR/ADR/Fxx IDs, strict Status enums, hardened check, claim inserts the row inside the Active work table, own docs migrated, evals 15-21 rewritten | sh scripts/smoke_test.sh -> 162 passed, 0 failed (sh + powershell.exe); sh scripts/project_docs.sh check . -> OK | log:F03-E01-T01 | 2026-09-21 |
+| F03-E01 | Epic complete | all tasks DONE | log:F03-E01-T01 | 2026-09-21 |

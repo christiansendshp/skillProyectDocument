@@ -96,3 +96,12 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Files: scripts/project_docs.sh, scripts/project_docs.ps1, templates/Roadmap.md, references/workflow.md, scripts/smoke_test.sh
 - Verify: sh scripts/smoke_test.sh -> 138 passed, 0 failed (sh + powershell.exe)
 - Follow-up: none
+
+## [2026-09-21T16:38:03Z] | claude | F03-E01-T01 | IN_PROGRESS
+- Summary: Markdown hardening: migrate this repo's own docs to the pure-Markdown format, rewrite stale evals, verify and publish
+- Verify: pending
+
+## [2026-09-21T16:54:17Z] | claude | F03-E01-T01 | DONE
+- Summary: Markdown hardening closed: Roadmap back to tables, canonical BR/ADR/Fxx IDs, strict Status enums, hardened check, claim inserts the row inside the Active work table, own docs migrated, evals 15-21 rewritten
+- Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh,templates/,docs/,evals/evals.json,references/,README.md,SKILL.md
+- Verify: sh scripts/smoke_test.sh -> 162 passed, 0 failed (sh + powershell.exe); sh scripts/project_docs.sh check . -> OK
