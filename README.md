@@ -19,7 +19,7 @@ Every project receives these exact files:
 | `docs/Agentslog.md` | Append-only ledger; source of truth for task ownership |
 | `docs/ProductDescription.md` | Current functional truth |
 | `docs/Stack_Tecnologies.md` | Current technical truth; legacy spelling retained |
-| `docs/Roadmap.md` | Hierarchical plan + cross-cutting entries (per-entry `yaml`, see `references/roadmap-schema.md`) |
+| `docs/Roadmap.md` | Hierarchical plan (Markdown tables) + Gaps/Bugs/Technical Debt |
 | `docs/Features.md` | Index of verified capabilities |
 
 Additional detail may live under `docs/features/`, `docs/decisions/`, or
@@ -48,7 +48,7 @@ Both launchers also provide:
 | Command | Purpose |
 |---|---|
 | `link [--create <list>]` | Point other agent files (`CLAUDE.md`, `.cursorrules`, ...) at `AGENTS.md`; run automatically at the end of `init` |
-| `migrate` | Merge a legacy `docs/Agents.md` into root `AGENTS.md`, fix a root case-only filename, add missing `Roadmap.md` sections — idempotent |
+| `migrate` | Merge a legacy `docs/Agents.md` into root `AGENTS.md`, fix a root case-only filename, add missing `Roadmap.md` sections, convert a per-entry YAML Roadmap back to tables — idempotent |
 | `claim <agent> <task-id> <summary>` | Take a Roadmap task; fails if another agent already owns it |
 | `pause <agent> <task-id> <category> <detail>` | Release a task (`LIMITE`\|`ESPERA_RESPUESTA`\|`BLOQUEO`\|`OTRO`) |
 | `done <agent> <task-id> <summary> <files> <verify>` | Close a task, record it in `Features.md`, clear it from the Roadmap |
@@ -66,18 +66,32 @@ every open task. The hot log rotates after 200 entries or 128 KiB.
 
 ## Changelog
 
-- **Human + AI Roadmap schema**: `docs/Roadmap.md` moves from Markdown tables
-  to a per-entry `### TYPE-ID — Title` + fenced `yaml` block format with a
-  full type taxonomy (VISION/PHASE/THEME/EPIC/FEATURE/TASK/SUBTASK plus
-  GAP/BUG/DECISION/BLOCKER/... cross-cutting types), explicit
-  dependencies/blockers/decisions, Human+AI ownership fields
-  (`owner`/`executor`/`assigned_agent`), and a `check` that validates type,
-  status, and every ID reference. `migrate` converts the old table format
-  non-destructively. Full reference: `references/roadmap-schema.md`.
+- **Markdown hardening**: reverted `docs/Roadmap.md` to pure Markdown
+  tables (superseding the per-entry YAML schema below) — zero YAML/JSON in
+  any contract file, so line-based tools never misparse an
+  indentation-sensitive block. Added canonical IDs (`BR-xxx` business
+  rules, `ADR-xxx` technical decisions, `Fxx-GAP-xx`/`Fxx-BUG-xx`/
+  `Fxx-DEBT-xx` gaps/bugs/debt), a strict epistemic `Status` enum
+  (`CONFIRMED`/`HYPOTHESIS`/`UNKNOWN`) on every fact table distinct from
+  Roadmap's workflow `Status` (`TODO`/`IN_PROGRESS`/`PAUSE`/`DONE`),
+  `## Out of scope` sections, and a `check` that validates required table
+  headers, the `<!-- context:end -->` delimiter, ID format, and both
+  `Status` vocabularies. `migrate` converts a YAML-format Roadmap back to
+  tables non-destructively. `claim` now inserts the moved row as the last
+  row of the `## Active work` table and removes the empty-table placeholder
+  (it used to land below the blank line, detached from the table, which broke
+  Markdown rendering). This repository's own `docs/` were migrated to the new
+  format.
+- **Human + AI Roadmap schema** (2026-09, superseded above): `docs/Roadmap.md`
+  briefly moved from Markdown tables to a per-entry `### TYPE-ID — Title` +
+  fenced `yaml` block format with a full type taxonomy and explicit
+  dependencies/blockers/decisions. Reverted after `check`'s
+  indentation-sensitive parsing proved too fragile for line-based tooling.
 - **Multi-agent coordination protocol**: single root `AGENTS.md` (replaces
   `docs/Agents.md`), `link`/`migrate` commands, `claim`/`pause`/`done`/`status`
   task lifecycle backed by the Agentslog, `Roadmap.md` `## Plan` +
-  `## Gaps and defects`, `references/intake.md`, and an extended `check`.
+  `## Gaps, Bugs & Technical Debt`, `references/intake.md`, and an extended
+  `check`.
 
 See `SKILL.md` for the agent workflow, `references/workflow.md` for command
 detail, `references/intake.md` for the new-app questionnaire, and

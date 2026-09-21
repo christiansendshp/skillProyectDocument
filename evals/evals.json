@@ -155,81 +155,83 @@
     },
     {
       "id": 15,
-      "prompt": "Build a PHASE -> EPIC -> TASK hierarchy in Roadmap.md using `parent` fields, then run check.",
-      "expected_output": "check passes: parent references resolve, and the hierarchy is not expressed through heading depth or type alone.",
+      "prompt": "Build a PHASE -> EPIC -> TASK hierarchy in Roadmap.md as headings plus a task-row table (a `### F01 — <phase>` heading, a `#### F01-E01 — <epic>` heading, then a table row `F01-E01-T01`), then run check.",
+      "expected_output": "check passes: the hierarchy lives in heading levels and the Fnn-Enn-Tnn ID shape, the file contains no YAML or JSON, and the scripts never parse the headings themselves.",
       "files": [],
       "expectations": [
-        "A TASK's parent field names an existing EPIC id",
-        "check does not require heading nesting to match the parent chain",
-        "check passes with no dangling-reference errors"
+        "check passes on the hierarchy",
+        "The task row ID starts with Fnn and validates",
+        "Roadmap.md contains no fenced yaml or json block"
       ]
     },
     {
       "id": 16,
-      "prompt": "Add a TASK whose depends_on and parent name IDs that don't exist anywhere in Roadmap.md or Features.md, then run check.",
-      "expected_output": "check fails, reporting each dangling reference by field name and the missing ID.",
+      "prompt": "In three separate projects, break one canonical ID each: a Business rules row not shaped BR-xxx, a Technical decisions row not shaped ADR-xxx, and a Plan row not starting Fnn. Run check on each.",
+      "expected_output": "check fails every time and names the offending ID; a freshly initialized project passes check.",
       "files": [],
       "expectations": [
-        "check reports the invalid parent reference",
-        "check reports the invalid depends_on reference",
-        "Each error names the offending ID"
+        "A fresh init scaffold passes check",
+        "Each failure message contains 'invalid ID format' followed by the offending ID",
+        "The Business rules, Technical decisions, and Plan checks are independent of each other"
       ]
     },
     {
       "id": 17,
-      "prompt": "Add a DECISION entry with status PENDING blocking a TASK via blocked_by, then resolve the decision (status DECIDED) and update the task, then run check.",
-      "expected_output": "check passes throughout; the DECISION's own status vocabulary (PENDING/DECIDED) is accepted even though it differs from the base Roadmap state vocabulary.",
+      "prompt": "Set a Product fact-table Status to `N/A`, and separately set a Roadmap row's Status to `CONFIRMED`, then run check on each.",
+      "expected_output": "check fails, naming the row and which Status vocabulary was violated: epistemic (CONFIRMED/HYPOTHESIS/UNKNOWN) in Product and Stack, workflow (TODO/IN_PROGRESS/PAUSE/DONE) in Roadmap.",
       "files": [],
       "expectations": [
-        "A DECISION entry with status PENDING does not fail check's status validation",
-        "A TASK's blocked_by referencing the DECISION's id passes reference validation",
-        "check still passes after the DECISION is marked DECIDED"
+        "N/A in a Product or Stack Status column is rejected as an invalid epistemic Status",
+        "CONFIRMED in a Roadmap Status column is rejected as an invalid workflow Status",
+        "UNKNOWN in a Product or Stack Status column is accepted"
       ]
     },
     {
       "id": 18,
-      "prompt": "claim a TASK entry that has an owner field already set to a human, then inspect the entry afterward.",
-      "expected_output": "claim sets status, executor, and assigned_agent, but leaves the owner field exactly as it was.",
+      "prompt": "Remove `<!-- context:end -->` from Roadmap.md, and separately remove the `## Out of scope` section from a contract file, then run check on each.",
+      "expected_output": "check fails and names the missing delimiter or the missing section.",
       "files": [],
       "expectations": [
-        "The owner field is unchanged after claim",
-        "executor and assigned_agent reflect the claiming agent",
-        "status is IN_PROGRESS"
+        "The missing context:end delimiter is reported by name",
+        "The missing Out of scope section is reported by name"
       ]
     },
     {
       "id": 19,
-      "prompt": "Claim, then done, a TASK entry that has acceptance_criteria and definition_of_done fields with real content.",
-      "expected_output": "done succeeds (it does not itself verify acceptance_criteria/definition_of_done — that is the agent's responsibility per AGENTS.md), records the capability in Features.md, and removes the entry from Roadmap.md.",
+      "prompt": "claim a task that sits in ## Plan, then read ## Active work and ## Plan.",
+      "expected_output": "The row leaves ## Plan and becomes the last row of the ## Active work table, directly under another table line (no blank line between), with Status IN_PROGRESS and Owner <agent>@<timestamp>; the empty-table placeholder row is gone, so the file still renders as one Markdown table.",
       "files": [],
       "expectations": [
-        "done does not require acceptance_criteria items to be individually marked complete",
-        "Features.md gets a new row for the closed id",
-        "The entry no longer appears in Roadmap.md after done"
+        "The claimed row no longer appears under ## Plan",
+        "The claimed row appears under ## Active work",
+        "The claimed row is attached to the Active work table, not detached below a blank line",
+        "The Active work placeholder row is removed"
       ]
     },
     {
       "id": 20,
-      "prompt": "In a project with a legacy table-format Roadmap.md (## Active work / ## Plan with Fase/Epic headings / ## Gaps and defects), run check, then migrate, then check again.",
-      "expected_output": "check fails first, naming migrate. migrate converts every row into a per-entry yaml block without losing IDs, Outcome/Description text, Status, Owner's agent, or Depends on; check then passes. A second migrate changes nothing.",
+      "prompt": "In a project whose Roadmap.md still uses the per-entry YAML format (### TYPE-ID headings plus fenced yaml blocks), run check, then migrate, then check again.",
+      "expected_output": "check fails first, naming migrate. migrate converts every entry to Markdown headings or table rows without losing an ID; an IN_PROGRESS task lands in ## Active work; an entry whose parent chain never reaches a PHASE is kept under F00-ORPHANED; check then passes; a second migrate changes nothing.",
       "files": [],
       "expectations": [
         "check fails and its message names migrate before conversion",
-        "Every legacy row's ID is present as a yaml entry's id after migrate",
-        "No legacy row's Outcome/Description text is lost",
+        "Every YAML entry's id is present in Roadmap.md after migrate",
+        "The IN_PROGRESS entry is routed to Active work",
+        "The orphaned entry is kept under F00-ORPHANED",
+        "A converted GAP keeps its severity",
         "check passes after migrate",
         "A second migrate run produces a byte-identical Roadmap.md"
       ]
     },
     {
       "id": 21,
-      "prompt": "done the last remaining TASK entry whose parent is an EPIC entry, then check Roadmap.md, Features.md, and Agentslog.md.",
-      "expected_output": "The task is closed and removed; the epic, having no remaining children, is also closed: it gets a Features.md row, a normal DONE log entry, and is removed from Roadmap.md. check passes.",
+      "prompt": "done the last remaining task under an epic (for example F90-E01-T01), then run check.",
+      "expected_output": "The task row is removed from Roadmap.md and recorded in Features.md; because no other Roadmap row shares the epic's ID prefix, the epic also gets a rollup row in Features.md; check passes.",
       "files": [],
       "expectations": [
-        "Features.md has one row for the task and one rollup row for the epic",
-        "Agentslog.md has a DONE entry for the epic id, not only the task id",
-        "The epic entry no longer appears in Roadmap.md",
+        "Features.md has a row for the task",
+        "Features.md has a rollup row for the epic",
+        "The task row no longer appears in Roadmap.md",
         "check passes with no Features/log ID mismatch errors"
       ]
     }

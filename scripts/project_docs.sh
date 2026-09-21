@@ -365,26 +365,6 @@ open_tasks_line() {
   done
 }
 
-# Computed, not stored: a per-entry YAML block has no natural "move between
-# sections" operation, so unlike Product/Stack/Features (bounded physical
-# sections) Active work is derived fresh from every entry's own `status`,
-# capped so a large Plan can't blow the 8 KiB context budget on its own.
-ACTIVE_SUMMARY_CAP=20
-roadmap_active_summary() {
-  echo "## Active work"
-  roadmap_entries | awk -F'\t' -v cap="$ACTIVE_SUMMARY_CAP" '
-    $4!="" && $4!="IDEA" && $4!="BACKLOG" && $4!="DONE" && $4!="CANCELLED" && $4!="DEFERRED" && $4!="DECIDED" {
-      total++
-      if (total<=cap) {
-        title=$3
-        if (length(title)>50) title=substr(title,1,47)"..."
-        printf "%s | %s | %s | %s\n", $1, $2, title, $4
-      }
-    }
-    END { if (total>cap) print "... and " (total-cap) " more (see docs/Roadmap.md)" }
-  '
-}
-
 build_context() {
   [ -f "$PROJECT/AGENTS.md" ] || die "run init first"
   tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-context.XXXXXX")"
@@ -398,7 +378,7 @@ build_context() {
     echo
     extract_context_block "$DOCS_DIR/Features.md" "## Operational summary"
     echo
-    roadmap_active_summary
+    extract_context_block "$DOCS_DIR/Roadmap.md" "## Active work"
     echo
     echo "## Open tasks"
     open_tasks_line
@@ -431,229 +411,110 @@ table_ids() {
 features_ids() { table_ids "$DOCS_DIR/Features.md"; }
 
 # ---------------------------------------------------------------------------
-# Roadmap entries: each is a "### TYPE-ID — Title" heading immediately
-# followed by a fenced ```yaml block; the block is the source of truth,
-# addressed by its top-level (column 0) `id:` line so nested keys (e.g. a
-# `- id: AC-1` inside acceptance_criteria) never collide. See
-# references/roadmap-schema.md for the full field/type reference.
+# Roadmap/Features table rows. Every table this tool edits ends in the same
+# four trailing columns (Status, Owner, Depends on, Pause reason), so cells
+# are addressed from the end regardless of how many columns precede them.
 # ---------------------------------------------------------------------------
-roadmap_ids() {
-  file="$DOCS_DIR/Roadmap.md"
-  [ -f "$file" ] || return 0
-  awk '
-    /^```yaml/ { infence=1; next }
-    infence && /^```[ \t]*$/ { infence=0; next }
-    infence && /^id: / {
-      val=$0; sub(/^id: /,"",val); gsub(/^[ \t]+|[ \t]+$/,"",val); gsub(/"/,"",val)
-      print val
-    }
-  ' "$file"
-}
+roadmap_ids() { table_ids "$DOCS_DIR/Roadmap.md"; }
 
 roadmap_has_id() {
   roadmap_ids | grep -qxF -- "$1"
 }
 
-# One TSV line per entry: id type title status parent depends_on blocks
-# blocked_by affects. List fields are ';'-joined and accept both inline
-# (`[a, b]`) and block (`- a` / `- b`) YAML list forms.
-roadmap_entries() {
-  file="$DOCS_DIR/Roadmap.md"
-  [ -f "$file" ] || return 0
-  awk '
-    function parse_inline(v,    s,n,i,arr,out) {
-      s=v
-      gsub(/^[ \t]+|[ \t]+$/,"",s)
-      if (s=="") return ""
-      if (s ~ /^\[.*\]$/) {
-        gsub(/^\[|\]$/,"",s)
-        gsub(/^[ \t]+|[ \t]+$/,"",s)
-        if (s=="") return ""
-        n=split(s,arr,",")
-        out=""
-        for (i=1;i<=n;i++) {
-          gsub(/^[ \t]+|[ \t]+$/,"",arr[i]); gsub(/"/,"",arr[i])
-          if (arr[i]!="") out=(out==""?arr[i]:out";"arr[i])
-        }
-        return out
-      }
-      gsub(/"/,"",s)
-      return s
-    }
-    /^```yaml/ {
-      infence=1; id=""; type=""; title=""; status=""; parent=""; dep=""; blk=""; bby=""; aff=""; pendkey=""
-      next
-    }
-    infence && /^```[ \t]*$/ {
-      infence=0
-      if (id!="") printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", id,type,title,status,parent,dep,blk,bby,aff
-      next
-    }
-    infence {
-      line=$0
-      if (line ~ /^[A-Za-z_][A-Za-z0-9_]*:/) {
-        colon=index(line,":")
-        key=substr(line,1,colon-1)
-        val=substr(line,colon+1)
-        sub(/^[ \t]+/,"",val)
-        gsub(/[ \t]+$/,"",val)
-        if (key=="id") { id=val; pendkey="" }
-        else if (key=="type") { type=val; pendkey="" }
-        else if (key=="title") { title=val; gsub(/"/,"",title); pendkey="" }
-        else if (key=="status") { status=val; pendkey="" }
-        else if (key=="parent") { parent=val; gsub(/"/,"",parent); pendkey="" }
-        else if (key=="depends_on") { dep=parse_inline(val); pendkey="dep" }
-        else if (key=="blocks") { blk=parse_inline(val); pendkey="blk" }
-        else if (key=="blocked_by") { bby=parse_inline(val); pendkey="bby" }
-        else if (key=="affects") { aff=parse_inline(val); pendkey="aff" }
-        else { pendkey="" }
-        next
-      }
-      if (line ~ /^[ \t]+-[ \t]/ && pendkey!="") {
-        item=line
-        sub(/^[ \t]+-[ \t]+/,"",item)
-        gsub(/^[ \t]+|[ \t]+$/,"",item)
-        gsub(/"/,"",item)
-        if (item!="") {
-          if (pendkey=="dep") dep=(dep==""?item:dep";"item)
-          else if (pendkey=="blk") blk=(blk==""?item:blk";"item)
-          else if (pendkey=="bby") bby=(bby==""?item:bby";"item)
-          else if (pendkey=="aff") aff=(aff==""?item:aff";"item)
-        }
-        next
-      }
-      if (line ~ /^[ \t]/) next
-      pendkey=""
-    }
-  ' "$file"
+roadmap_has_id_prefix() {
+  roadmap_ids | grep -q -- "^$1"
 }
 
-# Whole-file line range (inclusive) of the yaml fence CONTENT (excluding the
-# ``` markers) for the entry whose top-level id matches.
-roadmap_entry_range() {
-  target="$1"
-  file="$DOCS_DIR/Roadmap.md"
-  [ -f "$file" ] || return 1
-  awk -v target="$target" '
-    { lines[NR]=$0 }
-    END {
-      n=NR
-      for (i=1;i<=n;i++) {
-        if (lines[i] ~ /^```yaml/) {
-          fs=i; fe=0
-          for (j=i+1;j<=n;j++) { if (lines[j] ~ /^```[ \t]*$/) { fe=j; break } }
-          if (fe==0) { i=n; continue }
-          found=0
-          for (k=fs+1;k<fe;k++) {
-            if (lines[k] ~ /^id: /) {
-              v=lines[k]; sub(/^id: /,"",v); gsub(/^[ \t]+|[ \t]+$/,"",v); gsub(/"/,"",v)
-              if (v==target) found=1
-            }
-          }
-          if (found) { print (fs+1)" "(fe-1); exit }
-          i=fe
-        }
-      }
+roadmap_section_of() {
+  awk -F'|' -v id="$1" '
+    /^## Active work/ { sect="active" }
+    /^## Plan/ { sect="plan" }
+    /^## Gaps, Bugs & Technical Debt/ { sect="gaps" }
+    /^## Near term/ { sect="near" }
+    /^\|/ {
+      cell=$2; gsub(/^[ \t]+|[ \t]+$/,"",cell)
+      if (cell==id) { print sect; exit }
     }
-  ' "$file"
+  ' "$DOCS_DIR/Roadmap.md"
 }
 
-roadmap_get_field() {
-  id="$1"; key="$2"
+roadmap_update_row_inplace() {
+  task="$1"; status="$2"; owner="$3"; pr="$4"
   file="$DOCS_DIR/Roadmap.md"
-  range="$(roadmap_entry_range "$id")"
-  [ -n "$range" ] || return 1
-  start="${range%% *}"; end="${range##* }"
-  sed -n "${start},${end}p" "$file" | awk -v key="$key" '
-    $0 ~ ("^"key":") {
-      val=$0
-      sub("^"key":","",val)
-      sub(/^[ \t]+/,"",val)
-      print val
-      found=1
-    }
-    END { exit(found?0:1) }
-  '
-}
-
-# Double-quote a value for safe embedding as a YAML scalar (used for
-# free-form values such as an agent name, never for script-controlled enums).
-yaml_quote() {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
-}
-
-roadmap_set_field() {
-  id="$1"; key="$2"; value="$3"
-  file="$DOCS_DIR/Roadmap.md"
-  range="$(roadmap_entry_range "$id")"
-  [ -n "$range" ] || die "roadmap_set_field: $id not found in docs/Roadmap.md"
-  start="${range%% *}"; end="${range##* }"
-  has_key="$(sed -n "${start},${end}p" "$file" | awk -v key="$key" '$0 ~ ("^"key":"){f=1} END{print f+0}')"
   tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-roadmap.XXXXXX")"
-  if [ "$has_key" = "1" ]; then
-    awk -v start="$start" -v end="$end" -v key="$key" -v value="$value" '
-      { if (NR>=start && NR<=end && $0 ~ ("^"key":")) { print key": "value; next } print }
-    ' "$file" > "$tmp"
-  else
-    awk -v start="$start" -v end="$end" -v key="$key" -v value="$value" '
-      { print; if (NR>=start && NR<=end && $0 ~ /^id: /) print key": "value }
-    ' "$file" > "$tmp"
-  fi
-  mv "$tmp" "$file"
-}
-
-# Remove a whole entry: its "### TYPE-ID — Title" heading through the
-# closing yaml fence, plus one trailing blank line. A no-op if the ID isn't
-# a Roadmap entry (mirrors the old table version's tolerance of unknown IDs).
-roadmap_remove_entry() {
-  id="$1"
-  file="$DOCS_DIR/Roadmap.md"
-  [ -f "$file" ] || return 0
-  tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-roadmap.XXXXXX")"
-  awk -v target="$id" '
-    { lines[NR]=$0 }
-    END {
-      n=NR
-      del_start=0; del_end=0
-      for (i=1;i<=n;i++) {
-        if (lines[i] ~ /^```yaml/) {
-          fs=i; fe=0
-          for (j=i+1;j<=n;j++) { if (lines[j] ~ /^```[ \t]*$/) { fe=j; break } }
-          if (fe==0) { i=n; continue }
-          found=0
-          for (k=fs+1;k<fe;k++) {
-            if (lines[k] ~ /^id: /) {
-              v=lines[k]; sub(/^id: /,"",v); gsub(/^[ \t]+|[ \t]+$/,"",v); gsub(/"/,"",v)
-              if (v==target) found=1
-            }
-          }
-          if (found) {
-            h=fs-1
-            crossed=0
-            while (h>=1 && lines[h] !~ /^### /) {
-              if (lines[h] ~ /^## / || lines[h] ~ /^```/) { crossed=1; break }
-              h--
-            }
-            if (crossed || h<1 || lines[h] !~ /^### /) { del_start=fs } else { del_start=h }
-            del_end=fe
-            if (del_end+1<=n && lines[del_end+1] ~ /^[ \t]*$/) del_end=del_end+1
-          }
-          i=fe
-        }
-      }
-      for (i=1;i<=n;i++) {
-        if (del_start>0 && i>=del_start && i<=del_end) continue
-        print lines[i]
+  awk -F'|' -v OFS='|' -v id="$task" -v status="$status" -v owner="$owner" -v pr="$pr" '
+    /^\|/ {
+      cell=$2; gsub(/^[ \t]+|[ \t]+$/,"",cell)
+      if (cell==id) {
+        $(NF-4) = " " status " "
+        $(NF-3) = " " owner " "
+        $(NF-1) = " " pr " "
+        print; next
       }
     }
+    { print }
   ' "$file" > "$tmp"
   mv "$tmp" "$file"
 }
 
-# True if some other entry's top-level `parent:` still names parent_id.
-roadmap_has_child_of() {
-  parent_id="$1"
-  roadmap_entries | awk -F'\t' -v p="$parent_id" '$5==p{f=1} END{exit(f?0:1)}'
+roadmap_move_to_active() {
+  task="$1"; status="$2"; owner="$3"; pr="$4"
+  file="$DOCS_DIR/Roadmap.md"
+  row="$(awk -F'|' -v id="$task" '/^\|/ { cell=$2; gsub(/^[ \t]+|[ \t]+$/,"",cell); if (cell==id) { print; exit } }' "$file")"
+  newrow="$(printf '%s\n' "$row" | awk -F'|' -v OFS='|' -v status="$status" -v owner="$owner" -v pr="$pr" '{ $(NF-4)=" " status " "; $(NF-3)=" " owner " "; $(NF-1)=" " pr " "; print }')"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-roadmap.XXXXXX")"
+  awk -F'|' -v id="$task" '/^\|/ { cell=$2; gsub(/^[ \t]+|[ \t]+$/,"",cell); if (cell==id) next } { print }' "$file" > "$tmp"
+  tmp2="$(mktemp "${TMPDIR:-/tmp}/project-docs-roadmap.XXXXXX")"
+  # The row becomes the LAST row of the Active work table (walking back from
+  # the context:end marker over the blank line that separates them), not a
+  # line just above the marker, which would detach it from the table and
+  # break Markdown rendering. The empty-table placeholder row goes away.
+  awk -v row="$newrow" -v marker="<!-- context:end -->" '
+    { line[NR]=$0 }
+    END {
+      m=0; aw=0; k=0
+      for (i=1;i<=NR;i++) {
+        if (!aw && line[i]=="## Active work") aw=i
+        if (!m && line[i]==marker) m=i
+      }
+      if (m) for (i=m-1;i>=1;i--) {
+        if (line[i] ~ /^\|/) { k=i; break }
+        if (line[i] ~ /^#/) break
+      }
+      for (i=1;i<=NR;i++) {
+        skip=0
+        if (aw && m && i>aw && i<m && line[i] ~ /^\|/) {
+          t=line[i]; gsub(/[| \t]/,"",t); gsub(/—/,"",t)
+          if (t=="") skip=1
+        }
+        if (!k && i==m) print row
+        if (!skip) print line[i]
+        if (k && i==k) print row
+      }
+      if (!m) print row
+    }
+  ' "$tmp" > "$tmp2"
+  mv "$tmp2" "$file"
+  rm -f "$tmp"
+}
+
+roadmap_remove_row_file() {
+  task="$1"
+  file="$DOCS_DIR/Roadmap.md"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-roadmap.XXXXXX")"
+  awk -F'|' -v id="$task" '/^\|/ { cell=$2; gsub(/^[ \t]+|[ \t]+$/,"",cell); if (cell==id) next } { print }' "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+roadmap_claim_row() {
+  task="$1"; agent="$2"; ts="$3"
+  owner="$agent@$ts"
+  section="$(roadmap_section_of "$task")"
+  if [ "$section" = "plan" ]; then
+    roadmap_move_to_active "$task" "IN_PROGRESS" "$owner" "—"
+  else
+    roadmap_update_row_inplace "$task" "IN_PROGRESS" "$owner" "—"
+  fi
 }
 
 update_features_summary() {
@@ -668,30 +529,22 @@ update_features_summary() {
   mv "$tmp" "$file"
 }
 
-# Records a closed entry in Features.md. When it was the last direct child
-# (by `parent`) of an EPIC entry, also rolls the epic up: a Features row, a
-# normal synthetic DONE log entry (so check needs no epic-shape special case
-# going forward), and removal of the epic's own now-closed Roadmap entry.
+# Records a closed task in Features.md. When its ID is a task under an EPIC
+# (`F01-E01-T01`, inferred from the ID shape, not a stored field) and no
+# other Roadmap row still shares that epic prefix, also rolls the epic up
+# with its own Features row.
 features_add_capability() {
-  task="$1"; summary="$2"; verify="$3"; timestamp="$4"; parent="${5:-}"
+  task="$1"; summary="$2"; verify="$3"; timestamp="$4"
   file="$DOCS_DIR/Features.md"
   date_only="${timestamp%%T*}"
   tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-features.XXXXXX")"
   awk -v ph='| — | — | — | — | — |' '$0==ph { next } { print }' "$file" > "$tmp"
   mv "$tmp" "$file"
   printf '| %s | %s | %s | log:%s | %s |\n' "$task" "$summary" "$verify" "$task" "$date_only" >> "$file"
-  if [ -n "$parent" ]; then
-    ptype="$(roadmap_get_field "$parent" type || true)"
-    if [ "$ptype" = "EPIC" ] && ! roadmap_has_child_of "$parent" && ! table_ids "$file" | grep -qxF -- "$parent"; then
-      printf '| %s | Epic complete | all tasks DONE | log:%s | %s |\n' "$parent" "$task" "$date_only" >> "$file"
-      {
-        echo
-        echo "## [$timestamp] | rollup | $parent | DONE"
-        echo "- Summary: all direct children of $parent are DONE"
-        echo "- Files: -"
-        echo "- Verify: rollup from $task"
-      } >> "$DOCS_DIR/Agentslog.md"
-      roadmap_remove_entry "$parent"
+  epic="$(printf '%s' "$task" | sed 's/^\(F[0-9][0-9]*-E[0-9][0-9]*\)-.*/\1/')"
+  if [ "$epic" != "$task" ]; then
+    if ! roadmap_has_id_prefix "${epic}-" && ! table_ids "$file" | grep -qxF -- "$epic"; then
+      printf '| %s | Epic complete | all tasks DONE | log:%s | %s |\n' "$epic" "$task" "$date_only" >> "$file"
     fi
   fi
   update_features_summary "$file" "$verify" "$date_only"
@@ -733,22 +586,18 @@ cmd_claim() {
   if ! roadmap_has_id "$task"; then
     die "claim failed: $task not found in docs/Roadmap.md"
   fi
-  task_type="$(roadmap_get_field "$task" type || true)"
-  if [ "$task_type" = "DECISION" ]; then
-    die "claim failed: $task is a DECISION; resolve it by hand (see references/roadmap-schema.md #9), not with claim"
-  fi
   with_lock
   if state="$(task_state "$task")"; then
     status="$(printf '%s' "$state" | cut -f2)"
-    held_by="$(printf '%s' "$state" | cut -f3)"
+    owner="$(printf '%s' "$state" | cut -f3)"
     pausecat="$(printf '%s' "$state" | cut -f5)"
     if [ "$status" = "IN_PROGRESS" ]; then
-      if [ "$held_by" != "$agent" ] && ! is_stale "$task"; then
-        die "claim failed: $task is IN_PROGRESS, owned by $held_by"
+      if [ "$owner" != "$agent" ] && ! is_stale "$task"; then
+        die "claim failed: $task is IN_PROGRESS, owned by $owner"
       fi
     elif [ "$status" = "PAUSE" ]; then
-      if [ "$pausecat" != "LIMITE" ] && [ "$held_by" != "$agent" ]; then
-        die "claim failed: $task is PAUSE ($pausecat); resolvable only by $held_by until the reason clears"
+      if [ "$pausecat" != "LIMITE" ] && [ "$owner" != "$agent" ]; then
+        die "claim failed: $task is PAUSE ($pausecat); resolvable only by $owner until the reason clears"
       fi
     fi
   fi
@@ -759,12 +608,7 @@ cmd_claim() {
     echo "- Summary: $summary"
     echo "- Verify: pending"
   } >> "$DOCS_DIR/Agentslog.md"
-  if roadmap_has_id "$task"; then
-    roadmap_set_field "$task" status IN_PROGRESS
-    roadmap_set_field "$task" executor AI
-    roadmap_set_field "$task" assigned_agent "\"$(yaml_quote "$agent")\""
-    roadmap_set_field "$task" updated_at "$timestamp"
-  fi
+  roadmap_claim_row "$task" "$agent" "$timestamp"
   echo "project_docs claim: $task claimed by $agent"
 }
 
@@ -783,26 +627,19 @@ cmd_pause() {
   with_lock
   if state="$(task_state "$task")"; then
     status="$(printf '%s' "$state" | cut -f2)"
-    held_by="$(printf '%s' "$state" | cut -f3)"
+    owner="$(printf '%s' "$state" | cut -f3)"
   else
     die "pause failed: $task has no IN_PROGRESS entry to pause"
   fi
   [ "$status" = "IN_PROGRESS" ] || die "pause failed: $task is not IN_PROGRESS (current: $status)"
-  [ "$held_by" = "$agent" ] || die "pause failed: $task is owned by $held_by, not $agent"
+  [ "$owner" = "$agent" ] || die "pause failed: $task is owned by $owner, not $agent"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   {
     echo
     echo "## [$timestamp] | $agent | $task | PAUSE"
     echo "- Pause: $category - $detail"
   } >> "$DOCS_DIR/Agentslog.md"
-  if roadmap_has_id "$task"; then
-    case "$category" in
-      LIMITE|OTRO) new_status=READY ;;
-      ESPERA_RESPUESTA|BLOQUEO) new_status=BLOCKED ;;
-    esac
-    roadmap_set_field "$task" status "$new_status"
-    roadmap_set_field "$task" updated_at "$timestamp"
-  fi
+  roadmap_update_row_inplace "$task" "PAUSE" "$agent@$timestamp" "$category"
   echo "project_docs pause: $task paused ($category)"
 }
 
@@ -824,9 +661,8 @@ cmd_done() {
     echo "- Files: $files"
     echo "- Verify: $verify"
   } >> "$DOCS_DIR/Agentslog.md"
-  parent="$(roadmap_get_field "$task" parent || true)"
-  roadmap_remove_entry "$task"
-  features_add_capability "$task" "$summary" "$verify" "$timestamp" "$parent"
+  roadmap_remove_row_file "$task"
+  features_add_capability "$task" "$summary" "$verify" "$timestamp"
   echo "project_docs done: $task closed"
 }
 
@@ -849,149 +685,307 @@ cmd_status() {
 # ---------------------------------------------------------------------------
 # migrate
 # ---------------------------------------------------------------------------
-# True if docs/Roadmap.md still uses the pre-rewrite table format (any of
-# its three old section headings). A file already in the new per-entry YAML
-# format, or a fresh one just scaffolded from the template, has none of
-# these, so this is also the idempotency check for the conversion below.
-roadmap_needs_table_migration() {
+ensure_roadmap_sections() {
   file="$DOCS_DIR/Roadmap.md"
-  [ -f "$file" ] || return 1
-  grep -qE '^## (Active work|Near term|Gaps and defects)$' "$file"
+  [ -f "$file" ] || return 0
+  if ! grep -qF "## Plan" "$file"; then
+    {
+      echo
+      echo "## Plan"
+      echo
+      echo "Full PHASE -> EPIC -> TASK -> SUBTASK hierarchy for pending work."
+      echo
+    } >> "$file"
+  fi
+  if ! grep -qF "## Gaps, Bugs & Technical Debt" "$file"; then
+    {
+      echo
+      echo "## Gaps, Bugs & Technical Debt"
+      echo
+      echo "| ID | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |"
+      echo "|---|---|---|---|---|---|---|---|"
+      echo "| — | — | — | — | — | — | — | — |"
+    } >> "$file"
+  fi
+  if ! grep -qF "## Out of scope" "$file"; then
+    {
+      echo
+      echo "## Out of scope"
+      echo
+      echo "- \`UNKNOWN\`"
+    } >> "$file"
+  fi
+  active_has_pause_reason="$(awk '
+    /^## Active work/ { a=1; next }
+    /^## Near term/ { a=0 }
+    a && /^\| ID \|/ { print (index($0,"Pause reason") > 0) ? "1" : "0"; exit }
+  ' "$file")"
+  if [ "$active_has_pause_reason" != "1" ]; then
+    tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-roadmap.XXXXXX")"
+    awk '
+      /^## Active work/ { active=1 }
+      /^## Near term/ { active=0 }
+      /^## Plan/ { active=0 }
+      active && /^\| ID \|/ { print $0 " Pause reason |"; next }
+      active && /^\|---/ { print $0 "---|"; next }
+      active && /^\|/ { sub(/\|[ \t]*$/,"| — |"); print; next }
+      { print }
+    ' "$file" > "$tmp"
+    mv "$tmp" "$file"
+  fi
 }
 
-# Non-destructive table -> per-entry YAML conversion (references/roadmap-
-# schema.md #18). Old "## Active work"/"## Plan" rows and Fase/Epic headings
-# become PHASE/EPIC/TASK entries under the new "## Plan"; "## Gaps and
-# defects" rows become GAP entries under "## Cross-cutting". IDs are kept
-# exactly as written (ADR-001); Outcome -> description, Acceptance check ->
-# one acceptance_criteria item, Owner's agent part -> assigned_agent (the
-# old cell mixed agent+timestamp and was never the accountability `owner`
-# this schema defines, so `owner` is left for a human to fill in), Depends
-# on -> depends_on, Severity/Phase (Gaps and defects only) -> their own
-# fields. `type` is inferred TASK for Active work/Plan/Near term rows and
-# GAP for Gaps and defects rows regardless of what the row's ID or
-# description imply; adjust by hand afterward if a row is really a BUG.
-roadmap_migrate_table_to_yaml() {
+# True if docs/Roadmap.md still uses the per-entry YAML block format from the
+# short-lived schema this skill used before reverting to Markdown tables. A
+# table-format file (fresh from the template, or already migrated) has no
+# ```yaml fence, so this doubles as the idempotency check below.
+roadmap_needs_yaml_migration() {
   file="$DOCS_DIR/Roadmap.md"
-  roadmap_needs_table_migration || return 1
-  awk_prog='
-    BEGIN { section=""; phase_id=""; epic_id=""; sep=" — " }
-    function trim(s) { gsub(/^[ \t]+|[ \t]+$/,"",s); return s }
-    function is_placeholder(v) { return (v=="" || v=="—" || v=="-" || v ~ /^-+$/) }
-    function map_status(s,   v) {
-      v = trim(s)
-      if (v=="TODO") return "BACKLOG"
-      if (v=="IN_PROGRESS") return "IN_PROGRESS"
-      if (v=="PAUSE") return "BLOCKED"
-      if (v=="DONE") return "DONE"
-      return "BACKLOG"
-    }
-    function extract_agent(owner,   v, at) {
-      v = trim(owner)
-      if (is_placeholder(v)) return ""
-      at = index(v, "@")
-      if (at > 0) return substr(v, 1, at - 1)
-      return v
-    }
-    function norm_deps(d,   v) {
-      v = trim(d)
-      if (is_placeholder(v)) return ""
-      gsub(/,[ \t]*/, ";", v)
-      gsub(/[ \t]+/, ";", v)
-      return v
-    }
-    function heading_id_title(line, out,    dash) {
-      dash = index(line, sep)
-      if (dash > 0) { out[1] = trim(substr(line, 1, dash - 1)); out[2] = trim(substr(line, dash + length(sep))) }
-      else { out[1] = trim(line); out[2] = trim(line) }
-    }
-    function esc_quote(v,   s) { s = v; gsub(/\\/,"\\\\",s); gsub(/"/,"\\\"",s); return s }
-    function emit(bucket, id, type, title, status, parent, description, acceptance, assigned_agent, deps, severity, phase,    n, i, items) {
-      if (bucket != want) return
-      print ""
-      print "### " id sep title
-      print ""
-      print "```yaml"
-      print "id: " id
-      print "type: " type
-      print "title: " title
-      print "status: " status
-      if (parent != "") print "parent: " parent
-      if (assigned_agent != "") print "assigned_agent: \"" esc_quote(assigned_agent) "\""
-      if (deps != "") {
-        print "depends_on:"
-        n = split(deps, items, ";")
-        for (i = 1; i <= n; i++) if (items[i] != "") print "  - " items[i]
-      }
-      if (severity != "") print "severity: " severity
-      if (phase != "") print "phase: " phase
-      if (description != "") { print "description: >"; print "  " description }
-      if (acceptance != "") {
-        print "acceptance_criteria:"
-        print "  - id: AC-1"
-        print "    description: " acceptance
-        print "    status: pending"
-      }
-      print "```"
-    }
-    /^## Active work/ { section="active"; next }
-    /^## Near term/ { section="near"; next }
-    /^## Plan/ { section="plan"; next }
-    /^## Gaps and defects/ { section="gaps"; next }
-    /^<!-- context:end -->/ { next }
-    section=="plan" && /^### / {
-      line=$0; sub(/^### /,"",line)
-      heading_id_title(line, h)
-      phase_id=h[1]; epic_id=""
-      emit("plan", h[1], "PHASE", h[2], "BACKLOG", "", "", "", "", "", "", "")
-      next
-    }
-    section=="plan" && /^#### / {
-      line=$0; sub(/^#### /,"",line)
-      heading_id_title(line, h)
-      epic_id=h[1]
-      emit("plan", h[1], "EPIC", h[2], "BACKLOG", phase_id, "", "", "", "", "", "")
-      next
-    }
-    /^\|/ {
-      line = $0
-      sub(/^\|/, "", line)
-      sub(/\|[ \t]*$/, "", line)
-      n = split(line, c, "|")
-      for (i = 1; i <= n; i++) c[i] = trim(c[i])
-      if (c[1] == "ID" || is_placeholder(c[1])) next
-      if (section == "active" || (section == "plan" && n == 7)) {
-        id=c[1]; outcome=c[2]; accept=c[3]; status=c[4]; owner=c[5]; deps=c[6]
-        emit("plan", id, "TASK", outcome, map_status(status), epic_id, outcome, accept, extract_agent(owner), norm_deps(deps), "", "")
-        next
-      }
-      if (section == "near" && n == 5) {
-        id=c[1]; outcome=c[2]; accept=c[3]; status=c[4]; deps=c[5]
-        emit("plan", id, "TASK", outcome, map_status(status), "", outcome, accept, "", norm_deps(deps), "", "")
-        next
-      }
-      if (section == "gaps" && n == 8) {
-        id=c[1]; sev=c[2]; ph=c[3]; desc=c[4]; status=c[5]; owner=c[6]; deps=c[7]
-        emit("cross", id, "GAP", desc, map_status(status), "", desc, "", extract_agent(owner), norm_deps(deps), sev, ph)
-        next
-      }
-    }
-  '
-  plan_entries="$(awk -v want=plan "$awk_prog" "$file")"
-  cross_entries="$(awk -v want=cross "$awk_prog" "$file")"
+  [ -f "$file" ] || return 1
+  grep -qE '^```yaml[ \t]*$' "$file"
+}
+
+# Non-destructive per-entry YAML -> table conversion. Every entry keeps its
+# ID (the hard requirement); PHASE/THEME/EPIC/FEATURE become headings (the
+# spine's `parent` chain is walked, up to 8 hops, to place each heading under
+# its nearest PHASE and each TASK/SUBTASK/FEATURE row under its nearest
+# EPIC); GAP/BUG/DECISION/BLOCKER/and other cross-cutting entries become rows
+# in "## Gaps, Bugs & Technical Debt" (a DECISION's question/options/decision
+# fields are not representable in the table schema and are dropped after
+# converting the ID and title — review those by hand). An entry whose parent
+# chain never reaches a PHASE is kept, not dropped, under a synthesized
+# "F00-ORPHANED" phase for manual placement.
+roadmap_migrate_yaml_to_table() {
+  file="$DOCS_DIR/Roadmap.md"
+  roadmap_needs_yaml_migration || return 1
   tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-roadmap.XXXXXX")"
+  nearterm="$(awk '/^## Plan/{exit} /^## Near term/{p=1} p{print}' "$TEMPLATES_DIR/Roadmap.md")"
   {
-    awk '/^## Plan/{exit} {print}' "$TEMPLATES_DIR/Roadmap.md"
-    echo "## Plan"
-    printf '%s\n' "$plan_entries"
-    echo
-    echo "## Cross-cutting"
-    if [ -n "$cross_entries" ]; then
-      printf '%s\n' "$cross_entries"
-    else
-      echo
-      echo "No entries yet. Add a \`### TYPE-ID — Title\` heading and \`yaml\` block here for a GAP, BUG, DECISION, BLOCKER, or other cross-cutting entry when one is found."
-    fi
+    awk '/^## Active work/{exit} {print}' "$TEMPLATES_DIR/Roadmap.md"
+    awk -v nearterm="$nearterm
+
+" '
+      BEGIN { insection="" }
+      /^## Plan/ { insection="plan"; next }
+      /^## Cross-cutting/ { insection="cross"; next }
+      /^```yaml/ {
+        infence=1; id=""; type=""; title=""; status=""; parent=""; agent=""
+        desc=""; accept=""; sev=""; ph=""; deps=""; pendkey=""; capturedac=0
+        next
+      }
+      infence && /^```[ \t]*$/ {
+        infence=0
+        if (id!="" && !(id in seen)) {
+          seen[id]=1; order[++n]=id
+          etype[id]=type; etitle[id]=title; estatus[id]=status; eparent[id]=parent
+          eagent[id]=agent; edesc[id]=desc; eaccept[id]=accept; esev[id]=sev
+          ephase[id]=ph; edeps[id]=deps; esection[id]=insection
+        }
+        next
+      }
+      infence {
+        line=$0
+        if (line ~ /^[A-Za-z_][A-Za-z0-9_]*:/) {
+          colon=index(line,":")
+          key=substr(line,1,colon-1)
+          val=substr(line,colon+1)
+          sub(/^[ \t]+/,"",val); gsub(/[ \t]+$/,"",val)
+          pendkey=""
+          if (key=="id") id=val
+          else if (key=="type") type=val
+          else if (key=="title") { title=val; gsub(/"/,"",title) }
+          else if (key=="status") status=val
+          else if (key=="parent") { parent=val; gsub(/"/,"",parent) }
+          else if (key=="assigned_agent") { agent=val; gsub(/"/,"",agent) }
+          else if (key=="severity") sev=val
+          else if (key=="phase") ph=val
+          else if (key=="depends_on") pendkey="dep"
+          else if (key=="description") {
+            if (val=="" || val==">" || val=="|") { pendkey="desc"; desc="" }
+            else { desc=val; gsub(/"/,"",desc) }
+          }
+          else if (key=="acceptance_criteria") { pendkey="ac"; capturedac=0 }
+          next
+        }
+        if (line ~ /^[ \t]+-[ \t]/) {
+          item=line
+          sub(/^[ \t]+-[ \t]+/,"",item)
+          gsub(/^[ \t]+|[ \t]+$/,"",item)
+          if (pendkey=="dep") { gsub(/"/,"",item); deps=(deps==""?item:deps";"item) }
+          else if (pendkey=="ac") capturedac=1
+          next
+        }
+        if (pendkey=="desc" && line ~ /^[ \t]+/) {
+          t=line; gsub(/^[ \t]+|[ \t]+$/,"",t)
+          desc=(desc==""?t:desc" "t)
+          next
+        }
+        if (pendkey=="ac" && capturedac==1 && line ~ /^[ \t]+description:/) {
+          t=line
+          sub(/^[ \t]+description:[ \t]*/,"",t)
+          gsub(/^[ \t]+|[ \t]+$/,"",t); gsub(/"/,"",t)
+          if (accept=="") accept=t
+          next
+        }
+        if (line ~ /^[ \t]/) next
+        pendkey=""
+      }
+      function walk_up_for_type(startid, wanttype,    cur, hops) {
+        cur = startid
+        hops = 0
+        while (cur != "" && hops < 8) {
+          if (etype[cur] == wanttype) return cur
+          cur = eparent[cur]
+          hops++
+        }
+        return ""
+      }
+      function map_wf_status(s) {
+        if (s=="IDEA" || s=="BACKLOG" || s=="READY" || s=="PENDING") return "TODO"
+        if (s=="IN_PROGRESS" || s=="REVIEW" || s=="TESTING") return "IN_PROGRESS"
+        if (s=="BLOCKED") return "PAUSE"
+        if (s=="DONE" || s=="DECIDED") return "DONE"
+        if (s=="CANCELLED" || s=="DEFERRED") return "TODO"
+        return "TODO"
+      }
+      function orfield(v) { return (v=="" ? "—" : v) }
+      function orstr(v, fb) { return (v=="" ? fb : v) }
+      function print_row(id,    st, ag, dp) {
+        st = map_wf_status(estatus[id])
+        ag = orfield(eagent[id])
+        dp = orfield(edeps[id]); gsub(/;/,", ",dp)
+        printf "| %s | %s | %s | %s | %s | %s | — |\n", id, orstr(edesc[id],etitle[id]), orstr(eaccept[id],"UNKNOWN"), st, ag, dp
+      }
+      function print_gap_row(id,    st, ag, dp) {
+        st = map_wf_status(estatus[id])
+        ag = orfield(eagent[id])
+        dp = orfield(edeps[id]); gsub(/;/,", ",dp)
+        printf "| %s | %s | %s | %s | %s | %s | %s | — |\n", id, orfield(esev[id]), orfield(ephase[id]), orstr(edesc[id],etitle[id]), st, ag, dp
+      }
+      END {
+        for (i=1;i<=n;i++) {
+          id=order[i]
+          if (esection[id]!="plan") continue
+          t=etype[id]
+          if (t=="EPIC") epic_phase[id]=walk_up_for_type(eparent[id],"PHASE")
+          else if (t=="THEME") theme_phase[id]=walk_up_for_type(eparent[id],"PHASE")
+          else if (t=="TASK" || t=="SUBTASK" || t=="FEATURE") {
+            row_epic[id]=walk_up_for_type(eparent[id],"EPIC")
+            if (row_epic[id]=="") row_phase[id]=walk_up_for_type(eparent[id],"PHASE")
+            st=map_wf_status(estatus[id])
+            if (st=="IN_PROGRESS" || st=="PAUSE") is_active[id]=1
+          }
+        }
+        print "## Active work"
+        print ""
+        print "| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |"
+        print "|---|---|---|---|---|---|---|"
+        activecount=0
+        for (i=1;i<=n;i++) { id=order[i]; if (is_active[id]) { print_row(id); activecount++ } }
+        if (!activecount) print "| — | — | — | — | — | — | — |"
+        print ""
+        print "<!-- context:end -->"
+        print ""
+        printf "%s", nearterm
+        anyphase=0
+        for (i=1;i<=n;i++) if (esection[order[i]]=="plan" && etype[order[i]]=="PHASE") anyphase=1
+        print "## Plan"
+        print ""
+        visionid=""
+        for (i=1;i<=n;i++) { if (etype[order[i]]=="VISION") { visionid=order[i]; break } }
+        if (visionid!="") printf "**Vision:** %s\n", orstr(edesc[visionid],etitle[visionid])
+        else printf "**Vision:** `UNKNOWN`\n"
+        print ""
+        if (!anyphase) {
+          print "### F01 — UNKNOWN phase name"
+          print ""
+          print "#### F01-E01 — UNKNOWN epic name"
+          print ""
+          print "| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |"
+          print "|---|---|---|---|---|---|---|"
+          print "| F01-E01-T01 | UNKNOWN | UNKNOWN | TODO | — | — | — |"
+        }
+        for (i=1;i<=n;i++) {
+          id=order[i]
+          if (esection[id]!="plan" || etype[id]!="PHASE") continue
+          printf "\n### %s — %s\n", id, etitle[id]
+          if (edesc[id]!="" && edesc[id]!=etitle[id]) printf "\n%s\n", edesc[id]
+          for (j=1;j<=n;j++) {
+            tid=order[j]
+            if (esection[tid]=="plan" && etype[tid]=="THEME" && theme_phase[tid]==id) {
+              printf "\n#### %s — %s\n", tid, etitle[tid]
+              if (edesc[tid]!="" && edesc[tid]!=etitle[tid]) printf "\n%s\n", edesc[tid]
+            }
+          }
+          rowcount=0
+          for (j=1;j<=n;j++) {
+            rid=order[j]
+            if (esection[rid]=="plan" && (etype[rid]=="TASK"||etype[rid]=="SUBTASK"||etype[rid]=="FEATURE") && row_phase[rid]==id && !is_active[rid]) rowcount++
+          }
+          if (rowcount>0) {
+            print ""
+            print "| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |"
+            print "|---|---|---|---|---|---|---|"
+            for (j=1;j<=n;j++) {
+              rid=order[j]
+              if (esection[rid]=="plan" && (etype[rid]=="TASK"||etype[rid]=="SUBTASK"||etype[rid]=="FEATURE") && row_phase[rid]==id && !is_active[rid]) print_row(rid)
+            }
+          }
+          for (j=1;j<=n;j++) {
+            eid=order[j]
+            if (esection[eid]=="plan" && etype[eid]=="EPIC" && epic_phase[eid]==id) {
+              printf "\n##### %s — %s\n", eid, etitle[eid]
+              if (edesc[eid]!="" && edesc[eid]!=etitle[eid]) printf "\n%s\n", edesc[eid]
+              print ""
+              print "| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |"
+              print "|---|---|---|---|---|---|---|"
+              erowcount=0
+              for (k=1;k<=n;k++) {
+                rid=order[k]
+                if (esection[rid]=="plan" && (etype[rid]=="TASK"||etype[rid]=="SUBTASK"||etype[rid]=="FEATURE") && row_epic[rid]==eid && !is_active[rid]) { print_row(rid); erowcount++ }
+              }
+              if (erowcount==0) print "| — | — | — | — | — | — | — |"
+            }
+          }
+        }
+        orphanhdr=0
+        for (i=1;i<=n;i++) {
+          id=order[i]
+          if (esection[id]!="plan" || is_active[id]) continue
+          t=etype[id]; isorphan=0
+          if (t=="EPIC" && epic_phase[id]=="") isorphan=1
+          else if (t=="THEME" && theme_phase[id]=="") isorphan=1
+          else if ((t=="TASK"||t=="SUBTASK"||t=="FEATURE") && row_epic[id]=="" && row_phase[id]=="") isorphan=1
+          if (isorphan) {
+            if (!orphanhdr) {
+              print "\n### F00-ORPHANED — Migrated entries needing manual placement"
+              print ""
+              print "| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |"
+              print "|---|---|---|---|---|---|---|"
+              orphanhdr=1
+            }
+            print_row(id)
+          }
+        }
+        print ""
+        print "## Gaps, Bugs & Technical Debt"
+        print ""
+        print "Errors, defects, or significant technical debt found by any agent. Same"
+        print "trailing columns as above, so an entry can be `claim`ed and `done` like any"
+        print "task. ID prefix marks the kind: `Fxx-GAP-xx` (missing capability),"
+        print "`Fxx-BUG-xx` (defect), `Fxx-DEBT-xx` (technical debt)."
+        print ""
+        print "| ID | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |"
+        print "|---|---|---|---|---|---|---|---|"
+        gaprows=0
+        for (i=1;i<=n;i++) { if (esection[order[i]]=="cross") { print_gap_row(order[i]); gaprows++ } }
+        if (!gaprows) print "| — | — | — | — | — | — | — | — |"
+        print ""
+        print "## Out of scope"
+        print ""
+        print "- `UNKNOWN`"
+      }
+    ' "$file"
   } > "$tmp"
   mv "$tmp" "$file"
   return 0
@@ -1027,10 +1021,12 @@ migrate_docs() {
     changed=$((changed + 1))
     echo "= migrated: docs/$legacy -> AGENTS.md (content preserved, file removed)"
   fi
-  if roadmap_migrate_table_to_yaml; then
+  if roadmap_migrate_yaml_to_table; then
     changed=$((changed + 1))
-    echo "= converted: docs/Roadmap.md table rows -> per-entry YAML (references/roadmap-schema.md)"
+    echo "= converted: docs/Roadmap.md per-entry YAML -> tables (IDs preserved; review DECISION"
+    echo "  entries and any F00-ORPHANED rows by hand)"
   fi
+  ensure_roadmap_sections
   echo "project_docs migrate: $changed change(s)"
 }
 
@@ -1158,70 +1154,84 @@ epic_history_done() {
   return 1
 }
 
-# A fenced yaml block with no top-level `id:` line is invisible to every
-# other primitive (roadmap_ids/roadmap_entries skip it), so it would
-# otherwise fail silently instead of erroring.
-check_roadmap_headless_blocks() {
-  file="$DOCS_DIR/Roadmap.md"
-  [ -f "$file" ] || return 0
-  out="$(awk '
-    /^```yaml/ { infence=1; fs=NR; hasid=0; next }
-    infence && /^```[ \t]*$/ {
-      infence=0
-      if (!hasid) print "ERROR: yaml block starting at Roadmap.md:" fs " has no top-level id: field"
-      next
+# ---------------------------------------------------------------------------
+# Epistemic taxonomy and canonical-ID hardening. Two disjoint Status
+# vocabularies exist by design: fact tables in ProductDescription.md and
+# Stack_Tecnologies.md use the epistemic one (CONFIRMED/HYPOTHESIS/UNKNOWN —
+# is this true?); work-item tables in Roadmap.md use the workflow one
+# (TODO/IN_PROGRESS/PAUSE/DONE — what state is this task in?). Never mix the
+# two: a table's Status column means one or the other depending on which
+# file it lives in, never both.
+# ---------------------------------------------------------------------------
+
+# Validates every table's Status column in $rel against $allowed (space-
+# separated), file-wide. Detects each table's own header (the first `|` row
+# after a non-`|` line) so it re-locates the Status column per table instead
+# of assuming a fixed position; placeholder rows (id blank/—/dashes) are
+# skipped, same convention as table_ids().
+check_table_status_enum() {
+  rel="$1"; allowed="$2"; label="$3"
+  path="$PROJECT/$rel"
+  [ -f "$path" ] || return 0
+  out="$(awk -v allowed="$allowed" -v label="$label" -v rel="$rel" '
+    BEGIN {
+      na=split(allowed,a," ")
+      for (i=1;i<=na;i++) ok[a[i]]=1
+      expect_header=1; statuscol=0
     }
-    infence && /^id: / { hasid=1 }
-  ' "$file")"
+    !/^\|/ { expect_header=1; next }
+    /^\|/ {
+      line=$0
+      sub(/^\|/,"",line); sub(/\|[ \t]*$/,"",line)
+      ncol=split(line,c,"|")
+      for (i=1;i<=ncol;i++) gsub(/^[ \t]+|[ \t]+$/,"",c[i])
+      if (expect_header) {
+        statuscol=0
+        for (i=1;i<=ncol;i++) if (c[i]=="Status") statuscol=i
+        expect_header=0
+        next
+      }
+      id=c[1]
+      if (id=="" || id=="—" || id ~ /^-+$/) next
+      if (statuscol>0 && statuscol<=ncol) {
+        st=c[statuscol]
+        if (!(st in ok)) print "ERROR: " rel " row '\''" id "'\'' has invalid " label " Status: " st
+      }
+    }
+  ' "$path")"
   if [ -n "$out" ]; then
     printf '%s\n' "$out" >&2
     CHECK_FAIL=1
   fi
 }
 
-# Structural validation of every Roadmap entry (references/roadmap-schema.md
-# #2, #6): unknown `type`, `status` outside its vocabulary (DECISION uses
-# PENDING/DECIDED/CANCELLED instead of the base one), and a `parent`/
-# `depends_on`/`blocks`/`blocked_by`/`affects` value that names no known ID
-# in either Roadmap.md or Features.md.
-check_roadmap_entries() {
-  rm_file="$(mktemp "${TMPDIR:-/tmp}/project-docs-rmids2.XXXXXX")"
-  ft_file="$(mktemp "${TMPDIR:-/tmp}/project-docs-ftids2.XXXXXX")"
-  roadmap_ids > "$rm_file"
-  features_ids > "$ft_file"
-  out="$(roadmap_entries | awk -F'\t' -v rmf="$rm_file" -v ftf="$ft_file" '
-    BEGIN {
-      while ((getline line < rmf) > 0) known[line]=1
-      while ((getline line < ftf) > 0) known[line]=1
-      n=split("VISION PHASE THEME EPIC FEATURE TASK SUBTASK GAP BUG IMPROVEMENT REFACTOR SPIKE DECISION BLOCKER DEPENDENCY TECH_DEBT DOC TEST SECURITY UX", tarr, " ")
-      for (i=1;i<=n;i++) validtype[tarr[i]]=1
-      n=split("IDEA BACKLOG READY IN_PROGRESS REVIEW TESTING BLOCKED DONE CANCELLED DEFERRED", sarr, " ")
-      for (i=1;i<=n;i++) validstatus[sarr[i]]=1
-      n=split("PENDING DECIDED CANCELLED", darr, " ")
-      for (i=1;i<=n;i++) validdecstatus[darr[i]]=1
+# Validates every row's ID (first column) under the exact "## <heading>"
+# section of $rel against ERE $regex. Header/separator/placeholder rows are
+# recognized by content (id blank/"ID"/—/dashes), so a section with several
+# tables (Roadmap's one-per-epic Plan tables) needs no per-table state. Rows
+# under "### F00-ORPHANED" are exempt: migrate places them there verbatim
+# (ID preserved, not reshaped) specifically for manual review, so a legacy
+# ID that doesn't fit the current convention is expected, not an error.
+check_id_format_in_section() {
+  rel="$1"; heading="$2"; regex="$3"; label="$4"
+  path="$PROJECT/$rel"
+  [ -f "$path" ] || return 0
+  out="$(awk -v heading="$heading" -v re="$regex" -v rel="$rel" -v label="$label" '
+    $0==heading { insec=1; next }
+    insec && /^## / { insec=0; orphan=0 }
+    insec && /^### F00-ORPHANED/ { orphan=1 }
+    insec && orphan && /^#/ && $0 !~ /^### F00-ORPHANED/ { orphan=0 }
+    insec && /^\|/ {
+      line=$0
+      sub(/^\|/,"",line); sub(/\|[ \t]*$/,"",line)
+      split(line,c,"|")
+      id=c[1]
+      gsub(/^[ \t]+|[ \t]+$/,"",id)
+      if (id=="" || id=="ID" || id=="—" || id ~ /^-+$/) next
+      if (orphan) next
+      if (id !~ re) print "ERROR: " rel " " label " has invalid ID format: " id
     }
-    function check_refs(id, field, label,    n, i, a) {
-      if (field=="") return
-      n=split(field,a,";")
-      for (i=1;i<=n;i++) if (a[i]!="" && !(a[i] in known)) print "ERROR: " id " " label " references unknown ID: " a[i]
-    }
-    {
-      id=$1; type=$2; status=$4; parent=$5; dep=$6; blk=$7; bby=$8; aff=$9
-      if (id=="") next
-      if (!(type in validtype)) print "ERROR: " id " has unknown type: " type
-      if (type=="DECISION") {
-        if (!(status in validdecstatus)) print "ERROR: " id " (DECISION) has invalid status: " status
-      } else {
-        if (!(status in validstatus)) print "ERROR: " id " has invalid status: " status
-      }
-      if (parent!="" && !(parent in known)) print "ERROR: " id " parent references unknown ID: " parent
-      check_refs(id, dep, "depends_on")
-      check_refs(id, blk, "blocks")
-      check_refs(id, bby, "blocked_by")
-      check_refs(id, aff, "affects")
-    }
-  ')"
-  rm -f "$rm_file" "$ft_file"
+  ' "$path")"
   if [ -n "$out" ]; then
     printf '%s\n' "$out" >&2
     CHECK_FAIL=1
@@ -1302,7 +1312,7 @@ check_warnings() {
   for f in docs/ProductDescription.md docs/Stack_Tecnologies.md docs/Features.md; do
     path="$PROJECT/$f"
     if [ -f "$path" ]; then
-      c="$(awk '/<!-- context:end -->/{exit} {n+=gsub(/UNKNOWN/,"UNKNOWN")} END{print n+0}' "$path")"
+      c="$(extract_context_block "$path" "## Operational summary" | awk '{n+=gsub(/UNKNOWN/,"UNKNOWN")} END{print n+0}')"
       unknown_count=$((unknown_count + c))
     fi
   done
@@ -1344,13 +1354,27 @@ check_docs() {
     CHECK_FAIL=1
   fi
   need docs/Agentslog.md "## Entry format" "## Entries"
-  need docs/ProductDescription.md "## Operational summary" "## Business rules"
-  need docs/Stack_Tecnologies.md "## Operational summary" "## Decisions"
-  need docs/Roadmap.md "## Plan" "## Cross-cutting"
+  need docs/ProductDescription.md \
+    "## Operational summary" "<!-- context:end -->" \
+    "## Users and outcomes" "| User or role | Needed outcome | Status | Source |" \
+    "## Business rules" "| ID | Rule | Status | Source or verification |" \
+    "## Main flows" "| Flow | Start -> outcome | Status |" \
+    "## Glossary" "| Term | Meaning | Status |" \
+    "## Out of scope"
+  need docs/Stack_Tecnologies.md \
+    "## Operational summary" "<!-- context:end -->" \
+    "## Architecture & Data" \
+    "## Critical commands" \
+    "## Environment variables & secrets" "| Variable | Purpose | Required | Example (Non-secret) |" \
+    "## Technical decisions (ADRs)" "| ID | Decision | Context/Reason | Status | Date |" \
+    "## Out of scope"
+  need docs/Roadmap.md \
+    "## Active work" "<!-- context:end -->" \
+    "## Near term" "## Plan" "## Gaps, Bugs & Technical Debt" "## Out of scope"
   need docs/Features.md "## Operational summary" "## Verified capabilities"
 
-  if roadmap_needs_table_migration; then
-    echo "MIGRATION REQUIRED: docs/Roadmap.md still uses the table format; run 'migrate'" >&2
+  if roadmap_needs_yaml_migration; then
+    echo "MIGRATION REQUIRED: docs/Roadmap.md still uses the per-entry YAML format; run 'migrate'" >&2
     CHECK_FAIL=1
   fi
 
@@ -1366,10 +1390,12 @@ check_docs() {
     check_roadmap_features_ids
   fi
 
-  if [ -f "$DOCS_DIR/Roadmap.md" ]; then
-    check_roadmap_headless_blocks
-    check_roadmap_entries
-  fi
+  check_id_format_in_section docs/ProductDescription.md "## Business rules" '^BR-[0-9][0-9][0-9]+$' "Business rules"
+  check_id_format_in_section docs/Stack_Tecnologies.md "## Technical decisions (ADRs)" '^ADR-[0-9][0-9][0-9]+$' "Technical decisions"
+  check_id_format_in_section docs/Roadmap.md "## Plan" '^F[0-9]' "Plan"
+  check_table_status_enum docs/ProductDescription.md "CONFIRMED HYPOTHESIS UNKNOWN" "epistemic"
+  check_table_status_enum docs/Stack_Tecnologies.md "CONFIRMED HYPOTHESIS UNKNOWN" "epistemic"
+  check_table_status_enum docs/Roadmap.md "TODO IN_PROGRESS PAUSE DONE" "workflow"
 
   check_warnings
 
