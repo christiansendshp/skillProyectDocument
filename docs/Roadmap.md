@@ -1,65 +1,65 @@
 # Roadmap
 
-Every entry is a `### TYPE-ID — Title` heading followed by a fenced `yaml`
-block; the block is the source of truth, the heading is for humans skimming
-the file. IDs are stable and never reused except through an explicit
-migration. See `references/roadmap-schema.md` for the full type taxonomy,
-field reference, state vocabulary, and a complete worked example.
+Keep `## Active work` small: only tasks in progress, paused, or next to take.
+Full pending work lives in `## Plan`. Verified completed capability belongs in
+`Features.md`; history belongs in `Agentslog.md`.
 
-Hierarchy and type are separate. `## Plan` holds the VISION -> PHASE -> THEME
--> EPIC -> FEATURE -> TASK -> SUBTASK spine, linked by each entry's `parent`
-field, not by heading depth (headings stay flat `###`). `## Cross-cutting`
-holds GAP, BUG, IMPROVEMENT, REFACTOR, SPIKE, DECISION, BLOCKER, DEPENDENCY,
-TECH_DEBT, DOC, TEST, SECURITY, and UX entries, which relate to any level via
-`affects`, `depends_on`, `blocks`, or `blocked_by` instead of `parent`.
+Every row below uses the same trailing four columns — Status, Owner, Depends
+on, Pause reason — so `claim`/`pause`/`done` can edit them by position
+regardless of table. `claim` moves a row from `## Plan` (or `## Gaps, Bugs &
+Technical Debt`) into `## Active work`; `done` removes it once verified.
 
-`claim`/`pause`/`done` edit an entry's `status`, `executor`, `assigned_agent`,
-and `updated_at` fields in place; `done` also removes the whole entry
-(heading + block) and records it in `Features.md`. Every other field is
-edited by hand. Legacy `F01-E01-T01`-style rows from the previous table
-format remain valid exactly as written; `migrate` converts them into this
-format without discarding data.
+Status here is workflow state, not the epistemic Status used in
+`ProductDescription.md`/`Stack_Tecnologies.md`: exactly one of `TODO`,
+`IN_PROGRESS`, `PAUSE`, `DONE`. Branch/PR is not a column here — note it in
+the `done`/`claim` call's summary or the Agentslog entry, so row shape stays
+stable for positional edits.
 
-This file only holds Roadmap *content* (what exists, what state it's in, how
-entries relate). Agent behavior — how to pick the next task, when a decision
-needs a human, how to run tests, when to commit — belongs in `AGENTS.md`, not
-here.
+## Active work
+
+| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|
+
+<!-- context:end -->
+
+## Near term
+
+Work further out than `## Plan`'s next eligible task. Promote a row into
+`## Plan` manually when it becomes actionable; `claim` does not read this
+table.
+
+| ID | Outcome | Acceptance check | Status | Depends on |
+|---|---|---|---|---|
+| — | — | — | TODO | — |
 
 ## Plan
 
-### F01 — Multi-agent coordination protocol
+**Vision:** a compact, Markdown-only project memory that any AI agent can read and edit with line-based tools, and that several agents can share without overlapping work.
 
-```yaml
-id: F01
-type: PHASE
-title: Multi-agent coordination protocol
-status: BACKLOG
-```
+F01 (multi-agent coordination protocol) and F02 (per-entry YAML Roadmap schema, later reverted) are closed; their verified capabilities live in `Features.md` and their history in `Agentslog.md`.
 
-### F01-E02 — Coordination commands and docs
+### F03 — Markdown hardening
 
-```yaml
-id: F01-E02
-type: EPIC
-title: Coordination commands and docs
-status: BACKLOG
-parent: F01
-```
+#### F03-E01 — Pure-Markdown contract files
 
-### F02 — Human + AI Roadmap schema
+| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|
 
-```yaml
-id: F02
-type: PHASE
-title: Human + AI Roadmap schema
-status: IN_PROGRESS
-description: >
-  Evolve docs/Roadmap.md from Markdown tables into a per-entry yaml-block
-  format with a full type taxonomy, explicit dependencies/blockers/
-  decisions, and Human+AI ownership fields, per "Prompt — Evolucionar skill
-  de Roadmap para proyectos Human + AI.md".
-```
+## Gaps, Bugs & Technical Debt
 
-## Cross-cutting
+Errors, defects, or significant technical debt found by any agent. Same
+trailing columns as above, so an entry can be `claim`ed and `done` like any
+task. ID prefix marks the kind: `Fxx-GAP-xx` (missing capability),
+`Fxx-BUG-xx` (defect), `Fxx-DEBT-xx` (technical debt).
 
-No entries yet. Add a `### TYPE-ID — Title` heading and `yaml` block here for a GAP, BUG, DECISION, BLOCKER, or other cross-cutting entry when one is found.
+| ID | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+| F03-DEBT-01 | Low | F03 | The table cell splitter in `check` and in the `claim`/`pause`/`done` positional edits (sh and ps1) treats every vertical bar as a column separator, escaped or not, so a literal bar in any cell corrupts the row. Workaround: word the cell without a bar (documented in `references/workflow.md`) | TODO | — | — | — |
+| F03-DEBT-02 | Low | F03 | `migrate` emits EPIC headings at `#####` even when the project has no THEME heading, skipping heading levels (`###` then `#####`); the template uses `####`. Cosmetic only, headings are never parsed | TODO | — | — | — |
+| F03-DEBT-03 | Medium | F03 | The root `AGENTS.md` block is about 4.5 KiB, over half of the 8 KiB `context` budget, so five maximum-size log entries alone (about 3.5 KiB) already exceed what is left and `context` fails. Fix by shrinking the rules block or splitting rarely-needed rules into `references/` | TODO | — | — | — |
+
+## Out of scope
+
+- Any YAML or JSON block inside the six canonical files.
+- Enforcing cross-references between IDs: a Depends on cell is informational, `check` does not validate it.
+- An end-to-end test of the `AGENTS.md`/`Agents.md` case collision on case-insensitive filesystems (needs Linux or CI).
