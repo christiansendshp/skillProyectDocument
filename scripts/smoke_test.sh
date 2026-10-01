@@ -228,7 +228,7 @@ run_suite() {
   proj9wf="$WORK/${label}_bad_workflow"
   mkdir -p "$proj9wf"
   run init "$proj9wf" >/dev/null 2>&1
-  seed_replace "$proj9wf/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | TODO |" "| F01-E01-T01 | UNKNOWN | UNKNOWN | CONFIRMED |"
+  seed_replace "$proj9wf/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO |" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | CONFIRMED |"
   assert_failure "$label check rejects a non-workflow Roadmap Status value" run check "$proj9wf"
   grep -q "invalid workflow Status: CONFIRMED" "$WORK/.out" && ok "$label check names the bad workflow Status" || bad "$label check doesn't name the bad workflow Status"
 
@@ -245,6 +245,73 @@ run_suite() {
   seed_replace "$proj9scope/docs/Roadmap.md" "## Out of scope" "## Not Out of Scope"
   assert_failure "$label check rejects a missing Out of scope section" run check "$proj9scope"
   grep -q "missing '## Out of scope'" "$WORK/.out" && ok "$label check names the missing Out of scope section" || bad "$label check doesn't name the missing Out of scope section"
+
+  echo "== $label: Name <= 10 words, obligue: claim/pause/done refuse a bad Name =="
+  proj10="$WORK/${label}_name"
+  mkdir -p "$proj10"
+  run init "$proj10" >/dev/null 2>&1
+  seed_replace "$proj10/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO |" \
+    "| F01-E01-T01 | This Name has way too many words to pass the ten word limit rule | detail | real accept | TODO |"
+  assert_failure "$label claim refuses a Name over 10 words" run claim "$proj10" agentN F01-E01-T01 "start"
+  grep -q "over the 10-word limit" "$WORK/.out" && ok "$label claim error names the 10-word limit" || bad "$label claim error doesn't mention the 10-word limit"
+  seed_replace "$proj10/docs/Roadmap.md" \
+    "| F01-E01-T01 | This Name has way too many words to pass the ten word limit rule | detail | real accept | TODO |" \
+    "| F01-E01-T01 | Build the demo onboarding flow | detail | real accept | TODO |"
+  assert_success "$label claim succeeds with a short Name" run claim "$proj10" agentN F01-E01-T01 "start"
+  assert_contains "$label Agentslog entry carries the Roadmap Name verbatim" "$proj10/docs/Agentslog.md" "IN_PROGRESS | Build the demo onboarding flow"
+  assert_success "$label done succeeds and logs the same Name" run done "$proj10" agentN F01-E01-T01 "implemented" "x" "verified"
+  assert_contains "$label done entry also carries the Name" "$proj10/docs/Agentslog.md" "DONE | Build the demo onboarding flow"
+  assert_success "$label check passes after a clean Name lifecycle" run check "$proj10"
+
+  echo "== $label: Agentslog Name must match the Roadmap Name (obligue) =="
+  proj11="$WORK/${label}_namedrift"
+  mkdir -p "$proj11"
+  run init "$proj11" >/dev/null 2>&1
+  seed_replace "$proj11/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO |" \
+    "| F01-E01-T01 | Build the demo onboarding flow | detail | real accept | TODO |"
+  run claim "$proj11" agentN F01-E01-T01 "start" >/dev/null 2>&1
+  seed_replace "$proj11/docs/Roadmap.md" "| F01-E01-T01 | Build the demo onboarding flow | detail | real accept | IN_PROGRESS" \
+    "| F01-E01-T01 | A totally different name now | detail | real accept | IN_PROGRESS"
+  assert_failure "$label check rejects a Roadmap Name that drifted from the log" run check "$proj11"
+  grep -q "does not match docs/Roadmap.md Name" "$WORK/.out" && ok "$label check names the Agentslog/Roadmap Name mismatch" || bad "$label check doesn't name the Agentslog/Roadmap Name mismatch"
+
+  echo "== $label: check rejects a table with no Name column and an empty Name =="
+  proj12="$WORK/${label}_noname"
+  mkdir -p "$proj12"
+  run init "$proj12" >/dev/null 2>&1
+  seed_replace "$proj12/docs/Roadmap.md" \
+    "| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |" \
+    "| ID | Outcome | Description | Acceptance check | Status | Owner | Depends on | Pause reason |"
+  assert_failure "$label check rejects a Roadmap table with no Name column" run check "$proj12"
+  grep -q "has no Name column" "$WORK/.out" && ok "$label check names the missing Name column" || bad "$label check doesn't name the missing Name column"
+
+  proj13="$WORK/${label}_emptyname"
+  mkdir -p "$proj13"
+  run init "$proj13" >/dev/null 2>&1
+  seed_replace "$proj13/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO |" \
+    "| F01-E01-T01 |  | UNKNOWN | UNKNOWN | TODO |"
+  assert_failure "$label check rejects an empty Name" run check "$proj13"
+  grep -q "has an empty Name" "$WORK/.out" && ok "$label check names the empty Name row" || bad "$label check doesn't name the empty Name row"
+
+  echo "== $label: migrate retrofits a pre-Name-column Roadmap.md =="
+  proj14="$WORK/${label}_prename"
+  mkdir -p "$proj14/docs"
+  run init "$proj14" >/dev/null 2>&1
+  seed_pre_name_roadmap "$proj14"
+  assert_failure "$label check fails before the Name-column migrate" run check "$proj14"
+  grep -q "has no Name column" "$WORK/.out" && ok "$label check names the pre-Name table" || bad "$label check doesn't name the pre-Name table"
+  assert_success "$label migrate adds the Name column" run migrate "$proj14"
+  assert_contains "$label task Description keeps the full old Outcome text" "$proj14/docs/Roadmap.md" \
+    "A fairly long legacy outcome sentence that definitely exceeds the ten word limit"
+  assert_contains "$label Gaps Description is preserved verbatim" "$proj14/docs/Roadmap.md" \
+    "A gap description that also runs quite long past the word limit here"
+  assert_contains "$label Near term Outcome became Name verbatim" "$proj14/docs/Roadmap.md" "Short near term idea"
+  assert_success "$label check passes after the Name-column migrate" run check "$proj14"
+  hp1="$(file_hash "$proj14/docs/Roadmap.md")"
+  assert_success "$label second Name-column migrate is a no-op" run migrate "$proj14"
+  hp2="$(file_hash "$proj14/docs/Roadmap.md")"
+  [ "$hp1" = "$hp2" ] && ok "$label second migrate leaves Roadmap.md unchanged" || bad "$label second migrate changed Roadmap.md"
+  assert_success "$label claim works on a migrated Gaps row" run claim "$proj14" agentN F70-GAP-01 "start"
 }
 
 file_hash() {
@@ -253,26 +320,35 @@ file_hash() {
   else cksum "$1"; fi
 }
 
-# Replaces the first occurrence of a literal string in a file (portable,
-# no sed -i dependency across the shells this runs under).
+# Replaces the first occurrence of a literal string in a file (portable, no
+# sed -i dependency across the shells this runs under). Uses index()/substr()
+# rather than sub(), which treats its first argument as an ERE -- "old" here
+# is routinely full of "|" (table cells), and "|" means alternation in a
+# regex, not a literal pipe; sub() would then match a zero-width string at
+# position 0 and just prepend "new" in front of the untouched line.
 seed_replace() {
   file="$1"; old="$2"; new="$3"
   awk -v old="$old" -v new="$new" '
-    !done && index($0, old) { sub(old, new); done = 1 }
+    !done {
+      i = index($0, old)
+      if (i > 0) { $0 = substr($0, 1, i - 1) new substr($0, i + length(old)); done = 1 }
+    }
     { print }
   ' "$file" > "$file.tmp"
   mv "$file.tmp" "$file"
 }
 
 # Inserts a row directly into "## Active work" (right after its header
-# separator), so claim/pause/done exercise the in-place edit path.
+# separator), so claim/pause/done exercise the in-place edit path. $title is
+# used as the row's Name (keep it <= 10 words; callers that need a longer
+# Name build their own row).
 seed_active_row() {
   proj="$1"; id="$2"; title="$3"
   file="$proj/docs/Roadmap.md"
   awk -v id="$id" -v title="$title" '
     /^## Active work/ { active = 1 }
     /^## Near term/ { active = 0 }
-    active && /^\|---/ && !done { print; print "| " id " | " title " | works | TODO | — | — | — |"; done = 1; next }
+    active && /^\|---/ && !done { print; print "| " id " | " title " | details | works | TODO | — | — | — |"; done = 1; next }
     { print }
   ' "$file" > "$file.tmp"
   mv "$file.tmp" "$file"
@@ -285,7 +361,7 @@ seed_plan_row() {
   file="$proj/docs/Roadmap.md"
   awk -v id="$id" -v title="$title" '
     { print }
-    /^\| F01-E01-T01 \|/ && !done { print "| " id " | " title " | works | TODO | — | — | — |"; done = 1 }
+    /^\| F01-E01-T01 \|/ && !done { print "| " id " | " title " | details | works | TODO | — | — | — |"; done = 1 }
   ' "$file" > "$file.tmp"
   mv "$file.tmp" "$file"
 }
@@ -303,15 +379,62 @@ seed_epic_and_task() {
       print ""
       print "#### F90-E01 — Smoke epic"
       print ""
-      print "| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |"
-      print "|---|---|---|---|---|---|---|"
-      print "| F90-E01-T01 | Smoke epic task | works | TODO | — | — | — |"
+      print "| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |"
+      print "|---|---|---|---|---|---|---|---|"
+      print "| F90-E01-T01 | Smoke epic task | details | works | TODO | — | — | — |"
       print ""
       done = 1
     }
     { print }
   ' "$file" > "$file.tmp"
   mv "$file.tmp" "$file"
+}
+
+# A pre-Name-column Roadmap.md in the Markdown-hardened (table) shape this
+# skill shipped before the Name/Description split, with a long Outcome and a
+# long Gaps Description so the derived Name is a visibly truncated fragment
+# -- exercises the Name-column retrofit migration end to end.
+seed_pre_name_roadmap() {
+  proj="$1"
+  cat > "$proj/docs/Roadmap.md" <<'EOF'
+# Roadmap
+
+## Active work
+
+| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|
+| — | — | — | — | — | — | — |
+
+<!-- context:end -->
+
+## Near term
+
+| ID | Outcome | Acceptance check | Status | Depends on |
+|---|---|---|---|---|
+| SMOKE-PRENAME-NT01 | Short near term idea | UNKNOWN | TODO | — |
+
+## Plan
+
+**Vision:** `UNKNOWN`
+
+### F70 — Pre-name phase
+
+#### F70-E01 — Pre-name epic
+
+| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|
+| F70-E01-T01 | A fairly long legacy outcome sentence that definitely exceeds the ten word limit | Old accept | TODO | — | — | — |
+
+## Gaps, Bugs & Technical Debt
+
+| ID | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+| F70-GAP-01 | Low | F70 | A gap description that also runs quite long past the word limit here | TODO | — | — | — |
+
+## Out of scope
+
+- none
+EOF
 }
 
 # A full per-entry YAML Roadmap.md (the short-lived schema this skill used

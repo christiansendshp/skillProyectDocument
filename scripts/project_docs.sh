@@ -296,13 +296,14 @@ all_task_states() {
       sub(/\] \| /,"|",line)
       gsub(/ \| /,"|",line)
       split(line,f,"|")
-      ts=f[1]; agent=f[2]; tid=f[3]; status=f[4]
+      ts=f[1]; agent=f[2]; tid=f[3]; status=f[4]; name=f[5]
       if (!(tid in seen)) { seen[tid]=1; order[++cnt]=tid }
       if (status=="IN_PROGRESS" && last_status[tid]=="IN_PROGRESS" && last_agent[tid]!=agent) {
         conflict[tid] = last_agent[tid] " vs " agent
       }
       if (status=="DONE") { ever_done[tid]=1 }
       last_status[tid]=status; last_agent[tid]=agent; last_ts[tid]=ts; last_pause[tid]=""
+      if (name!="") last_name[tid]=name
       cur=tid
       next
     }
@@ -317,7 +318,7 @@ all_task_states() {
     END {
       for (i=1;i<=cnt;i++) {
         t=order[i]
-        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0")
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t]
       }
     }
   ' "$DOCS_DIR/Agentslog.md"
@@ -356,7 +357,7 @@ is_stale() {
 open_tasks_line() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
   all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE"' |
-  while IFS="$TAB" read -r tid status agent ts pausecat conflict everdone; do
+  while IFS="$TAB" read -r tid status agent ts pausecat conflict everdone name; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -436,6 +437,81 @@ roadmap_section_of() {
       if (cell==id) { print sect; exit }
     }
   ' "$DOCS_DIR/Roadmap.md"
+}
+
+# ---------------------------------------------------------------------------
+# Name/Description taxonomy. Every Roadmap table carries a short, descriptive
+# "Name" cell (<= 10 words; the rest of the detail goes in "Description" or
+# the table's own free-text column) in the column right after ID. claim/
+# pause/done refuse a task whose Name is missing or too long instead of
+# silently copying it into the log; check sweeps every table the same way.
+# ---------------------------------------------------------------------------
+word_count() {
+  printf '%s' "$1" | awk '{ n=split($0,w,/[ \t]+/); for(i=1;i<=n;i++) if (w[i]!="") c++ } END { print c+0 }'
+}
+
+# Returns the trimmed cell under the column named $2 ("Name") of the row
+# whose ID (column 1 after the leading empty split field) equals $1,
+# wherever that row lives in docs/Roadmap.md. Header-detected per table (the
+# first `|` row after a non-`|` line), same convention as
+# check_table_status_enum, so it works regardless of table shape or how many
+# columns precede/follow Name.
+roadmap_row_field() {
+  id="$1"; colname="$2"
+  awk -F'|' -v id="$id" -v colname="$colname" '
+    !/^\|/ { expect_header=1; next }
+    /^\|/ {
+      line=$0
+      sub(/^\|/,"",line); sub(/\|[ \t]*$/,"",line)
+      ncol=split(line,c,"|")
+      for (i=1;i<=ncol;i++) gsub(/^[ \t]+|[ \t]+$/,"",c[i])
+      if (expect_header) {
+        col=0
+        for (i=1;i<=ncol;i++) if (c[i]==colname) col=i
+        expect_header=0
+        next
+      }
+      if (c[1]==id && col>0 && col<=ncol) { print c[col]; exit }
+    }
+  ' "$DOCS_DIR/Roadmap.md"
+}
+
+# Emits one "ID<TAB>Name" line per row, file-wide, for every table that has a
+# Name column (same header detection as roadmap_row_field). Used to cross-
+# check Agentslog entries against the Roadmap's current Name for each ID.
+roadmap_all_names() {
+  awk -F'|' '
+    !/^\|/ { expect_header=1; next }
+    /^\|/ {
+      line=$0
+      sub(/^\|/,"",line); sub(/\|[ \t]*$/,"",line)
+      ncol=split(line,c,"|")
+      for (i=1;i<=ncol;i++) gsub(/^[ \t]+|[ \t]+$/,"",c[i])
+      if (expect_header) {
+        namecol=0
+        for (i=1;i<=ncol;i++) if (c[i]=="Name") namecol=i
+        expect_header=0
+        next
+      }
+      id=c[1]
+      if (id=="" || id=="—" || id ~ /^-+$/) next
+      if (namecol>0 && namecol<=ncol) printf "%s\t%s\n", id, c[namecol]
+    }
+  ' "$DOCS_DIR/Roadmap.md"
+}
+
+# dies if the Roadmap row for $1 has no usable Name: missing, empty, or over
+# the 10-word limit. Called by claim/pause/done before they touch the log, so
+# a bad Name blocks the action instead of propagating into Agentslog.
+require_valid_name() {
+  task="$1"; action="${2:-claim}"
+  name="$(roadmap_row_field "$task" Name)"
+  [ -n "$name" ] || die "$action failed: $task has no Name cell in docs/Roadmap.md (missing row, or the table predates the Name column; run migrate)"
+  wc="$(word_count "$name")"
+  if [ "$wc" -gt 10 ]; then
+    die "$action failed: $task Name is $wc words, over the 10-word limit: \"$name\" — shorten it and move the rest into Description"
+  fi
+  printf '%s' "$name"
 }
 
 roadmap_update_row_inplace() {
@@ -601,10 +677,11 @@ cmd_claim() {
       fi
     fi
   fi
+  name="$(require_valid_name "$task")"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   {
     echo
-    echo "## [$timestamp] | $agent | $task | IN_PROGRESS"
+    echo "## [$timestamp] | $agent | $task | IN_PROGRESS | $name"
     echo "- Summary: $summary"
     echo "- Verify: pending"
   } >> "$DOCS_DIR/Agentslog.md"
@@ -633,10 +710,11 @@ cmd_pause() {
   fi
   [ "$status" = "IN_PROGRESS" ] || die "pause failed: $task is not IN_PROGRESS (current: $status)"
   [ "$owner" = "$agent" ] || die "pause failed: $task is owned by $owner, not $agent"
+  name="$(require_valid_name "$task" pause)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   {
     echo
-    echo "## [$timestamp] | $agent | $task | PAUSE"
+    echo "## [$timestamp] | $agent | $task | PAUSE | $name"
     echo "- Pause: $category - $detail"
   } >> "$DOCS_DIR/Agentslog.md"
   roadmap_update_row_inplace "$task" "PAUSE" "$agent@$timestamp" "$category"
@@ -653,10 +731,11 @@ cmd_done() {
   verify="$(clean_field "$5")"
   [ -n "$verify" ] || die "done requires a non-empty verify"
   with_lock
+  name="$(require_valid_name "$task" done)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   {
     echo
-    echo "## [$timestamp] | $agent | $task | DONE"
+    echo "## [$timestamp] | $agent | $task | DONE | $name"
     echo "- Summary: $summary"
     echo "- Files: $files"
     echo "- Verify: $verify"
@@ -669,7 +748,7 @@ cmd_done() {
 cmd_status() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
   all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE"' |
-  while IFS="$TAB" read -r tid status agent ts pausecat conflict everdone; do
+  while IFS="$TAB" read -r tid status agent ts pausecat conflict everdone name; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -678,7 +757,7 @@ cmd_status() {
     if [ "$status" = "IN_PROGRESS" ] && [ "$hrs" != "?" ] && [ "$hrs" -ge "$STALE_HOURS" ]; then
       stale=" (stale)"
     fi
-    printf '%s | %s | %s | %sh%s | %s\n' "$tid" "$agent" "$status" "$hrs" "$stale" "$reason"
+    printf '%s | %s | %s | %s | %sh%s | %s\n' "$tid" "$name" "$agent" "$status" "$hrs" "$stale" "$reason"
   done
 }
 
@@ -702,9 +781,9 @@ ensure_roadmap_sections() {
       echo
       echo "## Gaps, Bugs & Technical Debt"
       echo
-      echo "| ID | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |"
-      echo "|---|---|---|---|---|---|---|---|"
-      echo "| — | — | — | — | — | — | — | — |"
+      echo "| ID | Name | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |"
+      echo "|---|---|---|---|---|---|---|---|---|"
+      echo "| — | — | — | — | — | — | — | — | — |"
     } >> "$file"
   fi
   if ! grep -qF "## Out of scope" "$file"; then
@@ -733,6 +812,110 @@ ensure_roadmap_sections() {
     ' "$file" > "$tmp"
     mv "$tmp" "$file"
   fi
+}
+
+# Non-destructive, idempotent: inserts a short "Name" column (<= 10 words;
+# the rest of the detail stays in Description or the table's own free-text
+# column) into every Roadmap table that doesn't have one yet. Detects each
+# table's kind by its header (same convention as check_table_status_enum),
+# not by position, so it runs after ensure_roadmap_sections has already
+# normalized Active work's column count and also catches whatever shape
+# roadmap_migrate_yaml_to_table just emitted, in the same migrate run:
+#   - Active work / Plan task rows (Outcome + Owner): Outcome is preserved
+#     verbatim as Description; Name is derived as its first 10 words.
+#   - Near term rows (Outcome, no Owner): Outcome -> Name, renamed in place,
+#     not truncated (no Description column there) -- a row whose old Outcome
+#     exceeds 10 words will still fail check's word limit until shortened by
+#     hand, same as any other flagged-for-review migration output.
+#   - Gaps/Bugs/Technical Debt rows (Severity + Phase): Description is
+#     preserved verbatim; Name is derived as its first 10 words.
+# A table that already has a Name column, or has no ID column at all (not
+# one of ours), passes through byte-for-byte.
+roadmap_migrate_add_name_column() {
+  file="$DOCS_DIR/Roadmap.md"
+  [ -f "$file" ] || return 1
+  tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-roadmap.XXXXXX")"
+  awk '
+    # Strips the leading/trailing table-row "|" before splitting, so c[1] is
+    # the first real cell (never an empty field from before the leading
+    # pipe) — every caller here passes a whole "| a | b |" line verbatim.
+    function trimsplit(s, out,    n,i,c,line) {
+      line=s
+      sub(/^\|/,"",line); sub(/\|[ \t]*$/,"",line)
+      n=split(line,c,"|")
+      for (i=1;i<=n;i++) { t=c[i]; gsub(/^[ \t]+|[ \t]+$/,"",t); out[i]=t }
+      return n
+    }
+    function first_n_words(s, n,    arr,cnt,i,out,lim) {
+      cnt=split(s,arr,/[ \t]+/)
+      lim=(cnt<n ? cnt : n)
+      out=""
+      for (i=1;i<=lim;i++) if (arr[i]!="") out=(out=="" ? arr[i] : out" "arr[i])
+      if (out=="") out="UNKNOWN"
+      return out
+    }
+    BEGIN { expect_header=1; expect_sep=0; state="none" }
+    !/^\|/ { print; expect_header=1; expect_sep=0; next }
+    expect_header {
+      ncol=trimsplit($0,c)
+      has_id=0; has_name=0; has_outcome=0; has_owner=0; has_sev=0; has_phase=0
+      for (i=1;i<=ncol;i++) {
+        if (c[i]=="ID") has_id=1
+        if (c[i]=="Name") has_name=1
+        if (c[i]=="Outcome") has_outcome=1
+        if (c[i]=="Owner") has_owner=1
+        if (c[i]=="Severity") has_sev=1
+        if (c[i]=="Phase") has_phase=1
+      }
+      expect_header=0
+      if (!has_id || has_name) { state="other"; print; next }
+      if (has_outcome && has_owner) {
+        state="task"
+        print "| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |"
+        expect_sep=1; next
+      }
+      if (has_outcome) {
+        state="nearterm"
+        print "| ID | Name | Acceptance check | Status | Depends on |"
+        expect_sep=1; next
+      }
+      if (has_sev && has_phase) {
+        state="gaps"
+        print "| ID | Name | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |"
+        expect_sep=1; next
+      }
+      state="other"; print; next
+    }
+    expect_sep {
+      expect_sep=0
+      if (state=="task") { print "|---|---|---|---|---|---|---|---|"; next }
+      if (state=="nearterm") { print "|---|---|---|---|---|"; next }
+      if (state=="gaps") { print "|---|---|---|---|---|---|---|---|---|"; next }
+      print; next
+    }
+    state=="task" {
+      ncol=trimsplit($0,c)
+      printf "| %s | %s | %s | %s | %s | %s | %s | %s |\n", c[1], first_n_words(c[2],10), c[2], c[3], c[4], c[5], c[6], c[7]
+      next
+    }
+    state=="nearterm" {
+      ncol=trimsplit($0,c)
+      printf "| %s | %s | %s | %s | %s |\n", c[1], c[2], c[3], c[4], c[5]
+      next
+    }
+    state=="gaps" {
+      ncol=trimsplit($0,c)
+      printf "| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", c[1], first_n_words(c[4],10), c[2], c[3], c[4], c[5], c[6], c[7], c[8]
+      next
+    }
+    { print }
+  ' "$file" > "$tmp"
+  if cmp -s "$tmp" "$file"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv "$tmp" "$file"
+  return 0
 }
 
 # True if docs/Roadmap.md still uses the per-entry YAML block format from the
@@ -1027,6 +1210,12 @@ migrate_docs() {
     echo "  entries and any F00-ORPHANED rows by hand)"
   fi
   ensure_roadmap_sections
+  if roadmap_migrate_add_name_column; then
+    changed=$((changed + 1))
+    echo "= converted: docs/Roadmap.md rows now have a Name column (derived from the"
+    echo "  first 10 words of the prior Outcome/Description text; review each Name by"
+    echo "  hand, including any Near term row that may still exceed 10 words)"
+  fi
   echo "project_docs migrate: $changed change(s)"
 }
 
@@ -1071,7 +1260,7 @@ check_log_entries() {
       sub(/\] \| /,"|",line)
       gsub(/ \| /,"|",line)
       split(line,f,"|")
-      status=f[4]; tidnow=f[3]; agentnow=f[2]
+      status=f[4]; tidnow=f[3]; agentnow=f[2]; name=f[5]
       if (status=="IN_PROGRESS" && last_status[tidnow]=="IN_PROGRESS" && last_agent[tidnow]!=agentnow) {
         print "ERROR: conflicting concurrent claim on " tidnow ": " last_agent[tidnow] " and " agentnow
       }
@@ -1116,6 +1305,10 @@ check_log_entries() {
             print "ERROR: DONE entry has empty or pending Verify: " hdr
           }
         }
+      }
+      if (name!="") {
+        wc=split(name,nw,/[ \t]+/)
+        if (wc>10) print "ERROR: entry Name is " wc " words, over the 10-word limit: " hdr
       }
     }
   ' "$log")"
@@ -1196,6 +1389,55 @@ check_table_status_enum() {
       if (statuscol>0 && statuscol<=ncol) {
         st=c[statuscol]
         if (!(st in ok)) print "ERROR: " rel " row '\''" id "'\'' has invalid " label " Status: " st
+      }
+    }
+  ' "$path")"
+  if [ -n "$out" ]; then
+    printf '%s\n' "$out" >&2
+    CHECK_FAIL=1
+  fi
+}
+
+# Every Roadmap table's row carries a short, descriptive Name (<= 10 words;
+# the rest of the detail goes in Description or the table's own free-text
+# column) in the column right after ID. Same per-table header detection as
+# check_table_status_enum. A table that has an ID column but no Name column
+# at all (not yet migrated) is reported once, by its header, rather than
+# silently skipped.
+check_table_name_wordlimit() {
+  rel="$1"; max="$2"
+  path="$PROJECT/$rel"
+  [ -f "$path" ] || return 0
+  out="$(awk -v max="$max" -v rel="$rel" '
+    BEGIN { expect_header=1; namecol=0 }
+    !/^\|/ { expect_header=1; next }
+    /^\|/ {
+      line=$0
+      sub(/^\|/,"",line); sub(/\|[ \t]*$/,"",line)
+      ncol=split(line,c,"|")
+      for (i=1;i<=ncol;i++) gsub(/^[ \t]+|[ \t]+$/,"",c[i])
+      if (expect_header) {
+        idcol=0; namecol=0
+        for (i=1;i<=ncol;i++) {
+          if (c[i]=="ID") idcol=i
+          if (c[i]=="Name") namecol=i
+        }
+        if (idcol>0 && namecol==0) {
+          print "ERROR: " rel " table \"" $0 "\" has no Name column; run migrate"
+        }
+        expect_header=0
+        next
+      }
+      id=c[1]
+      if (id=="" || id=="—" || id ~ /^-+$/) next
+      if (namecol>0 && namecol<=ncol) {
+        nm=c[namecol]
+        if (nm=="") {
+          print "ERROR: " rel " row '\''" id "'\'' has an empty Name"
+        } else {
+          wc=split(nm,w,/[ \t]+/)
+          if (wc>max) print "ERROR: " rel " row '\''" id "'\'' Name is " wc " words, over the " max "-word limit: " nm
+        }
       }
     }
   ' "$path")"
@@ -1307,6 +1549,31 @@ EOF
   fi
 }
 
+# For every ID that has a Name in docs/Roadmap.md, the most recent Agentslog
+# entry that carried a Name for that ID must agree with it — claim/pause/done
+# write the Roadmap Name into the log automatically, so a mismatch means
+# either was hand-edited out of sync afterward. An entry with no Name field
+# at all (pre-feature history, or an append-log entry) is not a mismatch.
+check_agentslog_roadmap_names() {
+  rn_file="$(mktemp "${TMPDIR:-/tmp}/project-docs-rmnames.XXXXXX")"
+  roadmap_all_names > "$rn_file"
+  out="$(all_task_states | awk -F'\t' -v rnf="$rn_file" '
+    BEGIN { while ((getline line < rnf) > 0) { split(line,p,"\t"); rname[p[1]]=p[2] } }
+    {
+      tid=$1; lname=$8
+      if (lname=="" ) next
+      if ((tid in rname) && rname[tid]!=lname) {
+        print "ERROR: " tid " Agentslog Name (\"" lname "\") does not match docs/Roadmap.md Name (\"" rname[tid] "\")"
+      }
+    }
+  ')"
+  rm -f "$rn_file"
+  if [ -n "$out" ]; then
+    printf '%s\n' "$out" >&2
+    CHECK_FAIL=1
+  fi
+}
+
 check_warnings() {
   unknown_count=0
   for f in docs/ProductDescription.md docs/Stack_Tecnologies.md docs/Features.md; do
@@ -1388,6 +1655,7 @@ check_docs() {
     check_log_rotation
     check_log_entries
     check_roadmap_features_ids
+    check_agentslog_roadmap_names
   fi
 
   check_id_format_in_section docs/ProductDescription.md "## Business rules" '^BR-[0-9][0-9][0-9]+$' "Business rules"
@@ -1396,6 +1664,7 @@ check_docs() {
   check_table_status_enum docs/ProductDescription.md "CONFIRMED HYPOTHESIS UNKNOWN" "epistemic"
   check_table_status_enum docs/Stack_Tecnologies.md "CONFIRMED HYPOTHESIS UNKNOWN" "epistemic"
   check_table_status_enum docs/Roadmap.md "TODO IN_PROGRESS PAUSE DONE" "workflow"
+  check_table_name_wordlimit docs/Roadmap.md 10
 
   check_warnings
 
@@ -1480,7 +1749,7 @@ rotate_log() {
     echo "## Entry format"
     echo
     echo '```markdown'
-    echo "## [YYYY-MM-DDTHH:mm:ssZ] | agent | TASK-ID | IN_PROGRESS"
+    echo "## [YYYY-MM-DDTHH:mm:ssZ] | agent | TASK-ID | IN_PROGRESS | Name"
     echo "- Summary: what the agent will do or did"
     echo "- Files: paths or component names (optional)"
     echo "- Verify: command and result, or \"pending\" (required for DONE)"
@@ -1494,10 +1763,10 @@ rotate_log() {
     echo
     echo "## Entries"
     if [ -n "$open_summary" ]; then
-      printf '%s\n' "$open_summary" | while IFS="$TAB" read -r tid status agent ts pausecat conflict everdone; do
+      printf '%s\n' "$open_summary" | while IFS="$TAB" read -r tid status agent ts pausecat conflict everdone name; do
         [ -n "$tid" ] || continue
         echo
-        echo "## [$ts] | $agent | $tid | $status"
+        echo "## [$ts] | $agent | $tid | $status | $name"
         echo "- Summary: carried forward from docs/history/$archive_name at rotation"
         if [ "$status" = "PAUSE" ]; then
           echo "- Pause: $pausecat - see docs/history/$archive_name for detail"

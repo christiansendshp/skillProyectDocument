@@ -146,26 +146,35 @@ Small, unrelated tasks do not trigger this questionnaire; use the existing
 
 Every row across these tables ends in the same four columns — Status,
 Owner, Depends on, Pause reason — so `claim`/`pause`/`done` edit them by
-position regardless of which table or how many columns precede them.
+position regardless of which table or how many columns precede them. The
+column right after `ID` is always `Name`: a short, descriptive title of 10
+words or fewer, detected by header text (not position), so it works
+regardless of how many columns a table has. Every other detail — the full
+sentence, context, or reasoning — goes in `Description` (`## Near term` has
+no `Description` column; keep its `Name` itself to 10 words or fewer).
 
 ## Taking and closing a task
 
 - `claim <project> <agent> <task-id> <summary>`: fails if the ID is not a
-  Roadmap row, or if its last log state is `IN_PROGRESS` by another agent
-  (unless that claim is stale) or `PAUSE` not yet retakeable. On success it
-  appends an `IN_PROGRESS` log entry, and moves the row (if it was in
-  `## Plan`/`## Gaps, Bugs & Technical Debt`) or updates it in place into
-  `## Active work` with Status `IN_PROGRESS` and Owner `<agent>@<timestamp>`.
+  Roadmap row, if its Name is missing or over 10 words (fix the row by hand
+  first), or if its last log state is `IN_PROGRESS` by another agent (unless
+  that claim is stale) or `PAUSE` not yet retakeable. On success it appends
+  an `IN_PROGRESS` log entry carrying the row's Name, and moves the row (if
+  it was in `## Plan`/`## Gaps, Bugs & Technical Debt`) or updates it in
+  place into `## Active work` with Status `IN_PROGRESS` and Owner
+  `<agent>@<timestamp>`.
 - `pause <project> <agent> <task-id> <category> <detail>`: category is one
   of `LIMITE`, `ESPERA_RESPUESTA`, `BLOQUEO`, `OTRO`; detail must be
   non-empty. Only the current owner may pause. Sets the row's Status to
-  `PAUSE`, Owner to `<agent>@<timestamp>`, Pause reason to `<category>`.
+  `PAUSE`, Owner to `<agent>@<timestamp>`, Pause reason to `<category>`, and
+  appends a log entry carrying the row's current Name.
 - `done <project> <agent> <task-id> <summary> <files> <verify>`: `verify`
-  must be non-empty. Appends a `DONE` log entry, removes the row from
-  `Roadmap.md`, and adds it to `Features.md#Verified capabilities`. When
-  its ID is a task under an epic (`F01-E01-T01`, inferred from the ID
-  shape) and no other Roadmap row still shares that epic prefix, the epic
-  is rolled up too with its own Features row.
+  must be non-empty. Appends a `DONE` log entry carrying the row's Name,
+  removes the row from `Roadmap.md`, and adds it to
+  `Features.md#Verified capabilities`. When its ID is a task under an epic
+  (`F01-E01-T01`, inferred from the ID shape) and no other Roadmap row still
+  shares that epic prefix, the epic is rolled up too with its own Features
+  row.
 - `status <project>`: lists every `IN_PROGRESS`/`PAUSE` task with owner,
   age, and reason; flags stale `IN_PROGRESS` claims.
 - Retaking a `PAUSE`: `LIMITE` can be reclaimed by any agent immediately;
@@ -191,7 +200,7 @@ position regardless of which table or how many columns precede them.
 Use one log entry per state change:
 
 ```markdown
-## [YYYY-MM-DDTHH:mm:ssZ] | agent | TASK-ID | IN_PROGRESS
+## [YYYY-MM-DDTHH:mm:ssZ] | agent | TASK-ID | IN_PROGRESS | Name
 - Summary: what the agent will do or did
 - Files: paths or component names (optional)
 - Verify: command and result, or "pending" (required for DONE)
@@ -204,9 +213,18 @@ state is whatever its latest entry says. Never edit a past entry — record a
 state change as a new one. The Roadmap's Status/Owner cells are kept in sync
 by `claim`/`pause`/`done`, not edited by hand.
 
+`Name` is the same short (<= 10 word) title as the task's Roadmap row —
+`claim`/`pause`/`done` copy it in automatically, never type it by hand.
+`check` cross-validates: the most recent entry that carries a Name for a
+given ID must match that ID's current Roadmap Name, so Agentslog can never
+drift from the Roadmap's own naming — only a hand edit to one side without
+the other produces that error. An entry with no Name field at all (history
+from before this rule, or an `append-log` entry) is never treated as a
+mismatch.
+
 `append-log` remains available, unchanged, for entries outside the claim
-lifecycle (its own header/Follow-up format); prefer `claim`/`pause`/`done`
-for anything with a task ID.
+lifecycle (its own header/Follow-up format, with no Name field); prefer
+`claim`/`pause`/`done` for anything with a task ID.
 
 ## Rotation
 
@@ -272,10 +290,20 @@ Code, Cursor, Antigravity, OpenCode, Codex, and other adapters).
    silently dropped.
 5. Ensures `## Gaps, Bugs & Technical Debt` and `## Out of scope` exist in
    `docs/Roadmap.md`, adding an empty placeholder section if not.
+6. Inserts a `Name` column into every Roadmap table that doesn't have one
+   yet (detected by header, so this also retrofits whatever shape step 4
+   just produced, in the same `migrate` run): an Active work/Plan task row
+   keeps its old Outcome text verbatim as `Description` and gets a derived
+   `Name` (its first 10 words); a Gaps/Bugs/Technical-Debt row keeps its
+   `Description` and derives `Name` from it the same way; a `## Near term`
+   row's Outcome is renamed to `Name` in place, not truncated — review a
+   derived Name by hand, and shorten a Near term row that still exceeds 10
+   words, the same way a migrated `DECISION` or `F00-ORPHANED` row needs
+   manual review.
 
-While a project still has `docs/Agents.md`, or `docs/Roadmap.md` still uses
-the per-entry YAML format, `check` fails with a message pointing at
-`migrate`.
+While a project still has `docs/Agents.md`, `docs/Roadmap.md` still uses the
+per-entry YAML format, or a Roadmap table has no `Name` column, `check`
+fails with a message pointing at `migrate`.
 
 ## Content maintenance
 
@@ -310,7 +338,10 @@ Run `check` after documentation updates. It exits non-zero only on errors:
 - a fact-table row (Product/Stack) whose Status is outside
   `CONFIRMED`/`HYPOTHESIS`/`UNKNOWN`, or a Roadmap row whose Status is
   outside `TODO`/`IN_PROGRESS`/`PAUSE`/`DONE`;
-- an Agentslog entry with a state outside `IN_PROGRESS`/`PAUSE`/`DONE`;
+- a Roadmap table with an `ID` column but no `Name` column; a Roadmap row
+  with an empty Name, or a Name over 10 words;
+- an Agentslog entry with a state outside `IN_PROGRESS`/`PAUSE`/`DONE`, or
+  an entry's own Name over 10 words;
 - a `PAUSE` entry without a valid category or non-empty detail;
 - a `DONE` entry with an empty or `"pending"` Verify;
 - two different agents both holding an open `IN_PROGRESS` on the same ID (a
@@ -318,6 +349,8 @@ Run `check` after documentation updates. It exits non-zero only on errors:
 - a log ID that exists in neither `Roadmap.md` nor `Features.md`;
 - a `Features.md` ID with no matching `DONE` in the hot log or, if rotated
   away, in `docs/history/`;
+- an Agentslog entry's Name that disagrees with its ID's current Roadmap
+  Name (an entry with no Name field at all is never a mismatch);
 - the ledger overdue for rotation.
 
 Warnings (do not fail the gate): `UNKNOWN` fields in Operational summaries

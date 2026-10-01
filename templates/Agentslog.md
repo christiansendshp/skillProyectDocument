@@ -9,7 +9,7 @@ in `docs/history/`.
 ## Entry format
 
 ```markdown
-## [YYYY-MM-DDTHH:mm:ssZ] | agent | TASK-ID | IN_PROGRESS
+## [YYYY-MM-DDTHH:mm:ssZ] | agent | TASK-ID | IN_PROGRESS | Name
 - Summary: what the agent will do or did
 - Files: paths or component names (optional)
 - Verify: command and result, or "pending" (required for DONE)
@@ -17,8 +17,12 @@ in `docs/history/`.
   ESPERA_RESPUESTA, BLOQUEO, OTRO)
 ```
 
-Entry states: `IN_PROGRESS` (taken), `PAUSE`, `DONE`. Write entries with
+`Name` is the same short (<= 10 word) title as the task's Roadmap row —
+`claim`/`pause`/`done` copy it in automatically, never type it by hand, and
+`check` errors if a later entry's Name drifts from the Roadmap row's current
+one. Entry states: `IN_PROGRESS` (taken), `PAUSE`, `DONE`. Write entries with
 `claim`, `pause`, and `done`; use `append-log` only for entries outside a
-task's claim lifecycle (its header status is free text, commonly `DONE`).
+task's claim lifecycle (its header status is free text, commonly `DONE`, and
+carries no Name field).
 
 ## Entries

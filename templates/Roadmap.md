@@ -4,6 +4,13 @@ Keep `## Active work` small: only tasks in progress, paused, or next to take.
 Full pending work lives in `## Plan`. Verified completed capability belongs in
 `Features.md`; history belongs in `Agentslog.md`.
 
+Every row carries a `Name`: a short, descriptive title of 10 words or fewer.
+Put the rest of the detail in `Description` (or the table's own free-text
+column, for `## Near term`) — never pack it into `Name`. `claim`/`pause`/
+`done` refuse a row whose Name is missing or over 10 words, and copy it
+verbatim into the matching Agentslog entry, so the log always names the task
+the same way the Roadmap does.
+
 Every row below uses the same trailing four columns — Status, Owner, Depends
 on, Pause reason — so `claim`/`pause`/`done` can edit them by position
 regardless of table. `claim` moves a row from `## Plan` (or `## Gaps, Bugs &
@@ -17,9 +24,9 @@ stable for positional edits.
 
 ## Active work
 
-| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |
-|---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — |
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+| — | — | — | — | — | — | — | — |
 
 <!-- context:end -->
 
@@ -27,9 +34,10 @@ stable for positional edits.
 
 Work further out than `## Plan`'s next eligible task. Promote a row into
 `## Plan` manually when it becomes actionable; `claim` does not read this
-table.
+table. No `Description` column here — keep `Name` itself to 10 words or
+fewer.
 
-| ID | Outcome | Acceptance check | Status | Depends on |
+| ID | Name | Acceptance check | Status | Depends on |
 |---|---|---|---|---|
 | — | — | — | TODO | — |
 
@@ -53,9 +61,9 @@ Acceptance check before `done` can close it.
 
 <!-- optional: ##### F01-E01-FT01 — UNKNOWN feature name, grouping the rows below -->
 
-| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |
-|---|---|---|---|---|---|---|
-| F01-E01-T01 | UNKNOWN | UNKNOWN | TODO | — | — | — |
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO | — | — | — |
 
 ## Gaps, Bugs & Technical Debt
 
@@ -64,9 +72,9 @@ trailing columns as above, so an entry can be `claim`ed and `done` like any
 task. ID prefix marks the kind: `Fxx-GAP-xx` (missing capability),
 `Fxx-BUG-xx` (defect), `Fxx-DEBT-xx` (technical debt).
 
-| ID | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |
-|---|---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — | — |
+| ID | Name | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|---|
+| — | — | — | — | — | — | — | — | — |
 
 ## Out of scope
 

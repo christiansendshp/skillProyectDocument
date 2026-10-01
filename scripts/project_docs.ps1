@@ -338,16 +338,17 @@ function Get-TaskStates {
     $lines = @(Get-ContentUtf8 -LiteralPath $log)
     $inEntries = $false
     $order = [System.Collections.Generic.List[string]]::new()
-    $lastStatus = @{}; $lastAgent = @{}; $lastTs = @{}; $lastPause = @{}; $everDone = @{}; $conflict = @{}
+    $lastStatus = @{}; $lastAgent = @{}; $lastTs = @{}; $lastPause = @{}; $everDone = @{}; $conflict = @{}; $lastName = @{}
     $cur = $null
     foreach ($line in $lines) {
         if ($line -eq "## Entries") { $inEntries = $true; continue }
         if (-not $inEntries) { continue }
-        if ($line -match '^## \[([^\]]*)\] \| ([^|]*) \| ([^|]*) \| (.*)$') {
+        if ($line -match '^## \[([^\]]*)\] \| ([^|]*) \| ([^|]*) \| ([^|]*)(?:\|\s*(.*))?$') {
             $ts = $Matches[1].Trim()
             $agent = $Matches[2].Trim()
             $tid = $Matches[3].Trim()
             $status = $Matches[4].Trim()
+            $name = if ($Matches[5]) { $Matches[5].Trim() } else { "" }
             if (-not $lastStatus.ContainsKey($tid)) { $order.Add($tid) }
             if ($status -eq "IN_PROGRESS" -and $lastStatus[$tid] -eq "IN_PROGRESS" -and $lastAgent[$tid] -ne $agent) {
                 $conflict[$tid] = "$($lastAgent[$tid]) vs $agent"
@@ -357,6 +358,7 @@ function Get-TaskStates {
             $lastAgent[$tid] = $agent
             $lastTs[$tid] = $ts
             $lastPause[$tid] = ""
+            if ($name -ne "") { $lastName[$tid] = $name }
             $cur = $tid
             continue
         }
@@ -377,6 +379,7 @@ function Get-TaskStates {
             PauseCat = $lastPause[$t]
             Conflict = $(if ($conflict.ContainsKey($t)) { $conflict[$t] } else { "" })
             EverDone = [bool]$everDone[$t]
+            Name = $(if ($lastName.ContainsKey($t)) { $lastName[$t] } else { "" })
         })
     }
     return $result
@@ -503,6 +506,78 @@ function Get-RoadmapSectionOf([string]$Id) {
         }
     }
     return ""
+}
+
+# ---------------------------------------------------------------------------
+# Name/Description taxonomy. Every Roadmap table carries a short, descriptive
+# "Name" cell (<= 10 words; the rest of the detail goes in "Description" or
+# the table's own free-text column) in the column right after ID. claim/
+# pause/done refuse a task whose Name is missing or too long instead of
+# silently copying it into the log; check sweeps every table the same way.
+# ---------------------------------------------------------------------------
+function Get-WordCount([string]$Text) {
+    $parts = @($Text -split '\s+' | Where-Object { $_ -ne "" })
+    return $parts.Count
+}
+
+# Returns the trimmed cell under the column named $ColName ("Name") of the
+# row whose ID equals $Id, wherever that row lives in docs/Roadmap.md.
+# Header-detected per table (the first "|" row after a non-"|" line), same
+# convention as Test-TableStatusEnum, so it works regardless of table shape.
+function Get-RoadmapRowField([string]$Id, [string]$ColName) {
+    $file = Join-Path $DocsDir "Roadmap.md"
+    $expectHeader = $true
+    $col = -1
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $file)) {
+        if (-not $line.StartsWith("|")) { $expectHeader = $true; continue }
+        $cells = @(Split-TableCells $line)
+        if ($expectHeader) {
+            $col = -1
+            for ($i = 0; $i -lt $cells.Count; $i++) { if ($cells[$i] -eq $ColName) { $col = $i } }
+            $expectHeader = $false
+            continue
+        }
+        if ($cells.Count -ge 1 -and $cells[0] -eq $Id -and $col -ge 0 -and $col -lt $cells.Count) {
+            return $cells[$col]
+        }
+    }
+    return ""
+}
+
+# Emits one Id/Name pair per row, file-wide, for every table that has a Name
+# column (same header detection as Get-RoadmapRowField). Used to cross-check
+# Agentslog entries against the Roadmap's current Name for each ID.
+function Get-RoadmapAllNames {
+    $file = Join-Path $DocsDir "Roadmap.md"
+    $expectHeader = $true
+    $namecol = -1
+    $result = @{}
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $file)) {
+        if (-not $line.StartsWith("|")) { $expectHeader = $true; continue }
+        $cells = @(Split-TableCells $line)
+        if ($expectHeader) {
+            $namecol = -1
+            for ($i = 0; $i -lt $cells.Count; $i++) { if ($cells[$i] -eq "Name") { $namecol = $i } }
+            $expectHeader = $false
+            continue
+        }
+        if ($cells.Count -lt 1) { continue }
+        $id = $cells[0]
+        if ($id -eq "" -or $id -eq $EmDash -or $id -match '^-+$') { continue }
+        if ($namecol -ge 0 -and $namecol -lt $cells.Count) { $result[$id] = $cells[$namecol] }
+    }
+    return $result
+}
+
+# Throws if the Roadmap row for $Task has no usable Name: missing, empty, or
+# over the 10-word limit. Called by claim/pause/done before they touch the
+# log, so a bad Name blocks the action instead of propagating into Agentslog.
+function Assert-ValidName([string]$Task, [string]$Action = "claim") {
+    $name = Get-RoadmapRowField $Task "Name"
+    if ($name -eq "") { throw "$Action failed: $Task has no Name cell in docs/Roadmap.md (missing row, or the table predates the Name column; run migrate)" }
+    $wc = Get-WordCount $name
+    if ($wc -gt 10) { throw "$Action failed: $Task Name is $wc words, over the 10-word limit: `"$name`" -- shorten it and move the rest into Description" }
+    return $name
 }
 
 function Set-RoadmapRowInPlace([string]$Id, [string]$Status, [string]$Owner, [string]$PauseReason) {
@@ -686,10 +761,11 @@ function Invoke-Claim {
                 }
             }
         }
+        $name = Assert-ValidName $task "claim"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         $entry = (@(
             "",
-            "## [$timestamp] | $agent | $task | IN_PROGRESS",
+            "## [$timestamp] | $agent | $task | IN_PROGRESS | $name",
             "- Summary: $summary",
             "- Verify: pending"
         ) -join "`n") + "`n"
@@ -717,11 +793,12 @@ function Invoke-Pause {
         if (-not $state) { throw "pause failed: $task has no IN_PROGRESS entry to pause" }
         if ($state.Status -ne "IN_PROGRESS") { throw "pause failed: $task is not IN_PROGRESS (current: $($state.Status))" }
         if ($state.Agent -ne $agent) { throw "pause failed: $task is owned by $($state.Agent), not $agent" }
+        $name = Assert-ValidName $task "pause"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         $log = Join-Path $DocsDir "Agentslog.md"
         $entry = (@(
             "",
-            "## [$timestamp] | $agent | $task | PAUSE",
+            "## [$timestamp] | $agent | $task | PAUSE | $name",
             "- Pause: $category - $detail"
         ) -join "`n") + "`n"
         [System.IO.File]::AppendAllText($log, $entry, $Utf8)
@@ -742,11 +819,12 @@ function Invoke-Done {
     if (-not $verify) { throw "done requires a non-empty verify" }
     Enter-DocsLock
     try {
+        $name = Assert-ValidName $task "done"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         $log = Join-Path $DocsDir "Agentslog.md"
         $entry = (@(
             "",
-            "## [$timestamp] | $agent | $task | DONE",
+            "## [$timestamp] | $agent | $task | DONE | $name",
             "- Summary: $summary",
             "- Files: $files",
             "- Verify: $verify"
@@ -770,7 +848,7 @@ function Invoke-Status {
         $reason = if ($s.Status -eq "PAUSE") { $s.PauseCat } else { "-" }
         $stale = ""
         if ($s.Status -eq "IN_PROGRESS" -and $null -ne $hrs -and $hrs -ge $StaleHours) { $stale = " (stale)" }
-        Write-Output "$($s.Task) | $($s.Agent) | $($s.Status) | ${hrsStr}h$stale | $reason"
+        Write-Output "$($s.Task) | $($s.Name) | $($s.Agent) | $($s.Status) | ${hrsStr}h$stale | $reason"
     }
 }
 
@@ -791,7 +869,7 @@ function Set-RoadmapSectionsEnsured {
         $changed = $true
     }
     if (-not $content.Contains("## Gaps, Bugs & Technical Debt")) {
-        $content += "`n## Gaps, Bugs & Technical Debt`n`n| ID | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |`n|---|---|---|---|---|---|---|---|`n| $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash |`n"
+        $content += "`n## Gaps, Bugs & Technical Debt`n`n| ID | Name | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |`n|---|---|---|---|---|---|---|---|---|`n| $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash | $EmDash |`n"
         $changed = $true
     }
     if (-not $content.Contains("## Out of scope")) {
@@ -821,6 +899,108 @@ function Set-RoadmapSectionsEnsured {
         }
         Write-Utf8File $file (ConvertTo-JoinedLines $lines)
     }
+}
+
+function Get-FirstNWords([string]$Text, [int]$N) {
+    $words = @($Text -split '\s+' | Where-Object { $_ -ne "" })
+    if ($words.Count -eq 0) { return "UNKNOWN" }
+    $take = [Math]::Min($N, $words.Count)
+    return ($words[0..($take - 1)] -join " ")
+}
+
+# Non-destructive, idempotent: inserts a short "Name" column (<= 10 words;
+# the rest of the detail stays in Description or the table's own free-text
+# column) into every Roadmap table that doesn't have one yet. Detects each
+# table's kind by its header (same convention as Test-TableStatusEnum), not
+# by position, so it runs after Set-RoadmapSectionsEnsured has already
+# normalized Active work's column count and also catches whatever shape
+# Convert-RoadmapYamlToTable just emitted, in the same migrate run:
+#   - Active work / Plan task rows (Outcome + Owner): Outcome is preserved
+#     verbatim as Description; Name is derived as its first 10 words.
+#   - Near term rows (Outcome, no Owner): Outcome -> Name, renamed in place,
+#     not truncated (no Description column there) -- a row whose old Outcome
+#     exceeds 10 words will still fail check's word limit until shortened by
+#     hand, same as any other flagged-for-review migration output.
+#   - Gaps/Bugs/Technical Debt rows (Severity + Phase): Description is
+#     preserved verbatim; Name is derived as its first 10 words.
+# A table that already has a Name column, or has no ID column at all (not
+# one of ours), passes through byte-for-byte.
+function Add-RoadmapNameColumn {
+    $file = Join-Path $DocsDir "Roadmap.md"
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return $false }
+    $lines = @(Get-ContentUtf8 -LiteralPath $file)
+    $out = [System.Collections.Generic.List[string]]::new()
+    $expectHeader = $true
+    $expectSep = $false
+    $state = "none"
+    foreach ($line in $lines) {
+        if (-not $line.StartsWith("|")) {
+            $out.Add($line)
+            $expectHeader = $true
+            $expectSep = $false
+            continue
+        }
+        if ($expectHeader) {
+            $cells = @(Split-TableCells $line)
+            $hasId = $cells -contains "ID"
+            $hasName = $cells -contains "Name"
+            $hasOutcome = $cells -contains "Outcome"
+            $hasOwner = $cells -contains "Owner"
+            $hasSev = $cells -contains "Severity"
+            $hasPhase = $cells -contains "Phase"
+            $expectHeader = $false
+            if ((-not $hasId) -or $hasName) {
+                $state = "other"; $out.Add($line); continue
+            }
+            if ($hasOutcome -and $hasOwner) {
+                $state = "task"
+                $out.Add("| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |")
+                $expectSep = $true; continue
+            }
+            if ($hasOutcome) {
+                $state = "nearterm"
+                $out.Add("| ID | Name | Acceptance check | Status | Depends on |")
+                $expectSep = $true; continue
+            }
+            if ($hasSev -and $hasPhase) {
+                $state = "gaps"
+                $out.Add("| ID | Name | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |")
+                $expectSep = $true; continue
+            }
+            $state = "other"; $out.Add($line); continue
+        }
+        if ($expectSep) {
+            $expectSep = $false
+            if ($state -eq "task") { $out.Add("|---|---|---|---|---|---|---|---|") }
+            elseif ($state -eq "nearterm") { $out.Add("|---|---|---|---|---|") }
+            elseif ($state -eq "gaps") { $out.Add("|---|---|---|---|---|---|---|---|---|") }
+            else { $out.Add($line) }
+            continue
+        }
+        if ($state -eq "task") {
+            $c = @(Split-TableCells $line)
+            $name = Get-FirstNWords $c[1] 10
+            $out.Add("| $($c[0]) | $name | $($c[1]) | $($c[2]) | $($c[3]) | $($c[4]) | $($c[5]) | $($c[6]) |")
+            continue
+        }
+        if ($state -eq "nearterm") {
+            $c = @(Split-TableCells $line)
+            $out.Add("| $($c[0]) | $($c[1]) | $($c[2]) | $($c[3]) | $($c[4]) |")
+            continue
+        }
+        if ($state -eq "gaps") {
+            $c = @(Split-TableCells $line)
+            $name = Get-FirstNWords $c[3] 10
+            $out.Add("| $($c[0]) | $name | $($c[1]) | $($c[2]) | $($c[3]) | $($c[4]) | $($c[5]) | $($c[6]) | $($c[7]) |")
+            continue
+        }
+        $out.Add($line)
+    }
+    $newContent = ConvertTo-JoinedLines ([string[]]$out)
+    $oldContent = ConvertTo-JoinedLines $lines
+    if ($newContent -eq $oldContent) { return $false }
+    Write-Utf8File $file $newContent
+    return $true
 }
 
 # True if docs/Roadmap.md still uses the per-entry YAML block format from the
@@ -1105,6 +1285,12 @@ function Invoke-Migrate {
         Write-Output "  DECISION entries and any F00-ORPHANED rows by hand)"
     }
     Set-RoadmapSectionsEnsured
+    if (Add-RoadmapNameColumn) {
+        $changed++
+        Write-Output "= converted: docs/Roadmap.md rows now have a Name column (derived from the"
+        Write-Output "  first 10 words of the prior Outcome/Description text; review each Name by"
+        Write-Output "  hand, including any Near term row that may still exceed 10 words)"
+    }
     Write-Output "project_docs migrate: $changed change(s)"
 }
 
@@ -1147,17 +1333,18 @@ function Test-LogEntries {
     foreach ($line in $lines) {
         if ($line -eq "## Entries") { $inEntries = $true; continue }
         if (-not $inEntries) { continue }
-        if ($line -match '^## \[([^\]]*)\] \| ([^|]*) \| ([^|]*) \| (.*)$') {
+        if ($line -match '^## \[([^\]]*)\] \| ([^|]*) \| ([^|]*) \| ([^|]*)(?:\|\s*(.*))?$') {
             $agentnow = $Matches[2].Trim()
             $tidnow = $Matches[3].Trim()
             $status = $Matches[4].Trim()
+            $name = if ($Matches[5]) { $Matches[5].Trim() } else { "" }
             $conflictMsg = $null
             if ($status -eq "IN_PROGRESS" -and $lastStatus.ContainsKey($tidnow) -and $lastStatus[$tidnow] -eq "IN_PROGRESS" -and $lastAgent[$tidnow] -ne $agentnow) {
                 $conflictMsg = "ERROR: conflicting concurrent claim on $tidnow`: $($lastAgent[$tidnow]) and $agentnow"
             }
             $lastStatus[$tidnow] = $status
             $lastAgent[$tidnow] = $agentnow
-            $cur = [PSCustomObject]@{ Hdr = $line; Status = $status; PauseLine = $null; VerifyLine = $null; ConflictMsg = $conflictMsg }
+            $cur = [PSCustomObject]@{ Hdr = $line; Status = $status; PauseLine = $null; VerifyLine = $null; ConflictMsg = $conflictMsg; Name = $name }
             $entries.Add($cur)
             continue
         }
@@ -1201,6 +1388,13 @@ function Test-LogEntries {
                     [Console]::Error.WriteLine("ERROR: DONE entry has empty or pending Verify: $($e.Hdr)")
                     $script:CheckFail = $true
                 }
+            }
+        }
+        if ($e.Name) {
+            $wc = Get-WordCount $e.Name
+            if ($wc -gt 10) {
+                [Console]::Error.WriteLine("ERROR: entry Name is $wc words, over the 10-word limit: $($e.Hdr)")
+                $script:CheckFail = $true
             }
         }
     }
@@ -1262,6 +1456,23 @@ function Test-RoadmapFeaturesIds {
     }
 }
 
+# For every ID that has a Name in docs/Roadmap.md, the most recent Agentslog
+# entry that carried a Name for that ID must agree with it -- claim/pause/
+# done write the Roadmap Name into the log automatically, so a mismatch
+# means either was hand-edited out of sync afterward. An entry with no Name
+# field at all (pre-feature history, or an append-log entry) is not a
+# mismatch.
+function Test-AgentslogRoadmapNames {
+    $roadmapNames = Get-RoadmapAllNames
+    foreach ($s in @(Get-TaskStates)) {
+        if (-not $s.Name) { continue }
+        if ($roadmapNames.ContainsKey($s.Task) -and $roadmapNames[$s.Task] -ne $s.Name) {
+            [Console]::Error.WriteLine("ERROR: $($s.Task) Agentslog Name (`"$($s.Name)`") does not match docs/Roadmap.md Name (`"$($roadmapNames[$s.Task])`")")
+            $script:CheckFail = $true
+        }
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Epistemic taxonomy and canonical-ID hardening. Two disjoint Status
 # vocabularies exist by design: fact tables in ProductDescription.md and
@@ -1296,6 +1507,52 @@ function Test-TableStatusEnum([string]$Rel, [string[]]$Allowed, [string]$Label) 
             if ($Allowed -notcontains $st) {
                 [Console]::Error.WriteLine("ERROR: $Rel row '$id' has invalid $Label Status: $st")
                 $script:CheckFail = $true
+            }
+        }
+    }
+}
+
+# Every Roadmap table's row carries a short, descriptive Name (<= 10 words;
+# the rest of the detail goes in Description or the table's own free-text
+# column) in the column right after ID. Same per-table header detection as
+# Test-TableStatusEnum. A table that has an ID column but no Name column at
+# all (not yet migrated) is reported once, by its header, rather than
+# silently skipped.
+function Test-TableNameWordLimit([string]$Rel, [int]$Max) {
+    $path = Join-Path $Project $Rel
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
+    $expectHeader = $true
+    $nameCol = -1
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $path)) {
+        if (-not $line.StartsWith("|")) { $expectHeader = $true; continue }
+        $cells = @(Split-TableCells $line)
+        if ($expectHeader) {
+            $idCol = -1; $nameCol = -1
+            for ($i = 0; $i -lt $cells.Count; $i++) {
+                if ($cells[$i] -eq "ID") { $idCol = $i }
+                if ($cells[$i] -eq "Name") { $nameCol = $i }
+            }
+            if ($idCol -ge 0 -and $nameCol -lt 0) {
+                [Console]::Error.WriteLine("ERROR: $Rel table `"$line`" has no Name column; run migrate")
+                $script:CheckFail = $true
+            }
+            $expectHeader = $false
+            continue
+        }
+        if ($cells.Count -lt 1) { continue }
+        $id = $cells[0]
+        if ($id -eq "" -or $id -eq $EmDash -or $id -match '^-+$') { continue }
+        if ($nameCol -ge 0 -and $nameCol -lt $cells.Count) {
+            $nm = $cells[$nameCol]
+            if ($nm -eq "") {
+                [Console]::Error.WriteLine("ERROR: $Rel row '$id' has an empty Name")
+                $script:CheckFail = $true
+            } else {
+                $wc = Get-WordCount $nm
+                if ($wc -gt $Max) {
+                    [Console]::Error.WriteLine("ERROR: $Rel row '$id' Name is $wc words, over the $Max-word limit: $nm")
+                    $script:CheckFail = $true
+                }
             }
         }
     }
@@ -1414,6 +1671,7 @@ function Invoke-Check {
         Test-LogRotationNeeded
         Test-LogEntries
         Test-RoadmapFeaturesIds
+        Test-AgentslogRoadmapNames
     }
 
     Test-IdFormatInSection "docs/ProductDescription.md" "## Business rules" '^BR-[0-9][0-9][0-9]+$' "Business rules"
@@ -1422,6 +1680,7 @@ function Invoke-Check {
     Test-TableStatusEnum "docs/ProductDescription.md" @("CONFIRMED", "HYPOTHESIS", "UNKNOWN") "epistemic"
     Test-TableStatusEnum "docs/Stack_Tecnologies.md" @("CONFIRMED", "HYPOTHESIS", "UNKNOWN") "epistemic"
     Test-TableStatusEnum "docs/Roadmap.md" @("TODO", "IN_PROGRESS", "PAUSE", "DONE") "workflow"
+    Test-TableNameWordLimit "docs/Roadmap.md" 10
 
     Write-CheckWarnings
 
@@ -1484,7 +1743,7 @@ function Invoke-Rotate {
     $lines.Add("## Entry format")
     $lines.Add("")
     $lines.Add('```markdown')
-    $lines.Add("## [YYYY-MM-DDTHH:mm:ssZ] | agent | TASK-ID | IN_PROGRESS")
+    $lines.Add("## [YYYY-MM-DDTHH:mm:ssZ] | agent | TASK-ID | IN_PROGRESS | Name")
     $lines.Add("- Summary: what the agent will do or did")
     $lines.Add("- Files: paths or component names (optional)")
     $lines.Add('- Verify: command and result, or "pending" (required for DONE)')
@@ -1499,7 +1758,7 @@ function Invoke-Rotate {
     $lines.Add("## Entries")
     foreach ($s in $openStates) {
         $lines.Add("")
-        $lines.Add("## [$($s.Ts)] | $($s.Agent) | $($s.Task) | $($s.Status)")
+        $lines.Add("## [$($s.Ts)] | $($s.Agent) | $($s.Task) | $($s.Status) | $($s.Name)")
         $lines.Add("- Summary: carried forward from docs/history/$name at rotation")
         if ($s.Status -eq "PAUSE") {
             $lines.Add("- Pause: $($s.PauseCat) - see docs/history/$name for detail")
