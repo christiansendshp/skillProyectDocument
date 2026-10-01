@@ -105,3 +105,21 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: Markdown hardening closed: Roadmap back to tables, canonical BR/ADR/Fxx IDs, strict Status enums, hardened check, claim inserts the row inside the Active work table, own docs migrated, evals 15-21 rewritten
 - Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh,templates/,docs/,evals/evals.json,references/,README.md,SKILL.md
 - Verify: sh scripts/smoke_test.sh -> 162 passed, 0 failed (sh + powershell.exe); sh scripts/project_docs.sh check . -> OK
+
+## [2026-10-01T14:49:53Z] | claude | F04-E01-T01 | IN_PROGRESS | Add a short Name column, enforce it everywhere
+- Summary: Add Name/Description taxonomy to Roadmap, enforce across sh+ps1, migrate, docs, tests
+- Verify: pending
+
+## [2026-10-01T15:05:12Z] | claude | F04-E01-T01 | DONE | Add a short Name column, enforce it everywhere
+- Summary: Name/Description taxonomy: Name<=10 words right after ID on every Roadmap table, Description holds the rest; claim/pause/done refuse a bad Name and copy it into Agentslog; check enforces the word limit and cross-validates log vs Roadmap Name; migrate retrofits pre-Name Roadmaps non-destructively; see Stack ADR-020
+- Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh,templates/Roadmap.md,templates/Agentslog.md,templates/AGENTS.md,AGENTS.md,references/workflow.md,SKILL.md,README.md,evals/evals.json,docs/
+- Verify: sh scripts/smoke_test.sh -> 208 passed, 0 failed (sh + PowerShell); sh scripts/project_docs.sh check . -> OK
+
+## [2026-10-01T15:05:39Z] | claude | F03-DEBT-03 | IN_PROGRESS | Root AGENTS.md eats over half the context budget
+- Summary: Shrink root AGENTS.md so context stays under the 8 KiB budget
+- Verify: pending
+
+## [2026-10-01T15:07:12Z] | claude | F03-DEBT-03 | DONE | Root AGENTS.md eats over half the context budget
+- Summary: Trimmed AGENTS.md (template and root) from ~4.9 KiB to ~4.3 KiB by tightening Startup/Taking-a-task/Technical-decisions/Close wording, no obligation dropped
+- Files: AGENTS.md,templates/AGENTS.md
+- Verify: sh scripts/project_docs.sh check . -> OK, hot context 8600 -> under 8192
