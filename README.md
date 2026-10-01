@@ -48,7 +48,7 @@ Both launchers also provide:
 | Command | Purpose |
 |---|---|
 | `link [--create <list>]` | Point other agent files (`CLAUDE.md`, `.cursorrules`, ...) at `AGENTS.md`; run automatically at the end of `init` |
-| `migrate` | Merge a legacy `docs/Agents.md` into root `AGENTS.md`, fix a root case-only filename, add missing `Roadmap.md` sections, convert a per-entry YAML Roadmap back to tables — idempotent |
+| `migrate` | Merge a legacy `docs/Agents.md` into root `AGENTS.md`, fix a root case-only filename, add missing `Roadmap.md` sections, convert a per-entry YAML Roadmap back to tables, retrofit a `Name` column onto a pre-Name Roadmap — idempotent |
 | `claim <agent> <task-id> <summary>` | Take a Roadmap task; fails if another agent already owns it |
 | `pause <agent> <task-id> <category> <detail>` | Release a task (`LIMITE`\|`ESPERA_RESPUESTA`\|`BLOQUEO`\|`OTRO`) |
 | `done <agent> <task-id> <summary> <files> <verify>` | Close a task, record it in `Features.md`, clear it from the Roadmap |
@@ -66,6 +66,17 @@ every open task. The hot log rotates after 200 entries or 128 KiB.
 
 ## Changelog
 
+- **Name/Description taxonomy**: every Roadmap row now carries a `Name` cell
+  (right after `ID`) — short, descriptive, 10 words or fewer — with the rest
+  of the detail in `Description` (or the row's own free-text column for
+  `## Near term`, which has no `Description`). `claim`/`pause`/`done` refuse
+  a row whose Name is missing or over 10 words, and copy it verbatim into
+  the matching Agentslog entry (`| agent | TASK-ID | STATUS | Name`), so the
+  log can never say something different from the Roadmap. `check` enforces
+  both: every table's Name column exists and stays within the limit, and an
+  Agentslog entry's Name agrees with its ID's current Roadmap Name. `migrate`
+  retrofits a pre-Name Roadmap non-destructively (old text becomes
+  `Description`; a derived first-10-words `Name` is flagged for review).
 - **Markdown hardening**: reverted `docs/Roadmap.md` to pure Markdown
   tables (superseding the per-entry YAML schema below) — zero YAML/JSON in
   any contract file, so line-based tools never misparse an

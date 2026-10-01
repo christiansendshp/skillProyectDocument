@@ -17,8 +17,8 @@ stable for positional edits.
 
 ## Active work
 
-| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |
-|---|---|---|---|---|---|---|
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
 
 <!-- context:end -->
 
@@ -28,7 +28,7 @@ Work further out than `## Plan`'s next eligible task. Promote a row into
 `## Plan` manually when it becomes actionable; `claim` does not read this
 table.
 
-| ID | Outcome | Acceptance check | Status | Depends on |
+| ID | Name | Acceptance check | Status | Depends on |
 |---|---|---|---|---|
 | — | — | — | TODO | — |
 
@@ -42,8 +42,15 @@ F01 (multi-agent coordination protocol) and F02 (per-entry YAML Roadmap schema, 
 
 #### F03-E01 — Pure-Markdown contract files
 
-| ID | Outcome | Acceptance check | Status | Owner | Depends on | Pause reason |
-|---|---|---|---|---|---|---|
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+
+### F04 — Name and Description taxonomy
+
+#### F04-E01 — Short Name, long Description
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
 
 ## Gaps, Bugs & Technical Debt
 
@@ -52,11 +59,10 @@ trailing columns as above, so an entry can be `claim`ed and `done` like any
 task. ID prefix marks the kind: `Fxx-GAP-xx` (missing capability),
 `Fxx-BUG-xx` (defect), `Fxx-DEBT-xx` (technical debt).
 
-| ID | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |
-|---|---|---|---|---|---|---|---|
-| F03-DEBT-01 | Low | F03 | The table cell splitter in `check` and in the `claim`/`pause`/`done` positional edits (sh and ps1) treats every vertical bar as a column separator, escaped or not, so a literal bar in any cell corrupts the row. Workaround: word the cell without a bar (documented in `references/workflow.md`) | TODO | — | — | — |
-| F03-DEBT-02 | Low | F03 | `migrate` emits EPIC headings at `#####` even when the project has no THEME heading, skipping heading levels (`###` then `#####`); the template uses `####`. Cosmetic only, headings are never parsed | TODO | — | — | — |
-| F03-DEBT-03 | Medium | F03 | The root `AGENTS.md` block is about 4.5 KiB, over half of the 8 KiB `context` budget, so five maximum-size log entries alone (about 3.5 KiB) already exceed what is left and `context` fails. Fix by shrinking the rules block or splitting rarely-needed rules into `references/` | TODO | — | — | — |
+| ID | Name | Severity | Phase | Description | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|---|
+| F03-DEBT-01 | A literal bar in a table cell corrupts the row | Low | F03 | The table cell splitter in `check` and in the `claim`/`pause`/`done` positional edits (sh and ps1) treats every vertical bar as a column separator, escaped or not, so a literal bar in any cell corrupts the row. Workaround: word the cell without a bar (documented in `references/workflow.md`) | TODO | — | — | — |
+| F03-DEBT-02 | migrate skips a heading level without a THEME | Low | F03 | `migrate` emits EPIC headings at `#####` even when the project has no THEME heading, skipping heading levels (`###` then `#####`); the template uses `####`. Cosmetic only, headings are never parsed | TODO | — | — | — |
 
 ## Out of scope
 

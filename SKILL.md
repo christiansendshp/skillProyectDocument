@@ -44,7 +44,12 @@ a dense `## Operational summary`/`## Active work` block closed by
 `<!-- context:end -->`; only that block is hot context. Every fact-table
 `Status` column in Product/Stack is epistemic — exactly `CONFIRMED`,
 `HYPOTHESIS`, or `UNKNOWN` — a different axis from the workflow `Status`
-(`TODO`/`IN_PROGRESS`/`PAUSE`/`DONE`) in Roadmap's work-item tables.
+(`TODO`/`IN_PROGRESS`/`PAUSE`/`DONE`) in Roadmap's work-item tables. Every
+Roadmap row's `Name` is a short, descriptive title of 10 words or fewer; the
+rest of the detail goes in `Description` (or the row's own free-text
+column). `claim`/`pause`/`done` refuse a row whose Name is missing or too
+long, and copy it verbatim into the matching Agentslog entry, so the log
+always names a task the same way the Roadmap does.
 
 **No agent writes a single line of code before checking the `BR-xxx` rules
 in `ProductDescription.md` and the constraints in `Stack_Tecnologies.md`.**

@@ -234,6 +234,53 @@
         "The task row no longer appears in Roadmap.md",
         "check passes with no Features/log ID mismatch errors"
       ]
+    },
+    {
+      "id": 22,
+      "prompt": "Add a new Roadmap task whose Name is a full sentence well over 10 words, then try to claim it.",
+      "expected_output": "claim refuses, naming the task, the word count, and the 10-word limit, without writing anything to Agentslog or moving the row.",
+      "files": [],
+      "expectations": [
+        "claim exits non-zero and writes nothing to docs/Agentslog.md",
+        "The error names the task ID and the word count",
+        "The error mentions the 10-word limit",
+        "The Roadmap row is unchanged (still in its original section)"
+      ]
+    },
+    {
+      "id": 23,
+      "prompt": "Shorten that task's Name to 10 words or fewer, put the removed detail in Description, then claim and done it.",
+      "expected_output": "claim and done both succeed, and every Agentslog entry for the task carries the exact same Name as the Roadmap row did at the time of the call.",
+      "files": [],
+      "expectations": [
+        "The IN_PROGRESS log entry's Name field matches the Roadmap row's Name",
+        "The DONE log entry's Name field matches the same Name",
+        "check passes with no Name-related error"
+      ]
+    },
+    {
+      "id": 24,
+      "prompt": "After claiming a task, hand-edit its Roadmap row's Name to something different, then run check.",
+      "expected_output": "check fails, naming the task ID and quoting both the Agentslog Name and the Roadmap Name that disagree.",
+      "files": [],
+      "expectations": [
+        "check exits non-zero",
+        "The error names the task ID",
+        "The error quotes the Agentslog Name and the Roadmap Name"
+      ]
+    },
+    {
+      "id": 25,
+      "prompt": "In a project whose Roadmap.md predates the Name/Description column (the Markdown-hardened table shape with Outcome and Description but no Name), run check, then migrate, then check again.",
+      "expected_output": "check fails first, naming the table that has no Name column. migrate adds a Name column to every such table without losing any existing text: an Active work/Plan row's old Outcome becomes its Description verbatim, with a derived (first 10 words) Name; a Gaps/Bugs/Technical-Debt row's Description is kept, with a derived Name the same way; a Near term row's Outcome is renamed to Name in place. check then passes (a Near term row whose old Outcome exceeds 10 words still needs a manual shortening, and is flagged by check until fixed). A second migrate changes nothing.",
+      "files": [],
+      "expectations": [
+        "check fails and its message names the table with no Name column",
+        "migrate exits zero and reports a change",
+        "No existing Outcome or Description text is lost after migrate",
+        "check passes after migrate (or names only a Near term row still over the word limit)",
+        "A second migrate run produces a byte-identical Roadmap.md"
+      ]
     }
   ]
 }
