@@ -19,6 +19,7 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
+| F05-E03-T01 | Document review and identity in templates and docs | Change 8 of the spec, ADR-021 and evals 26+ | check . exits 0 within 8 KiB; root AGENTS.md body equals the template; full smoke test 0 failed on sh and ps1 | IN_PROGRESS | claude-sonnet-5-5@2026-10-13T18:09:26Z | F05-E02-T02 | — |
 
 <!-- context:end -->
 
@@ -70,7 +71,6 @@ Spec: the handoff prompt in the PM Hub repo (docs/prompts/skill-review-handoff-a
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F05-E03-T01 | Document review and identity in templates and docs | Change 8 of the spec, ADR-021 and evals 26+ | check . exits 0 within 8 KiB; root AGENTS.md body equals the template; full smoke test 0 failed on sh and ps1 | TODO | — | F05-E02-T02 | — |
 
 ## Gaps, Bugs & Technical Debt
 
@@ -83,6 +83,9 @@ task. ID prefix marks the kind: `Fxx-GAP-xx` (missing capability),
 |---|---|---|---|---|---|---|---|---|
 | F03-DEBT-01 | A literal bar in a table cell corrupts the row | Low | F03 | The table cell splitter in `check` and in the `claim`/`pause`/`done` positional edits (sh and ps1) treats every vertical bar as a column separator, escaped or not, so a literal bar in any cell corrupts the row. Workaround: word the cell without a bar (documented in `references/workflow.md`) | TODO | — | — | — |
 | F03-DEBT-02 | migrate skips a heading level without a THEME | Low | F03 | `migrate` emits EPIC headings at `#####` even when the project has no THEME heading, skipping heading levels (`###` then `#####`); the template uses `####`. Cosmetic only, headings are never parsed | TODO | — | — | — |
+| F05-DEBT-01 | Age rounds differently in sh and PowerShell | Low | F05 | status and the stale checks compute age in whole hours: sh truncates toward zero and PowerShell floors, so an entry timestamped in the future shows 0h in sh and -1h in PowerShell. Only visible with a wrong clock or a hand-written future timestamp | TODO | — | — | — |
+| F05-DEBT-02 | The em dash verify marker is untested in PowerShell | Low | F05 | The smoke test passes arguments to PowerShell through a command string, which mangles a non-ASCII argument, so the em dash verify marker is only exercised through the sh launcher; the PowerShell comparison itself is covered by the other markers | TODO | — | — | — |
+| F05-DEBT-03 | A rotation can fake an instant close | Low | F05 | rotate re-opens a task that was in REVIEW as an IN_PROGRESS entry stamped with the time of its last entry, so a done within 5 minutes of that last entry looks like a task claimed and closed minutes apart. Rare; fix by ignoring carried-forward IN_PROGRESS entries when measuring | TODO | — | — | — |
 
 ## Out of scope
 

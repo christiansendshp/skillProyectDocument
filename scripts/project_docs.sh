@@ -2241,8 +2241,11 @@ rotate_log() {
     echo "## [YYYY-MM-DDTHH:mm:ssZ] | agent | TASK-ID | IN_PROGRESS | Name"
     echo "- Summary: what the agent will do or did"
     echo "- Files: paths or component names (optional)"
-    echo "- Verify: command and result, or \"pending\" (required for DONE)"
+    echo "- Verify: command and result, or \"pending\" (required for DONE and REVIEW)"
     echo "- Pause: CATEGORY - detail (required for PAUSE)"
+    echo "- Handoff: reviewer agent or role (optional, REVIEW)"
+    echo "- Review: PASS|FAIL - detail (optional, REVIEW)"
+    echo "- Assign: agent (required for ASSIGNED)"
     echo '```'
     echo
     echo "## Previous segment"

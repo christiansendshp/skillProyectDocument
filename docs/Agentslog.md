@@ -195,3 +195,7 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: assign command and ASSIGNED state: row stays TODO with the new Owner, claim by another agent warns, a task in progress cannot be assigned
 - Files: scripts/
 - Verify: sh scripts/smoke_test.sh -> 562 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T18:09:26Z] | claude-sonnet-5-5 | F05-E03-T01 | IN_PROGRESS | Document review and identity in templates and docs
+- Summary: Change 8 and 9: templates, docs, evals and the regression test
+- Verify: pending
