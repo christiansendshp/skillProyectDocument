@@ -812,6 +812,48 @@ cmd_pause() {
   echo "project_docs pause: $task paused ($category)"
 }
 
+# handoff <agent> <task-id> <summary> <verify> [reviewer]
+# The developer says the code is complete and their own verification passed.
+# Written as a REVIEW entry (the Roadmap row stays IN_PROGRESS with the same
+# Owner: the stage lives in the ledger only). Same ownership checks as pause.
+cmd_handoff() {
+  shift 2
+  [ "$#" -ge 4 ] || die "handoff requires: agent task-id summary verify [reviewer]"
+  agent="$(clean_field "$1")"
+  task="$(clean_field "$2")"
+  summary="$(clean_field "$3")"
+  verify="$(clean_field "$4")"
+  reviewer="$(clean_field "${5:-}")"
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  [ -n "$summary" ] || die "handoff requires a non-empty summary"
+  if [ -z "$verify" ] || [ "$verify" = "pending" ]; then
+    die "handoff requires a verify that is not empty or pending"
+  fi
+  with_lock
+  if state="$(task_state "$task")"; then
+    status="$(printf '%s' "$state" | cut -f2)"
+    owner="$(printf '%s' "$state" | cut -f3)"
+  else
+    die "handoff failed: $task has no IN_PROGRESS entry to hand off"
+  fi
+  [ "$status" = "IN_PROGRESS" ] || die "handoff failed: $task is not IN_PROGRESS (current: $status)"
+  [ "$owner" = "$agent" ] || die "handoff failed: $task is owned by $owner, not $agent"
+  name="$(require_valid_name "$task" handoff)"
+  timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  {
+    echo
+    echo "## [$timestamp] | $agent | $task | REVIEW | $name"
+    echo "- Summary: $summary"
+    echo "- Verify: $verify"
+    if [ -n "$reviewer" ]; then echo "- Handoff: $reviewer"; fi
+  } >> "$DOCS_DIR/Agentslog.md"
+  if [ -n "$reviewer" ]; then
+    echo "project_docs handoff: $task handed to review ($reviewer)"
+  else
+    echo "project_docs handoff: $task handed to review"
+  fi
+}
+
 cmd_done() {
   shift 2
   [ "$#" -ge 5 ] || die "done requires: agent task-id summary files verify"
@@ -1950,9 +1992,10 @@ case "$COMMAND" in
   link) cmd_link "$@" ;;
   claim) cmd_claim "$@" ;;
   pause) cmd_pause "$@" ;;
+  handoff) cmd_handoff "$@" ;;
   done) cmd_done "$@" ;;
   status) cmd_status ;;
   *)
-    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|done|status} <project> [args]"
+    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|done|status} <project> [args]"
     ;;
 esac

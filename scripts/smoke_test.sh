@@ -120,11 +120,7 @@ run_suite() {
   run claim "$proj2" agentD SMOKE-T03 "reviewed across rotation" >/dev/null 2>&1
   seed_entry "$proj2" "$(now_ts)" agentD SMOKE-T03 REVIEW "Smoke review task" "- Summary: coded\n- Verify: unit tests pass\n- Handoff: qa-agent\n"
   seed_entry "$proj2" "$(now_ts)" qa-agent SMOKE-T03 REVIEW "Smoke review task" "- Summary: reviewed\n- Verify: reran tests\n- Review: PASS - fine\n"
-  i=1
-  while [ "$i" -le 205 ]; do
-    run append-log "$proj2" filler SMOKE-T01 DONE "filler $i" "n/a" "n/a" >/dev/null 2>&1
-    i=$((i + 1))
-  done
+  seed_fill "$proj2" SMOKE-T01 205
   assert_success "$label context stays open task visible" run context "$proj2"
   grep -q "SMOKE-T02" "$WORK/.out" && ok "$label Open tasks section lists SMOKE-T02" || bad "$label Open tasks section missing SMOKE-T02"
   grep -q "SMOKE-T03 | agentD | REVIEW(PASS)->qa-agent" "$WORK/.out" && ok "$label Open tasks lists the REVIEW task with its holder and stage" || bad "$label Open tasks missing the REVIEW task or its stage"
@@ -391,6 +387,34 @@ run_suite() {
   grep -q "has been in REVIEW for" "$WORK/.out" && ok "$label stale REVIEW warning text" || bad "$label stale REVIEW warning missing: $(cat "$WORK/.out")"
   assert_success "$label status marks a stale REVIEW" run_env PROJECT_DOCS_STALE_HOURS=1 status "$rp"
   grep -q "(stale)" "$WORK/.out" && ok "$label status shows (stale) on a REVIEW" || bad "$label status doesn't mark the stale REVIEW"
+
+  echo "== $label: handoff command (Change 2) =="
+  review_proj ho_ok
+  owner_before="$(grep -o 'IN_PROGRESS | dev@[0-9TZ:-]*' "$rp/docs/Roadmap.md")"
+  assert_failure "$label handoff by a non-holder fails" run handoff "$rp" other F01-E01-T01 "coded" "tests pass"
+  grep -q "owned by dev, not other" "$WORK/.out" && ok "$label handoff error names the holder" || bad "$label handoff error doesn't name the holder"
+  assert_failure "$label handoff with a pending verify fails" run handoff "$rp" dev F01-E01-T01 "coded" "pending"
+  assert_failure "$label handoff with an empty verify fails" run handoff "$rp" dev F01-E01-T01 "coded" ""
+  assert_failure "$label handoff with an empty summary fails" run handoff "$rp" dev F01-E01-T01 "" "tests pass"
+  assert_failure "$label handoff on a task nobody claimed fails" run handoff "$rp" dev F01-E01-T09 "coded" "tests pass"
+  assert_success "$label handoff by the holder succeeds" run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass" qa-agent
+  assert_contains "$label handoff writes a REVIEW entry carrying the Name" "$rp/docs/Agentslog.md" "| dev | F01-E01-T01 | REVIEW | Build the demo onboarding flow"
+  assert_contains "$label handoff records the reviewer" "$rp/docs/Agentslog.md" "- Handoff: qa-agent"
+  owner_after="$(grep -o 'IN_PROGRESS | dev@[0-9TZ:-]*' "$rp/docs/Roadmap.md")"
+  [ -n "$owner_before" ] && [ "$owner_before" = "$owner_after" ] && ok "$label handoff leaves the Roadmap row IN_PROGRESS with the same Owner" || bad "$label handoff changed the Roadmap row: [$owner_before] -> [$owner_after]"
+  assert_success "$label status shows the handed-off task" run status "$rp"
+  grep -q "dev | REVIEW->qa-agent" "$WORK/.out" && ok "$label status shows the stage and target after handoff" || bad "$label status stage wrong after handoff: $(cat "$WORK/.out")"
+  assert_success "$label context after handoff" run context "$rp"
+  grep -q "F01-E01-T01 | dev | REVIEW->qa-agent" "$WORK/.out" && ok "$label Open tasks shows the handed-off task" || bad "$label Open tasks misses the handed-off task"
+  assert_failure "$label a second handoff while in REVIEW fails" run handoff "$rp" dev F01-E01-T01 "again" "ok"
+  assert_success "$label check passes after a handoff" run check "$rp"
+  review_proj ho_noreviewer
+  assert_success "$label handoff without a reviewer succeeds" run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass"
+  assert_not_exists_pattern "$label no Handoff line is written without a reviewer" "$rp/docs/Agentslog.md" "- Handoff:"
+  assert_success "$label check passes after a handoff without a reviewer" run check "$rp"
+  review_proj ho_paused
+  run pause "$rp" dev F01-E01-T01 OTRO "switching" >/dev/null 2>&1
+  assert_failure "$label handoff on a paused task fails" run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass"
 }
 
 file_hash() {
@@ -407,6 +431,17 @@ now_ts() { date -u +'%Y-%m-%dT%H:%M:%SZ'; }
 seed_entry() {
   proj="$1"; ts="$2"; agent="$3"; id="$4"; status="$5"; name="$6"; body="$7"
   printf '\n## [%s] | %s | %s | %s | %s\n%b' "$ts" "$agent" "$id" "$status" "$name" "$body" >> "$proj/docs/Agentslog.md"
+}
+
+# Appends N filler DONE entries in the exact shape append-log writes, in ONE
+# process: 205 separate append-log runs cost minutes under PowerShell. The
+# append-log command itself is still exercised by the bad-status assertion.
+seed_fill() {
+  proj="$1"; id="$2"; count="$3"; fill_ts="$(now_ts)"; i=1
+  while [ "$i" -le "$count" ]; do
+    printf '\n## [%s] | filler | %s | DONE\n- Summary: filler %s\n- Files: n/a\n- Verify: n/a\n- Follow-up: none\n' "$fill_ts" "$id" "$i"
+    i=$((i + 1))
+  done >> "$proj/docs/Agentslog.md"
 }
 
 # run with one extra environment variable (VAR=value) for that call only.

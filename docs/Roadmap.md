@@ -60,7 +60,6 @@ Spec: the handoff prompt in the PM Hub repo (docs/prompts/skill-review-handoff-a
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F05-E01-T02 | Add the handoff command | Change 2 of the spec | handoff works only for the holder of an IN_PROGRESS task with real verify; row stays IN_PROGRESS; smoke sh+ps1 pass | TODO | — | F05-E01-T01 | — |
 | F05-E01-T03 | Add the review command with PASS or FAIL | Change 3 of the spec | review needs a pending handoff and a note; PASS needs real verify; FAIL returns the task to the holder; self-review warns; smoke sh+ps1 pass | TODO | — | F05-E01-T02 | — |
 | F05-E01-T04 | done verifies who is closing the task | Change 4 of the spec | done by a third party fails; retroactive close still works; closing without passing review warns; smoke sh+ps1 pass | TODO | — | F05-E01-T03 | — |
 

@@ -141,3 +141,12 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: REVIEW is a valid ledger word: check validates Summary, Verify, Handoff and Review lines; task-state TSV gains holder, handoff and review; status, open tasks, stale warning and rotate keep REVIEW tasks; two REVIEW entries by different agents are no conflict; the holder may retake a REVIEW task
 - Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh
 - Verify: sh scripts/smoke_test.sh -> 272 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T17:09:51Z] | claude-sonnet-5-5 | F05-E01-T02 | IN_PROGRESS | Add the handoff command
+- Summary: Change 2: handoff moves a held task to REVIEW without touching the row
+- Verify: pending
+
+## [2026-10-13T17:17:23Z] | claude-sonnet-5-5 | F05-E01-T02 | DONE | Add the handoff command
+- Summary: handoff command in sh and PowerShell: holder-only, real verify required, writes a REVIEW entry with an optional Handoff line and leaves the Roadmap row IN_PROGRESS with the same Owner; smoke rotation test now seeds filler entries in one process
+- Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh
+- Verify: sh scripts/smoke_test.sh -> 312 passed, 0 failed (sh + PowerShell); check . -> OK

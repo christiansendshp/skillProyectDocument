@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "done", "status", "help")]
+    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "done", "status", "help")]
     [string]$Command = "help",
 
     [Parameter(Position = 1)]
@@ -867,6 +867,48 @@ function Invoke-Pause {
         [System.IO.File]::AppendAllText($log, $entry, $Utf8)
         Set-RoadmapRowInPlace $task "PAUSE" "$agent@$timestamp" $category
         Write-Output "project_docs pause: $task paused ($category)"
+    } finally {
+        Exit-DocsLock
+    }
+}
+
+# handoff <agent> <task-id> <summary> <verify> [reviewer]
+# The developer says the code is complete and their own verification passed.
+# Written as a REVIEW entry (the Roadmap row stays IN_PROGRESS with the same
+# Owner: the stage lives in the ledger only). Same ownership checks as pause.
+function Invoke-Handoff {
+    if ($Arguments.Count -lt 4) { throw "handoff requires: agent task-id summary verify [reviewer]" }
+    $agent = ConvertTo-CleanField $Arguments[0]
+    $task = ConvertTo-CleanField $Arguments[1]
+    $summary = ConvertTo-CleanField $Arguments[2]
+    $verify = ConvertTo-CleanField $Arguments[3]
+    $reviewer = if ($Arguments.Count -ge 5) { ConvertTo-CleanField $Arguments[4] } else { "" }
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "run init first" }
+    if (-not $summary) { throw "handoff requires a non-empty summary" }
+    if (-not $verify -or $verify -eq "pending") { throw "handoff requires a verify that is not empty or pending" }
+    Enter-DocsLock
+    try {
+        $state = Get-TaskState $task
+        if (-not $state) { throw "handoff failed: $task has no IN_PROGRESS entry to hand off" }
+        if ($state.Status -ne "IN_PROGRESS") { throw "handoff failed: $task is not IN_PROGRESS (current: $($state.Status))" }
+        if ($state.Agent -cne $agent) { throw "handoff failed: $task is owned by $($state.Agent), not $agent" }
+        $name = Assert-ValidName $task "handoff"
+        $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $entryLines = @(
+            "",
+            "## [$timestamp] | $agent | $task | REVIEW | $name",
+            "- Summary: $summary",
+            "- Verify: $verify"
+        )
+        if ($reviewer) { $entryLines += "- Handoff: $reviewer" }
+        $entry = ($entryLines -join "`n") + "`n"
+        [System.IO.File]::AppendAllText($log, $entry, $Utf8)
+        if ($reviewer) {
+            Write-Output "project_docs handoff: $task handed to review ($reviewer)"
+        } else {
+            Write-Output "project_docs handoff: $task handed to review"
+        }
     } finally {
         Exit-DocsLock
     }
@@ -1908,9 +1950,10 @@ switch ($Command) {
     "link" { Invoke-Link }
     "claim" { Invoke-Claim }
     "pause" { Invoke-Pause }
+    "handoff" { Invoke-Handoff }
     "done" { Invoke-Done }
     "status" { Invoke-Status }
     default {
-        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|done|status} <project> [args]"
+        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|done|status} <project> [args]"
     }
 }
