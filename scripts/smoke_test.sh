@@ -124,6 +124,10 @@ run_suite() {
   assert_success "$label rotate archives the ledger" run rotate "$proj2"
   assert_success "$label status still shows SMOKE-T02 after rotation" run status "$proj2"
   grep -q "SMOKE-T02" "$WORK/.out" && ok "$label status lists SMOKE-T02 after rotation" || bad "$label status missing SMOKE-T02 after rotation"
+  # Regression (F05-BUG-01): status and rotate used to lose the Name because a
+  # whitespace IFS merged the empty pausecat/conflict fields in the task-state TSV.
+  grep -q "Smoke task two" "$WORK/.out" && ok "$label status prints the task Name after rotation" || bad "$label status lost the task Name after rotation"
+  assert_contains "$label rotate carries the Name into the new ledger" "$proj2/docs/Agentslog.md" "| Smoke task two"
   assert_success "$label check passes after rotation" run check "$proj2"
 
   echo "== $label: migrate legacy docs/Agents.md (eval 12) =="

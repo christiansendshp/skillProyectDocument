@@ -2,8 +2,8 @@
 
 ## Operational summary
 
-- Verified capabilities: 14
-- Latest verification: `sh scripts/project_docs.sh check . -> OK, hot context 8600 -> under 8192` (2026-10-01)
+- Verified capabilities: 15
+- Latest verification: `sh scripts/smoke_test.sh -> 212 passed, 0 failed (sh + PowerShell); status and rotate print and carry the Name` (2026-10-13)
 - Known limitation: the AGENTS.md/Agents.md case collision cannot be tested end to end on Windows or macOS.
 
 <!-- context:end -->
@@ -29,3 +29,4 @@ Use one row per stable capability. Link long specifications or runbooks from
 | F04-E01-T01 | Name/Description taxonomy: Name<=10 words right after ID on every Roadmap table, Description holds the rest; claim/pause/done refuse a bad Name and copy it into Agentslog; check enforces the word limit and cross-validates log vs Roadmap Name; migrate retrofits pre-Name Roadmaps non-destructively; see Stack ADR-020 | sh scripts/smoke_test.sh -> 208 passed, 0 failed (sh + PowerShell); sh scripts/project_docs.sh check . -> OK | log:F04-E01-T01 | 2026-10-01 |
 | F04-E01 | Epic complete | all tasks DONE | log:F04-E01-T01 | 2026-10-01 |
 | F03-DEBT-03 | Trimmed AGENTS.md (template and root) from ~4.9 KiB to ~4.3 KiB by tightening Startup/Taking-a-task/Technical-decisions/Close wording, no obligation dropped | sh scripts/project_docs.sh check . -> OK, hot context 8600 -> under 8192 | log:F03-DEBT-03 | 2026-10-01 |
+| F05-BUG-01 | Read task-state TSV with a non-whitespace separator so empty fields stop shifting Name in status, open tasks and rotate; regression asserts added | sh scripts/smoke_test.sh -> 212 passed, 0 failed (sh + PowerShell); status and rotate print and carry the Name | log:F05-BUG-01 | 2026-10-13 |

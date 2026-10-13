@@ -19,6 +19,7 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
+| F05-E01-T01 | Accept REVIEW in the ledger and task states | Change 1 of the spec; see ADR-021 | check accepts REVIEW, rejects unknown words; REVIEW needs real Verify; no conflict between two REVIEW; status, context, stale warn, rotate keep REVIEW tasks; smoke sh+ps1 pass | IN_PROGRESS | claude-sonnet-5-5@2026-10-13T16:32:05Z | — | — |
 
 <!-- context:end -->
 
@@ -51,6 +52,32 @@ F01 (multi-agent coordination protocol) and F02 (per-entry YAML Roadmap schema, 
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
+
+### F05 — Review stage and agent identity
+
+Spec: the handoff prompt in the PM Hub repo (docs/prompts/skill-review-handoff-and-identity.md). Everything lives in the ledger; Roadmap Status values and columns do not change.
+
+#### F05-E01 — Review stage in the ledger
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+| F05-E01-T02 | Add the handoff command | Change 2 of the spec | handoff works only for the holder of an IN_PROGRESS task with real verify; row stays IN_PROGRESS; smoke sh+ps1 pass | TODO | — | F05-E01-T01 | — |
+| F05-E01-T03 | Add the review command with PASS or FAIL | Change 3 of the spec | review needs a pending handoff and a note; PASS needs real verify; FAIL returns the task to the holder; self-review warns; smoke sh+ps1 pass | TODO | — | F05-E01-T02 | — |
+| F05-E01-T04 | done verifies who is closing the task | Change 4 of the spec | done by a third party fails; retroactive close still works; closing without passing review warns; smoke sh+ps1 pass | TODO | — | F05-E01-T03 | — |
+
+#### F05-E02 — Agent identity and warnings
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+| F05-E02-T01 | Add the Agent identity roster and canonical ids | Change 5 of the spec | no roster means unchanged behaviour; with roster aliases normalise and unknown names warn; smoke sh+ps1 pass | TODO | — | F05-E01-T01 | — |
+| F05-E02-T02 | Warn when work is documented after it is done | Change 6 of the spec | done right after claim warns without failing; check prints one summary plus at most 5; smoke sh+ps1 pass | TODO | — | F05-E01-T04 | — |
+| F05-E02-T03 | Add the assign command and ASSIGNED state | Change 7 of the spec, optional | assign writes ASSIGNED and sets Owner; check accepts it; smoke sh+ps1 pass | TODO | — | F05-E02-T01 | — |
+
+#### F05-E03 — Templates, docs and evals
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+| F05-E03-T01 | Document review and identity in templates and docs | Change 8 of the spec, ADR-021 and evals 26+ | check . exits 0 within 8 KiB; root AGENTS.md body equals the template; full smoke test 0 failed on sh and ps1 | TODO | — | F05-E02-T02 | — |
 
 ## Gaps, Bugs & Technical Debt
 

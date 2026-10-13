@@ -17,6 +17,11 @@ STALE_HOURS="${PROJECT_DOCS_STALE_HOURS:-24}"
 BLOCK_START='<!-- project-documentation:start -->'
 BLOCK_END='<!-- project-documentation:end -->'
 TAB="$(printf '\t')"
+# Unit separator: a NON-whitespace IFS for read -r. A tab IFS is whitespace,
+# so read merges adjacent empty fields (pausecat, conflict, handoff, ... are
+# usually empty) and shifts every later variable. Pipe the task-state TSV
+# through tr '\t' to US before any while-read loop.
+US="$(printf '\037')"
 
 die() {
   echo "project_docs: $*" >&2
@@ -356,8 +361,8 @@ is_stale() {
 
 open_tasks_line() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
-  all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE"' |
-  while IFS="$TAB" read -r tid status agent ts pausecat conflict everdone name; do
+  all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE"' | tr '\t' '\037' |
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -747,8 +752,8 @@ cmd_done() {
 
 cmd_status() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
-  all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE"' |
-  while IFS="$TAB" read -r tid status agent ts pausecat conflict everdone name; do
+  all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE"' | tr '\t' '\037' |
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -1763,7 +1768,7 @@ rotate_log() {
     echo
     echo "## Entries"
     if [ -n "$open_summary" ]; then
-      printf '%s\n' "$open_summary" | while IFS="$TAB" read -r tid status agent ts pausecat conflict everdone name; do
+      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name; do
         [ -n "$tid" ] || continue
         echo
         echo "## [$ts] | $agent | $tid | $status | $name"

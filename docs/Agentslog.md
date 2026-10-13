@@ -123,3 +123,16 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: Trimmed AGENTS.md (template and root) from ~4.9 KiB to ~4.3 KiB by tightening Startup/Taking-a-task/Technical-decisions/Close wording, no obligation dropped
 - Files: AGENTS.md,templates/AGENTS.md
 - Verify: sh scripts/project_docs.sh check . -> OK, hot context 8600 -> under 8192
+
+## [2026-10-13T16:32:05Z] | claude-sonnet-5-5 | F05-E01-T01 | IN_PROGRESS | Accept REVIEW in the ledger and task states
+- Summary: Change 1: REVIEW in the ledger, task-state TSV, status/open-task/stale/rotate
+- Verify: pending
+
+## [2026-10-13T16:34:32Z] | claude-sonnet-5-5 | F05-BUG-01 | IN_PROGRESS | status and rotate lose the task Name
+- Summary: Fix tab-IFS read merging empty fields in status, open tasks and rotate
+- Verify: pending
+
+## [2026-10-13T16:47:16Z] | claude-sonnet-5-5 | F05-BUG-01 | DONE | status and rotate lose the task Name
+- Summary: Read task-state TSV with a non-whitespace separator so empty fields stop shifting Name in status, open tasks and rotate; regression asserts added
+- Files: scripts/project_docs.sh,scripts/smoke_test.sh
+- Verify: sh scripts/smoke_test.sh -> 212 passed, 0 failed (sh + PowerShell); status and rotate print and carry the Name
