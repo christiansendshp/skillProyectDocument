@@ -854,6 +854,58 @@ cmd_handoff() {
   fi
 }
 
+# review <agent> <task-id> <PASS|FAIL> <note> [verify]
+# A reviewer answers a pending handoff. Written as a REVIEW entry in the
+# reviewer's name carrying a "- Review: PASS|FAIL - note" line; the Roadmap row
+# is not touched. After FAIL the task is back with its holder, who retakes it
+# with claim. Reviewing your own handoff warns (a single-agent project must not
+# freeze) unless PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1.
+cmd_review() {
+  shift 2
+  [ "$#" -ge 4 ] || die "review requires: agent task-id PASS|FAIL note [verify]"
+  agent="$(clean_field "$1")"
+  task="$(clean_field "$2")"
+  result="$(clean_field "$3")"
+  note="$(clean_field "$4")"
+  verify="$(clean_field "${5:-}")"
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  case "$result" in
+    PASS|FAIL) ;;
+    *) die "review requires PASS or FAIL as the result" ;;
+  esac
+  [ -n "$note" ] || die "review requires a non-empty note"
+  if [ "$verify" = "pending" ]; then die "review verify must not be pending"; fi
+  if [ "$result" = "PASS" ] && [ -z "$verify" ]; then
+    die "review PASS requires a verify that is not empty or pending"
+  fi
+  with_lock
+  if state="$(task_state "$task")"; then
+    status="$(printf '%s' "$state" | cut -f2)"
+    holder="$(printf '%s' "$state" | cut -f9)"
+    reviewed="$(printf '%s' "$state" | cut -f11)"
+  else
+    die "review failed: $task has no handoff to review"
+  fi
+  [ "$status" = "REVIEW" ] || die "review failed: $task has no pending handoff (current: $status)"
+  [ -z "$reviewed" ] || die "review failed: $task was already reviewed ($reviewed); the holder must claim it again"
+  if [ "$agent" = "$holder" ]; then
+    if [ "${PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW:-0}" = "1" ]; then
+      die "review failed: $agent developed $task; an independent review is required"
+    fi
+    echo "WARN: self-review: $agent reviews its own handoff of $task" >&2
+  fi
+  name="$(require_valid_name "$task" review)"
+  timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  {
+    echo
+    echo "## [$timestamp] | $agent | $task | REVIEW | $name"
+    echo "- Summary: Review of the handoff from $holder"
+    if [ -n "$verify" ]; then echo "- Verify: $verify"; fi
+    echo "- Review: $result - $note"
+  } >> "$DOCS_DIR/Agentslog.md"
+  echo "project_docs review: $task $result by $agent"
+}
+
 cmd_done() {
   shift 2
   [ "$#" -ge 5 ] || die "done requires: agent task-id summary files verify"
@@ -1993,9 +2045,10 @@ case "$COMMAND" in
   claim) cmd_claim "$@" ;;
   pause) cmd_pause "$@" ;;
   handoff) cmd_handoff "$@" ;;
+  review) cmd_review "$@" ;;
   done) cmd_done "$@" ;;
   status) cmd_status ;;
   *)
-    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|done|status} <project> [args]"
+    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|done|status} <project> [args]"
     ;;
 esac

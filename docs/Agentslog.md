@@ -150,3 +150,12 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: handoff command in sh and PowerShell: holder-only, real verify required, writes a REVIEW entry with an optional Handoff line and leaves the Roadmap row IN_PROGRESS with the same Owner; smoke rotation test now seeds filler entries in one process
 - Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh
 - Verify: sh scripts/smoke_test.sh -> 312 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T17:17:43Z] | claude-sonnet-5-5 | F05-E01-T03 | IN_PROGRESS | Add the review command with PASS or FAIL
+- Summary: Change 3: review command with PASS or FAIL in the reviewer name
+- Verify: pending
+
+## [2026-10-13T17:24:24Z] | claude-sonnet-5-5 | F05-E01-T03 | DONE | Add the review command with PASS or FAIL
+- Summary: review command in sh and PowerShell: needs a pending handoff and a note, PASS needs a real verify, writes a REVIEW entry in the reviewer name with a Review line and leaves the Roadmap row alone; FAIL returns the task to its holder; self-review warns or fails with PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1
+- Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh
+- Verify: sh scripts/smoke_test.sh -> 366 passed, 0 failed (sh + PowerShell); check . -> OK

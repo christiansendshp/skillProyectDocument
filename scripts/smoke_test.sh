@@ -415,6 +415,45 @@ run_suite() {
   review_proj ho_paused
   run pause "$rp" dev F01-E01-T01 OTRO "switching" >/dev/null 2>&1
   assert_failure "$label handoff on a paused task fails" run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass"
+
+  echo "== $label: review command (Change 3) =="
+  review_proj rvw_ok
+  assert_failure "$label review without a pending handoff fails" run review "$rp" qa-agent F01-E01-T01 PASS "looks good" "reran the tests"
+  grep -q "no pending handoff" "$WORK/.out" && ok "$label review error says there is no pending handoff" || bad "$label review error wrong: $(cat "$WORK/.out")"
+  run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass" qa-agent >/dev/null 2>&1
+  assert_failure "$label review with a result other than PASS or FAIL fails" run review "$rp" qa-agent F01-E01-T01 MAYBE "hmm" "x"
+  assert_failure "$label review with an empty note fails" run review "$rp" qa-agent F01-E01-T01 PASS "" "reran the tests"
+  assert_failure "$label review PASS without a verify fails" run review "$rp" qa-agent F01-E01-T01 PASS "looks good"
+  assert_failure "$label review PASS with a pending verify fails" run review "$rp" qa-agent F01-E01-T01 PASS "looks good" "pending"
+  assert_success "$label review PASS by another agent succeeds" run review "$rp" qa-agent F01-E01-T01 PASS "looks good" "reran the tests"
+  assert_contains "$label review writes a REVIEW entry in the reviewer name" "$rp/docs/Agentslog.md" "| qa-agent | F01-E01-T01 | REVIEW | Build the demo onboarding flow"
+  assert_contains "$label review records the result and note" "$rp/docs/Agentslog.md" "- Review: PASS - looks good"
+  assert_success "$label check passes after a review PASS" run check "$rp"
+  assert_success "$label status after review PASS" run status "$rp"
+  grep -q "dev | REVIEW(PASS)->qa-agent" "$WORK/.out" && ok "$label status shows REVIEW(PASS) for the holder" || bad "$label status after PASS wrong: $(cat "$WORK/.out")"
+  assert_failure "$label a second review of an already reviewed handoff fails" run review "$rp" qa-agent F01-E01-T01 PASS "again" "x"
+  assert_contains "$label the Roadmap row is untouched by review" "$rp/docs/Roadmap.md" "| IN_PROGRESS | dev@"
+
+  review_proj rvw_fail
+  run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass" qa-agent >/dev/null 2>&1
+  assert_success "$label review FAIL needs no verify" run review "$rp" qa-agent F01-E01-T01 FAIL "two tests fail"
+  assert_contains "$label review FAIL is recorded" "$rp/docs/Agentslog.md" "- Review: FAIL - two tests fail"
+  assert_success "$label check passes after a review FAIL" run check "$rp"
+  assert_success "$label status after review FAIL" run status "$rp"
+  grep -q "dev | IN_PROGRESS" "$WORK/.out" && ok "$label after FAIL the task is back with its holder" || bad "$label status after FAIL wrong: $(cat "$WORK/.out")"
+  assert_failure "$label a third agent cannot claim after FAIL" run claim "$rp" intruder F01-E01-T01 "steal"
+  assert_success "$label the holder retakes the task after FAIL with claim" run claim "$rp" dev F01-E01-T01 "fix the failing tests"
+  assert_success "$label the holder can hand off again after retaking" run handoff "$rp" dev F01-E01-T01 "fixed" "unit tests pass" qa-agent
+
+  review_proj rvw_self
+  run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass" >/dev/null 2>&1
+  assert_success "$label self-review warns by default and does not fail" run review "$rp" dev F01-E01-T01 PASS "my own work is fine" "unit tests pass"
+  grep -q "self-review" "$WORK/.out" && ok "$label self-review prints the warning" || bad "$label self-review warning missing: $(cat "$WORK/.out")"
+  review_proj rvw_self_strict
+  run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass" >/dev/null 2>&1
+  assert_failure "$label self-review fails with PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1" run_env PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1 review "$rp" dev F01-E01-T01 PASS "my own work is fine" "unit tests pass"
+  grep -q "independent review is required" "$WORK/.out" && ok "$label strict self-review error text" || bad "$label strict self-review error wrong: $(cat "$WORK/.out")"
+  assert_success "$label another agent still reviews under the strict setting" run_env PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1 review "$rp" qa-agent F01-E01-T01 PASS "fine" "reran the tests"
 }
 
 file_hash() {

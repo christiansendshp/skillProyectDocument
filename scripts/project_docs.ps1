@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "done", "status", "help")]
+    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "done", "status", "help")]
     [string]$Command = "help",
 
     [Parameter(Position = 1)]
@@ -909,6 +909,54 @@ function Invoke-Handoff {
         } else {
             Write-Output "project_docs handoff: $task handed to review"
         }
+    } finally {
+        Exit-DocsLock
+    }
+}
+
+# review <agent> <task-id> <PASS|FAIL> <note> [verify]
+# A reviewer answers a pending handoff. Written as a REVIEW entry in the
+# reviewer's name carrying a "- Review: PASS|FAIL - note" line; the Roadmap row
+# is not touched. After FAIL the task is back with its holder, who retakes it
+# with claim. Reviewing your own handoff warns (a single-agent project must not
+# freeze) unless PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1.
+function Invoke-Review {
+    if ($Arguments.Count -lt 4) { throw "review requires: agent task-id PASS|FAIL note [verify]" }
+    $agent = ConvertTo-CleanField $Arguments[0]
+    $task = ConvertTo-CleanField $Arguments[1]
+    $result = ConvertTo-CleanField $Arguments[2]
+    $note = ConvertTo-CleanField $Arguments[3]
+    $verify = if ($Arguments.Count -ge 5) { ConvertTo-CleanField $Arguments[4] } else { "" }
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "run init first" }
+    if ($result -cne "PASS" -and $result -cne "FAIL") { throw "review requires PASS or FAIL as the result" }
+    if (-not $note) { throw "review requires a non-empty note" }
+    if ($verify -eq "pending") { throw "review verify must not be pending" }
+    if ($result -ceq "PASS" -and -not $verify) { throw "review PASS requires a verify that is not empty or pending" }
+    Enter-DocsLock
+    try {
+        $state = Get-TaskState $task
+        if (-not $state) { throw "review failed: $task has no handoff to review" }
+        if ($state.Status -ne "REVIEW") { throw "review failed: $task has no pending handoff (current: $($state.Status))" }
+        if ($state.Review) { throw "review failed: $task was already reviewed ($($state.Review)); the holder must claim it again" }
+        if ($agent -ceq $state.Holder) {
+            if ($env:PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW -eq "1") {
+                throw "review failed: $agent developed $task; an independent review is required"
+            }
+            [Console]::Error.WriteLine("WARN: self-review: $agent reviews its own handoff of $task")
+        }
+        $name = Assert-ValidName $task "review"
+        $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $entryLines = @(
+            "",
+            "## [$timestamp] | $agent | $task | REVIEW | $name",
+            "- Summary: Review of the handoff from $($state.Holder)"
+        )
+        if ($verify) { $entryLines += "- Verify: $verify" }
+        $entryLines += "- Review: $result - $note"
+        $entry = ($entryLines -join "`n") + "`n"
+        [System.IO.File]::AppendAllText($log, $entry, $Utf8)
+        Write-Output "project_docs review: $task $result by $agent"
     } finally {
         Exit-DocsLock
     }
@@ -1951,9 +1999,10 @@ switch ($Command) {
     "claim" { Invoke-Claim }
     "pause" { Invoke-Pause }
     "handoff" { Invoke-Handoff }
+    "review" { Invoke-Review }
     "done" { Invoke-Done }
     "status" { Invoke-Status }
     default {
-        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|done|status} <project> [args]"
+        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|done|status} <project> [args]"
     }
 }
