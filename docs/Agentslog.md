@@ -186,3 +186,12 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: Warn when a task is claimed and closed minutes apart; check prints one summary plus the 5 most recent
 - Files: scripts/
 - Verify: sh scripts/smoke_test.sh -> 500 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T17:57:47Z] | claude-sonnet-5-5 | F05-E02-T03 | IN_PROGRESS | Add the assign command and ASSIGNED state
+- Summary: Change 7: assign command and ASSIGNED state
+- Verify: pending
+
+## [2026-10-13T18:08:30Z] | claude-sonnet-5-5 | F05-E02-T03 | DONE | Add the assign command and ASSIGNED state
+- Summary: assign command and ASSIGNED state: row stays TODO with the new Owner, claim by another agent warns, a task in progress cannot be assigned
+- Files: scripts/
+- Verify: sh scripts/smoke_test.sh -> 562 passed, 0 failed (sh + PowerShell); check . -> OK

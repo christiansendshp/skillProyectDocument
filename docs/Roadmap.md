@@ -65,7 +65,6 @@ Spec: the handoff prompt in the PM Hub repo (docs/prompts/skill-review-handoff-a
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F05-E02-T03 | Add the assign command and ASSIGNED state | Change 7 of the spec, optional | assign writes ASSIGNED and sets Owner; check accepts it; smoke sh+ps1 pass | TODO | — | F05-E02-T01 | — |
 
 #### F05-E03 — Templates, docs and evals
 

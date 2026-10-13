@@ -120,10 +120,14 @@ run_suite() {
   run claim "$proj2" agentD SMOKE-T03 "reviewed across rotation" >/dev/null 2>&1
   seed_entry "$proj2" "$(now_ts)" agentD SMOKE-T03 REVIEW "Smoke review task" "- Summary: coded\n- Verify: unit tests pass\n- Handoff: qa-agent\n"
   seed_entry "$proj2" "$(now_ts)" qa-agent SMOKE-T03 REVIEW "Smoke review task" "- Summary: reviewed\n- Verify: reran tests\n- Review: PASS - fine\n"
+  # A task assigned but not yet claimed: rotation must not drop the assignment.
+  seed_active_row "$proj2" SMOKE-T04 "Smoke assigned task"
+  run assign "$proj2" lead SMOKE-T04 agentZ >/dev/null 2>&1
   seed_fill "$proj2" SMOKE-T01 205
   assert_success "$label context stays open task visible" run context "$proj2"
   grep -q "SMOKE-T02" "$WORK/.out" && ok "$label Open tasks section lists SMOKE-T02" || bad "$label Open tasks section missing SMOKE-T02"
   grep -q "SMOKE-T03 | agentD | REVIEW(PASS)->qa-agent" "$WORK/.out" && ok "$label Open tasks lists the REVIEW task with its holder and stage" || bad "$label Open tasks missing the REVIEW task or its stage"
+  grep -q "SMOKE-T04 | lead | ASSIGNED->agentZ" "$WORK/.out" && ok "$label Open tasks lists the ASSIGNED task and its assignee" || bad "$label Open tasks missing the ASSIGNED task"
   assert_success "$label rotate archives the ledger" run rotate "$proj2"
   assert_success "$label status still shows SMOKE-T02 after rotation" run status "$proj2"
   grep -q "SMOKE-T02" "$WORK/.out" && ok "$label status lists SMOKE-T02 after rotation" || bad "$label status missing SMOKE-T02 after rotation"
@@ -133,6 +137,8 @@ run_suite() {
   assert_contains "$label rotate carries the Name into the new ledger" "$proj2/docs/Agentslog.md" "| Smoke task two"
   grep -q "SMOKE-T03 | Smoke review task | agentD | REVIEW(PASS)->qa-agent" "$WORK/.out" && ok "$label status keeps the REVIEW task after rotation (holder, result, handoff)" || bad "$label status lost the REVIEW task after rotation: $(grep SMOKE-T03 "$WORK/.out")"
   assert_contains "$label rotate carries the Handoff line" "$proj2/docs/Agentslog.md" "- Handoff: qa-agent"
+  grep -q "SMOKE-T04 | Smoke assigned task | lead | ASSIGNED->agentZ" "$WORK/.out" && ok "$label status keeps the ASSIGNED task after rotation" || bad "$label status lost the ASSIGNED task after rotation: $(grep SMOKE-T04 "$WORK/.out")"
+  assert_contains "$label rotate carries the Assign line" "$proj2/docs/Agentslog.md" "- Assign: agentZ"
   assert_success "$label check passes after rotation" run check "$proj2"
 
   echo "== $label: migrate legacy docs/Agents.md (eval 12) =="
@@ -595,6 +601,61 @@ run_suite() {
   grep -q "SMOKE-Q1 was claimed" "$WORK/.out" && bad "$label the oldest instant close should be left out of the list" || ok "$label the oldest instant close is left out of the list"
   assert_success "$label check is quiet when the threshold is 0" run_env PROJECT_DOCS_MIN_WORK_MINUTES=0 check "$rp"
   grep -q "closed within" "$WORK/.out" && bad "$label a zero threshold still printed the summary" || ok "$label a zero threshold prints no summary"
+
+  echo "== $label: assign and ASSIGNED (Change 7) =="
+  fresh_proj() {
+    rp="$WORK/${label}_$1"
+    mkdir -p "$rp"
+    run init "$rp" >/dev/null 2>&1
+    seed_replace "$rp/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO |" \
+      "| F01-E01-T01 | Build the demo onboarding flow | detail | real accept | TODO |"
+  }
+  fresh_proj as_ok
+  assert_success "$label assign records the assignment" run assign "$rp" lead F01-E01-T01 dev
+  assert_contains "$label assign writes an ASSIGNED entry carrying the Name" "$rp/docs/Agentslog.md" "| lead | F01-E01-T01 | ASSIGNED | Build the demo onboarding flow"
+  assert_contains "$label assign records the target" "$rp/docs/Agentslog.md" "- Assign: dev"
+  assert_contains "$label assign leaves the row TODO and sets the Owner" "$rp/docs/Roadmap.md" "| TODO | dev@"
+  awk '/^## Active work/{a=1;next} /^## Near term/{a=0} a' "$rp/docs/Roadmap.md" > "$WORK/.active"
+  grep -q "F01-E01-T01" "$WORK/.active" && bad "$label assign must not move the row into Active work" || ok "$label assign leaves the row where it was"
+  assert_success "$label check accepts an ASSIGNED entry" run check "$rp"
+  assert_success "$label status after assign" run status "$rp"
+  grep -q "lead | ASSIGNED->dev" "$WORK/.out" && ok "$label status shows who assigned and to whom" || bad "$label status after assign wrong: $(cat "$WORK/.out")"
+  assert_success "$label context after assign" run context "$rp"
+  grep -q "F01-E01-T01 | lead | ASSIGNED->dev" "$WORK/.out" && ok "$label Open tasks shows the assignment" || bad "$label Open tasks misses the assignment"
+  assert_success "$label the assignee claims without a warning" run claim "$rp" dev F01-E01-T01 "start"
+  grep -q "WARN" "$WORK/.out" && bad "$label the assignee should not be warned: $(cat "$WORK/.out")" || ok "$label claim by the assignee does not warn"
+  awk '/^## Active work/{a=1;next} /^## Near term/{a=0} a' "$rp/docs/Roadmap.md" > "$WORK/.active"
+  grep -q "F01-E01-T01" "$WORK/.active" && ok "$label the claimed row moved into Active work" || bad "$label the claimed row did not move into Active work"
+  assert_contains "$label the Owner is now the claimant" "$rp/docs/Roadmap.md" "| IN_PROGRESS | dev@"
+
+  fresh_proj as_other
+  run assign "$rp" lead F01-E01-T01 dev >/dev/null 2>&1
+  assert_success "$label another agent may still claim an assigned task" run claim "$rp" other F01-E01-T01 "start"
+  grep -q "assigned to dev, not other" "$WORK/.out" && ok "$label claiming someone else's assignment warns" || bad "$label assignment warning missing: $(cat "$WORK/.out")"
+
+  fresh_proj as_again
+  run assign "$rp" lead F01-E01-T01 dev >/dev/null 2>&1
+  assert_success "$label a task can be assigned again" run assign "$rp" lead F01-E01-T01 qa
+  assert_success "$label status after re-assign" run status "$rp"
+  grep -q "ASSIGNED->qa" "$WORK/.out" && ok "$label the latest assignment wins" || bad "$label re-assign not reflected: $(cat "$WORK/.out")"
+
+  review_proj as_busy
+  assert_failure "$label assign refuses a task somebody is working on" run assign "$rp" lead F01-E01-T01 other
+  grep -q "held by dev" "$WORK/.out" && ok "$label assign error names the holder" || bad "$label assign error wrong: $(cat "$WORK/.out")"
+  run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass" >/dev/null 2>&1
+  assert_failure "$label assign refuses a task in REVIEW" run assign "$rp" lead F01-E01-T01 other
+  assert_failure "$label assign on an unknown task fails" run assign "$rp" lead NOPE-9 other
+  assert_failure "$label assign needs a target" run assign "$rp" lead F01-E01-T01 ""
+
+  fresh_proj as_noassign
+  seed_entry "$rp" "$(now_ts)" lead F01-E01-T01 ASSIGNED "Build the demo onboarding flow" "- Summary: assigned\n"
+  assert_failure "$label an ASSIGNED entry without an Assign line fails check" run check "$rp"
+  grep -q "ASSIGNED entry missing Assign target" "$WORK/.out" && ok "$label check names the missing Assign target" || bad "$label missing Assign target message wrong: $(cat "$WORK/.out")"
+
+  fresh_proj as_done
+  run assign "$rp" lead F01-E01-T01 dev >/dev/null 2>&1
+  assert_failure "$label a third agent cannot close an assigned task" run done "$rp" other F01-E01-T01 "implemented" "x" "tests pass"
+  assert_success "$label the assignee can close it" run done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass"
 }
 
 file_hash() {

@@ -348,6 +348,7 @@ all_task_states() {
         hold[tid]=agent
         last_handoff[tid]=""
       }
+      if (status=="ASSIGNED") last_handoff[tid]=""
       if (status=="DONE") { ever_done[tid]=1 }
       last_status[tid]=status; last_agent[tid]=agent; last_ts[tid]=ts; last_pause[tid]=""
       last_review[tid]=""
@@ -361,6 +362,12 @@ all_task_states() {
       dash=index(line," - ")
       if (dash>0) p=substr(line,1,dash-1); else p=line
       last_pause[cur]=p
+      next
+    }
+    in_entries && cur!="" && /^- Assign:/ {
+      line=$0
+      sub(/^- Assign:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
+      if (last_status[cur]=="ASSIGNED" && line!="") { hold[cur]=line; last_handoff[cur]=line }
       next
     }
     in_entries && cur!="" && /^- Handoff:/ {
@@ -493,7 +500,7 @@ is_stale() {
 # Open tasks: last entry IN_PROGRESS, PAUSE or REVIEW (a REVIEW task stays open
 # until DONE, including after a Review: FAIL, when it is back with its holder).
 open_task_states() {
-  all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE" || $2=="REVIEW"'
+  all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE" || $2=="REVIEW" || $2=="ASSIGNED"'
 }
 
 # stage_label STATUS REVIEW HANDOFF: the stage text status and context print.
@@ -501,6 +508,10 @@ open_task_states() {
 # the same bytes); REVIEW(PASS) once a reviewer passed it; a Review: FAIL means
 # the task is back with its holder, i.e. IN_PROGRESS.
 stage_label() {
+  if [ "$1" = "ASSIGNED" ]; then
+    if [ -n "$3" ]; then printf 'ASSIGNED->%s' "$3"; else printf 'ASSIGNED'; fi
+    return 0
+  fi
   if [ "$1" != "REVIEW" ]; then printf '%s' "$1"; return 0; fi
   if [ "$2" = "FAIL" ]; then printf 'IN_PROGRESS'; return 0; fi
   label="REVIEW"
@@ -840,6 +851,13 @@ cmd_claim() {
       if [ -n "$holder" ] && [ "$holder" != "$agent" ] && ! is_stale "$task"; then
         die "claim failed: $task is in REVIEW, held by $holder"
       fi
+    elif [ "$status" = "ASSIGNED" ]; then
+      # An assignment is a request, not a lock: another agent may still take
+      # the task, but is told it was assigned to someone else.
+      holder="$(printf '%s' "$state" | cut -f9)"
+      if [ -n "$holder" ] && [ "$holder" != "$agent" ]; then
+        echo "WARN: $task is assigned to $holder, not $agent" >&2
+      fi
     fi
   fi
   name="$(require_valid_name "$task")"
@@ -983,6 +1001,42 @@ cmd_review() {
   echo "project_docs review: $task $result by $agent"
 }
 
+# assign <agent> <task-id> <to-agent>
+# Records that <agent> assigned the task to <to-agent> (an ASSIGNED entry with a
+# "- Assign:" line) and sets the Roadmap Owner to <to-agent>@<timestamp>. The
+# row stays TODO and no work starts: the assignee still has to claim. A task
+# somebody is already working on (IN_PROGRESS, PAUSE, REVIEW) cannot be assigned.
+cmd_assign() {
+  shift 2
+  [ "$#" -ge 3 ] || die "assign requires: agent task-id to-agent"
+  agent="$(canonical_agent "$(clean_field "$1")")"
+  task="$(clean_field "$2")"
+  to_agent="$(canonical_agent "$(clean_field "$3")")"
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  [ -n "$to_agent" ] || die "assign requires a non-empty to-agent"
+  if ! roadmap_has_id "$task"; then
+    die "assign failed: $task not found in docs/Roadmap.md"
+  fi
+  with_lock
+  if state="$(task_state "$task")"; then
+    status="$(printf '%s' "$state" | cut -f2)"
+    holder="$(printf '%s' "$state" | cut -f9)"
+    case "$status" in
+      IN_PROGRESS|PAUSE|REVIEW) die "assign failed: $task is $status, held by $holder" ;;
+    esac
+  fi
+  name="$(require_valid_name "$task" assign)"
+  timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  {
+    echo
+    echo "## [$timestamp] | $agent | $task | ASSIGNED | $name"
+    echo "- Summary: Assigned to $to_agent"
+    echo "- Assign: $to_agent"
+  } >> "$DOCS_DIR/Agentslog.md"
+  roadmap_update_row_inplace "$task" "TODO" "$to_agent@$timestamp" "—"
+  echo "project_docs assign: $task assigned to $to_agent"
+}
+
 cmd_done() {
   shift 2
   [ "$#" -ge 5 ] || die "done requires: agent task-id summary files verify"
@@ -1055,7 +1109,7 @@ cmd_status() {
     reason="-"
     if [ "$status" = "PAUSE" ]; then reason="$pausecat"; fi
     stale=""
-    if [ "$status" != "PAUSE" ] && [ "$hrs" != "?" ] && [ "$hrs" -ge "$STALE_HOURS" ]; then
+    if [ "$status" != "PAUSE" ] && [ "$status" != "ASSIGNED" ] && [ "$hrs" != "?" ] && [ "$hrs" -ge "$STALE_HOURS" ]; then
       stale=" (stale)"
     fi
     shown="$agent"
@@ -1581,6 +1635,7 @@ check_log_entries() {
       summaryline=""
       handoffline=""
       reviewline=""
+      assignline=""
       next
     }
     in_entries && /^- Pause:/ { pauseline=$0; next }
@@ -1588,10 +1643,18 @@ check_log_entries() {
     in_entries && /^- Summary:/ { summaryline=$0; next }
     in_entries && /^- Handoff:/ { handoffline=$0; next }
     in_entries && /^- Review:/ { reviewline=$0; next }
+    in_entries && /^- Assign:/ { assignline=$0; next }
     END { if (hdr != "") validate() }
     function validate(   body,dash,cat,detail,rres,rdetail) {
-      if (status!="IN_PROGRESS" && status!="PAUSE" && status!="DONE" && status!="REVIEW") {
-        print "ERROR: invalid status in entry (expected IN_PROGRESS, PAUSE, REVIEW or DONE): " hdr
+      if (status!="IN_PROGRESS" && status!="PAUSE" && status!="DONE" && status!="REVIEW" && status!="ASSIGNED") {
+        print "ERROR: invalid status in entry (expected IN_PROGRESS, PAUSE, REVIEW, ASSIGNED or DONE): " hdr
+      }
+      if (status=="ASSIGNED") {
+        body=assignline
+        sub(/^- Assign:[ \t]*/,"",body); gsub(/[ \t]+$/,"",body)
+        if (assignline=="" || body=="") {
+          print "ERROR: ASSIGNED entry missing Assign target: " hdr
+        }
       }
       if (status=="REVIEW") {
         rres=""; rdetail=""
@@ -2206,6 +2269,9 @@ rotate_log() {
         if [ "$status" = "PAUSE" ]; then
           echo "- Pause: $pausecat - see docs/history/$archive_name for detail"
         fi
+        if [ "$status" = "ASSIGNED" ]; then
+          echo "- Assign: $holder"
+        fi
         if [ "$status" = "REVIEW" ]; then
           echo "- Verify: carried forward from docs/history/$archive_name"
           if [ -n "$handoff" ]; then echo "- Handoff: $handoff"; fi
@@ -2230,9 +2296,10 @@ case "$COMMAND" in
   pause) cmd_pause "$@" ;;
   handoff) cmd_handoff "$@" ;;
   review) cmd_review "$@" ;;
+  assign) cmd_assign "$@" ;;
   done) cmd_done "$@" ;;
   status) cmd_status ;;
   *)
-    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|done|status} <project> [args]"
+    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status} <project> [args]"
     ;;
 esac

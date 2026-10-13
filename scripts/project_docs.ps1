@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "done", "status", "help")]
+    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "assign", "done", "status", "help")]
     [string]$Command = "help",
 
     [Parameter(Position = 1)]
@@ -360,6 +360,7 @@ function Get-TaskStates {
                 $hold[$tid] = $agent
                 $lastHandoff[$tid] = ""
             }
+            if ($status -eq "ASSIGNED") { $lastHandoff[$tid] = "" }
             if ($status -eq "DONE") { $everDone[$tid] = $true }
             $lastStatus[$tid] = $status
             $lastAgent[$tid] = $agent
@@ -368,6 +369,13 @@ function Get-TaskStates {
             $lastReview[$tid] = ""
             if ($name -ne "") { $lastName[$tid] = $name }
             $cur = $tid
+            continue
+        }
+        if ($cur -and $line -match '^- Assign:\s*(.*?)\s*$') {
+            if ($lastStatus[$cur] -eq "ASSIGNED" -and $Matches[1]) {
+                $hold[$cur] = $Matches[1]
+                $lastHandoff[$cur] = $Matches[1]
+            }
             continue
         }
         if ($cur -and $line -match '^- Handoff:\s*(.*?)\s*$') {
@@ -425,6 +433,10 @@ function Test-IsOld([string]$Prev, [string]$Cur) {
 # print the same bytes whatever the console code page. A Review: FAIL means
 # the task is back with its holder, i.e. IN_PROGRESS.
 function Get-StageLabel([string]$Status, [string]$Review, [string]$Handoff) {
+    if ($Status -eq "ASSIGNED") {
+        if ($Handoff) { return "ASSIGNED->$Handoff" }
+        return "ASSIGNED"
+    }
     if ($Status -ne "REVIEW") { return $Status }
     if ($Review -eq "FAIL") { return "IN_PROGRESS" }
     $label = "REVIEW"
@@ -437,7 +449,7 @@ function Get-StageLabel([string]$Status, [string]$Review, [string]$Handoff) {
 # open until DONE, including after a Review: FAIL, when it is back with its
 # holder).
 function Get-OpenTaskStates {
-    return @(Get-TaskStates | Where-Object { $_.Status -eq "IN_PROGRESS" -or $_.Status -eq "PAUSE" -or $_.Status -eq "REVIEW" })
+    return @(Get-TaskStates | Where-Object { $_.Status -eq "IN_PROGRESS" -or $_.Status -eq "PAUSE" -or $_.Status -eq "REVIEW" -or $_.Status -eq "ASSIGNED" })
 }
 
 # ---------------------------------------------------------------------------
@@ -917,6 +929,12 @@ function Invoke-Claim {
                 if ($state.Holder -and $state.Holder -cne $agent -and -not (Test-Stale $task)) {
                     throw "claim failed: $task is in REVIEW, held by $($state.Holder)"
                 }
+            } elseif ($state.Status -eq "ASSIGNED") {
+                # An assignment is a request, not a lock: another agent may still
+                # take the task, but is told it was assigned to someone else.
+                if ($state.Holder -and $state.Holder -cne $agent) {
+                    [Console]::Error.WriteLine("WARN: $task is assigned to $($state.Holder), not $agent")
+                }
             }
         }
         $name = Assert-ValidName $task "claim"
@@ -1060,6 +1078,42 @@ function Invoke-Review {
     }
 }
 
+# assign <agent> <task-id> <to-agent>
+# Records that <agent> assigned the task to <to-agent> (an ASSIGNED entry with a
+# "- Assign:" line) and sets the Roadmap Owner to <to-agent>@<timestamp>. The
+# row stays TODO and no work starts: the assignee still has to claim. A task
+# somebody is already working on (IN_PROGRESS, PAUSE, REVIEW) cannot be assigned.
+function Invoke-Assign {
+    if ($Arguments.Count -lt 3) { throw "assign requires: agent task-id to-agent" }
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
+    $task = ConvertTo-CleanField $Arguments[1]
+    $toAgent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[2])
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "run init first" }
+    if (-not $toAgent) { throw "assign requires a non-empty to-agent" }
+    if (-not (Test-RoadmapHasId $task)) { throw "assign failed: $task not found in docs/Roadmap.md" }
+    Enter-DocsLock
+    try {
+        $state = Get-TaskState $task
+        if ($state -and $state.Status -in @("IN_PROGRESS", "PAUSE", "REVIEW")) {
+            throw "assign failed: $task is $($state.Status), held by $($state.Holder)"
+        }
+        $name = Assert-ValidName $task "assign"
+        $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $entry = (@(
+            "",
+            "## [$timestamp] | $agent | $task | ASSIGNED | $name",
+            "- Summary: Assigned to $toAgent",
+            "- Assign: $toAgent"
+        ) -join "`n") + "`n"
+        [System.IO.File]::AppendAllText($log, $entry, $Utf8)
+        Set-RoadmapRowInPlace $task "TODO" "$toAgent@$timestamp" $EmDash
+        Write-Output "project_docs assign: $task assigned to $toAgent"
+    } finally {
+        Exit-DocsLock
+    }
+}
+
 function Invoke-Done {
     if ($Arguments.Count -lt 5) { throw "done requires: agent task-id summary files verify" }
     $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
@@ -1131,7 +1185,7 @@ function Invoke-Status {
         $hrsStr = if ($null -ne $hrs) { "$hrs" } else { "?" }
         $reason = if ($s.Status -eq "PAUSE") { $s.PauseCat } else { "-" }
         $stale = ""
-        if ($s.Status -ne "PAUSE" -and $null -ne $hrs -and $hrs -ge $StaleHours) { $stale = " (stale)" }
+        if ($s.Status -ne "PAUSE" -and $s.Status -ne "ASSIGNED" -and $null -ne $hrs -and $hrs -ge $StaleHours) { $stale = " (stale)" }
         $shown = if ($s.Status -eq "REVIEW") { $s.Holder } else { $s.Agent }
         Write-Output "$($s.Task) | $($s.Name) | $shown | $(Get-StageLabel $s.Status $s.Review $s.Handoff) | ${hrsStr}h$stale | $reason"
     }
@@ -1637,7 +1691,7 @@ function Test-LogEntries {
             $lastStatus[$tidnow] = $status
             $lastAgent[$tidnow] = $agentnow
             $lastTsMap[$tidnow] = $tsnow
-            $cur = [PSCustomObject]@{ Hdr = $line; Status = $status; PauseLine = $null; VerifyLine = $null; SummaryLine = $null; HandoffLine = $null; ReviewLine = $null; ConflictMsg = $conflictMsg; Name = $name }
+            $cur = [PSCustomObject]@{ Hdr = $line; Status = $status; PauseLine = $null; VerifyLine = $null; SummaryLine = $null; HandoffLine = $null; ReviewLine = $null; AssignLine = $null; ConflictMsg = $conflictMsg; Name = $name }
             $entries.Add($cur)
             continue
         }
@@ -1646,15 +1700,23 @@ function Test-LogEntries {
         if ($cur -and $line -match '^- Summary:') { $cur.SummaryLine = $line; continue }
         if ($cur -and $line -match '^- Handoff:') { $cur.HandoffLine = $line; continue }
         if ($cur -and $line -match '^- Review:') { $cur.ReviewLine = $line; continue }
+        if ($cur -and $line -match '^- Assign:') { $cur.AssignLine = $line; continue }
     }
     foreach ($e in $entries) {
         if ($e.ConflictMsg) {
             [Console]::Error.WriteLine($e.ConflictMsg)
             $script:CheckFail = $true
         }
-        if ($e.Status -notin @("IN_PROGRESS", "PAUSE", "DONE", "REVIEW")) {
-            [Console]::Error.WriteLine("ERROR: invalid status in entry (expected IN_PROGRESS, PAUSE, REVIEW or DONE): $($e.Hdr)")
+        if ($e.Status -notin @("IN_PROGRESS", "PAUSE", "DONE", "REVIEW", "ASSIGNED")) {
+            [Console]::Error.WriteLine("ERROR: invalid status in entry (expected IN_PROGRESS, PAUSE, REVIEW, ASSIGNED or DONE): $($e.Hdr)")
             $script:CheckFail = $true
+        }
+        if ($e.Status -eq "ASSIGNED") {
+            $abody = if ($e.AssignLine) { ($e.AssignLine -replace '^- Assign:\s*', '').Trim() } else { "" }
+            if (-not $abody) {
+                [Console]::Error.WriteLine("ERROR: ASSIGNED entry missing Assign target: $($e.Hdr)")
+                $script:CheckFail = $true
+            }
         }
         if ($e.Status -eq "REVIEW") {
             $rres = ""; $rdetail = ""
@@ -2182,6 +2244,9 @@ function Invoke-Rotate {
         if ($s.Status -eq "PAUSE") {
             $lines.Add("- Pause: $($s.PauseCat) - see docs/history/$name for detail")
         }
+        if ($s.Status -eq "ASSIGNED") {
+            $lines.Add("- Assign: $($s.Holder)")
+        }
         if ($s.Status -eq "REVIEW") {
             $lines.Add("- Verify: carried forward from docs/history/$name")
             if ($s.Handoff) { $lines.Add("- Handoff: $($s.Handoff)") }
@@ -2204,9 +2269,10 @@ switch ($Command) {
     "pause" { Invoke-Pause }
     "handoff" { Invoke-Handoff }
     "review" { Invoke-Review }
+    "assign" { Invoke-Assign }
     "done" { Invoke-Done }
     "status" { Invoke-Status }
     default {
-        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|done|status} <project> [args]"
+        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status} <project> [args]"
     }
 }
