@@ -2,8 +2,8 @@
 
 ## Operational summary
 
-- Verified capabilities: 24
-- Latest verification: `sh scripts/smoke_test.sh -> 562 passed, 0 failed (sh + PowerShell); check . -> OK` (2026-10-13)
+- Verified capabilities: 26
+- Latest verification: `sh scripts/smoke_test.sh -> 578 passed, 0 failed (sh + PowerShell); check . -> OK; differential run old vs new scripts identical` (2026-10-13)
 - Known limitation: the AGENTS.md/Agents.md case collision cannot be tested end to end on Windows or macOS.
 
 <!-- context:end -->
@@ -39,3 +39,5 @@ Use one row per stable capability. Link long specifications or runbooks from
 | F05-E02-T02 | Warn when a task is claimed and closed minutes apart; check prints one summary plus the 5 most recent | sh scripts/smoke_test.sh -> 500 passed, 0 failed (sh + PowerShell); check . -> OK | log:F05-E02-T02 | 2026-10-13 |
 | F05-E02-T03 | assign command and ASSIGNED state: row stays TODO with the new Owner, claim by another agent warns, a task in progress cannot be assigned | sh scripts/smoke_test.sh -> 562 passed, 0 failed (sh + PowerShell); check . -> OK | log:F05-E02-T03 | 2026-10-13 |
 | F05-E02 | Epic complete | all tasks DONE | log:F05-E02-T03 | 2026-10-13 |
+| F05-E03-T01 | Templates, docs and evals for review, handoff and agent identity; golden regression test; evals 26 to 39 | sh scripts/smoke_test.sh -> 578 passed, 0 failed (sh + PowerShell); check . -> OK; differential run old vs new scripts identical | log:F05-E03-T01 | 2026-10-13 |
+| F05-E03 | Epic complete | all tasks DONE | log:F05-E03-T01 | 2026-10-13 |

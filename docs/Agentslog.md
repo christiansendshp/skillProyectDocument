@@ -199,3 +199,8 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 ## [2026-10-13T18:09:26Z] | claude-sonnet-5-5 | F05-E03-T01 | IN_PROGRESS | Document review and identity in templates and docs
 - Summary: Change 8 and 9: templates, docs, evals and the regression test
 - Verify: pending
+
+## [2026-10-13T18:36:29Z] | claude-sonnet-5-5 | F05-E03-T01 | DONE | Document review and identity in templates and docs
+- Summary: Templates, docs and evals for review, handoff and agent identity; golden regression test; evals 26 to 39
+- Files: templates/,docs/,references/,scripts/smoke_test.sh,evals/evals.json
+- Verify: sh scripts/smoke_test.sh -> 578 passed, 0 failed (sh + PowerShell); check . -> OK; differential run old vs new scripts identical

@@ -416,7 +416,10 @@ run_suite() {
   assert_success "$label check passes after a handoff" run check "$rp"
   review_proj ho_noreviewer
   assert_success "$label handoff without a reviewer succeeds" run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass"
-  assert_not_exists_pattern "$label no Handoff line is written without a reviewer" "$rp/docs/Agentslog.md" "- Handoff:"
+  # Only the entries count: the ledger header documents the Handoff line in its
+  # entry-format block.
+  awk '/^## Entries/{p=1; next} p' "$rp/docs/Agentslog.md" > "$WORK/.entries"
+  assert_not_exists_pattern "$label no Handoff line is written without a reviewer" "$WORK/.entries" "- Handoff:"
   assert_success "$label check passes after a handoff without a reviewer" run check "$rp"
   review_proj ho_paused
   run pause "$rp" dev F01-E01-T01 OTRO "switching" >/dev/null 2>&1
@@ -656,6 +659,29 @@ run_suite() {
   run assign "$rp" lead F01-E01-T01 dev >/dev/null 2>&1
   assert_failure "$label a third agent cannot close an assigned task" run done "$rp" other F01-E01-T01 "implemented" "x" "tests pass"
   assert_success "$label the assignee can close it" run done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass"
+
+  echo "== $label: a project that uses none of the new words is unaffected (Change 9, regression) =="
+  rg="$WORK/${label}_regress"
+  mkdir -p "$rg"
+  run init "$rg" >/dev/null 2>&1
+  seed_active_row "$rg" SMOKE-RG1 "Regress task one"
+  seed_active_row "$rg" SMOKE-RG2 "Regress task two"
+  run claim "$rg" agentA SMOKE-RG1 "working on one" >/dev/null 2>&1
+  run claim "$rg" agentB SMOKE-RG2 "working on two" >/dev/null 2>&1
+  run pause "$rg" agentB SMOKE-RG2 LIMITE "context limit" >/dev/null 2>&1
+  assert_success "$label regression: status runs" run status "$rg"
+  printf '%s\n' "SMOKE-RG1 | Regress task one | agentA | IN_PROGRESS | 0h | -" "SMOKE-RG2 | Regress task two | agentB | PAUSE | 0h | LIMITE" > "$WORK/.golden"
+  golden_eq "$WORK/.out" && ok "$label regression: status output is exactly what it was" || bad "$label regression: status output changed: $(cat "$WORK/.out")"
+  assert_success "$label regression: context runs" run context "$rg"
+  awk '/^## Open tasks/{p=1;next} /^## Latest agent entries/{p=0} p && NF' "$WORK/.out" > "$WORK/.open"
+  printf '%s\n' "SMOKE-RG1 | agentA | IN_PROGRESS | 0h | -" "SMOKE-RG2 | agentB | PAUSE | 0h | LIMITE" > "$WORK/.golden"
+  golden_eq "$WORK/.open" && ok "$label regression: the Open tasks section is exactly what it was" || bad "$label regression: Open tasks changed: $(cat "$WORK/.open")"
+  assert_success "$label regression: check runs" run check "$rg"
+  printf '%s\n' "WARN: 10 UNKNOWN field(s) in Operational summaries" "project_docs check: OK" > "$WORK/.golden"
+  golden_eq "$WORK/.out" sorted && ok "$label regression: check output is exactly what it was" || bad "$label regression: check output changed: $(cat "$WORK/.out")"
+  assert_success "$label regression: rotate runs" run rotate "$rg"
+  printf '%s\n' "project_docs rotate: not required" > "$WORK/.golden"
+  golden_eq "$WORK/.out" && ok "$label regression: rotate output is exactly what it was" || bad "$label regression: rotate output changed: $(cat "$WORK/.out")"
 }
 
 file_hash() {
@@ -683,6 +709,19 @@ seed_fill() {
     printf '\n## [%s] | filler | %s | DONE\n- Summary: filler %s\n- Files: n/a\n- Verify: n/a\n- Follow-up: none\n' "$fill_ts" "$id" "$i"
     i=$((i + 1))
   done >> "$proj/docs/Agentslog.md"
+}
+
+# True when FILE (carriage returns stripped, optionally sorted) equals
+# $WORK/.golden (sorted the same way). PowerShell ends lines with CRLF and may
+# interleave stderr and stdout, so the golden comparisons normalise both.
+golden_eq() {
+  tr -d '\r' < "$1" > "$WORK/.norm"
+  if [ "${2:-}" = "sorted" ]; then
+    sort "$WORK/.norm" > "$WORK/.norm.s"; sort "$WORK/.golden" > "$WORK/.golden.s"
+    cmp -s "$WORK/.golden.s" "$WORK/.norm.s"
+  else
+    cmp -s "$WORK/.golden" "$WORK/.norm"
+  fi
 }
 
 # run with one extra environment variable (VAR=value) for that call only.

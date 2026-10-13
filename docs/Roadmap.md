@@ -19,7 +19,6 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F05-E03-T01 | Document review and identity in templates and docs | Change 8 of the spec, ADR-021 and evals 26+ | check . exits 0 within 8 KiB; root AGENTS.md body equals the template; full smoke test 0 failed on sh and ps1 | IN_PROGRESS | claude-sonnet-5-5@2026-10-13T18:09:26Z | F05-E02-T02 | — |
 
 <!-- context:end -->
 
