@@ -352,9 +352,9 @@ function Get-TaskStates {
             $name = if ($Matches[5]) { $Matches[5].Trim() } else { "" }
             if (-not $lastStatus.ContainsKey($tid)) { $order.Add($tid) }
             if ($status -eq "IN_PROGRESS") {
-                if ($lastStatus[$tid] -eq "IN_PROGRESS" -and $lastAgent[$tid] -ne $agent) {
+                if ($lastStatus[$tid] -eq "IN_PROGRESS" -and $lastAgent[$tid] -cne $agent) {
                     $conflict[$tid] = "$($lastAgent[$tid]) vs $agent"
-                } elseif ($lastStatus[$tid] -eq "REVIEW" -and $hold.ContainsKey($tid) -and $hold[$tid] -ne $agent -and -not (Test-IsOld $lastTs[$tid] $ts)) {
+                } elseif ($lastStatus[$tid] -eq "REVIEW" -and $hold.ContainsKey($tid) -and $hold[$tid] -cne $agent -and -not (Test-IsOld $lastTs[$tid] $ts)) {
                     $conflict[$tid] = "$($hold[$tid]) vs $agent"
                 }
                 $hold[$tid] = $agent
@@ -438,6 +438,66 @@ function Get-StageLabel([string]$Status, [string]$Review, [string]$Handoff) {
 # holder).
 function Get-OpenTaskStates {
     return @(Get-TaskStates | Where-Object { $_.Status -eq "IN_PROGRESS" -or $_.Status -eq "PAUSE" -or $_.Status -eq "REVIEW" })
+}
+
+# ---------------------------------------------------------------------------
+# Agent identity. The optional "## Agent identity" table in the project root
+# AGENTS.md lists one stable id per agent plus aliases. With at least one data
+# row, claim/pause/handoff/review/done normalise the agent name to its Agent id
+# (case-insensitive match against id and aliases); an unknown name only warns
+# and is used as typed. Without the section or rows nothing changes: no
+# normalisation, no warnings.
+# ---------------------------------------------------------------------------
+# Get-RosterRows: one object per data row (Id, Kind, Model, Role, Aliases).
+function Get-RosterRows {
+    $path = Join-Path $Project "AGENTS.md"
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return @() }
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $insec = $false
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $path)) {
+        if ($line -eq "## Agent identity") { $insec = $true; continue }
+        if ($insec -and $line.StartsWith("## ")) { $insec = $false }
+        if ($insec -and $line.StartsWith("|")) {
+            $c = @(Split-TableCells $line)
+            if ($c.Count -lt 1) { continue }
+            $id = $c[0]
+            if ($id -eq "" -or $id -eq "Agent id" -or $id -eq $EmDash -or $id -match '^-+$') { continue }
+            $rows.Add([PSCustomObject]@{
+                Id = $id
+                Kind = $(if ($c.Count -gt 1) { $c[1] } else { "" })
+                Model = $(if ($c.Count -gt 2) { $c[2] } else { "" })
+                Role = $(if ($c.Count -gt 3) { $c[3] } else { "" })
+                Aliases = $(if ($c.Count -gt 4) { $c[4] } else { "" })
+            })
+        }
+    }
+    return $rows
+}
+
+function Get-RosterAliases($Row) {
+    $out = [System.Collections.Generic.List[string]]::new()
+    foreach ($a in @($Row.Aliases -split ',')) {
+        $x = $a.Trim()
+        if ($x -ne "" -and $x -ne $EmDash) { $out.Add($x) }
+    }
+    return $out
+}
+
+function Get-CanonicalAgent([string]$Raw) {
+    $rows = @(Get-RosterRows)
+    if ($rows.Count -eq 0) { return $Raw }
+    foreach ($r in $rows) {
+        if ($r.Id -ieq $Raw) { return $r.Id }
+        foreach ($a in @(Get-RosterAliases $r)) { if ($a -ieq $Raw) { return $r.Id } }
+    }
+    [Console]::Error.WriteLine("WARN: unknown agent `"$Raw`" (not in the Agent identity table)")
+    return $Raw
+}
+
+# Get-RosterRole ID: the Role (DEVELOPER, QA or BOTH) of a roster id, or "".
+function Get-RosterRole([string]$Id) {
+    foreach ($r in @(Get-RosterRows)) { if ($r.Id -ceq $Id) { return $r.Role } }
+    return ""
 }
 
 function Get-TaskState([string]$Task) {
@@ -797,7 +857,7 @@ function Exit-DocsLock {
 
 function Invoke-Claim {
     if ($Arguments.Count -lt 3) { throw "claim requires: agent task-id summary" }
-    $agent = ConvertTo-CleanField $Arguments[0]
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
     $task = ConvertTo-CleanField $Arguments[1]
     $summary = ConvertTo-CleanField $Arguments[2]
     $log = Join-Path $DocsDir "Agentslog.md"
@@ -808,18 +868,18 @@ function Invoke-Claim {
         $state = Get-TaskState $task
         if ($state) {
             if ($state.Status -eq "IN_PROGRESS") {
-                if ($state.Agent -ne $agent -and -not (Test-Stale $task)) {
+                if ($state.Agent -cne $agent -and -not (Test-Stale $task)) {
                     throw "claim failed: $task is IN_PROGRESS, owned by $($state.Agent)"
                 }
             } elseif ($state.Status -eq "PAUSE") {
-                if ($state.PauseCat -ne "LIMITE" -and $state.Agent -ne $agent) {
+                if ($state.PauseCat -ne "LIMITE" -and $state.Agent -cne $agent) {
                     throw "claim failed: $task is PAUSE ($($state.PauseCat)); resolvable only by $($state.Agent) until the reason clears"
                 }
             } elseif ($state.Status -eq "REVIEW") {
                 # During REVIEW the developer is still the holder: they may take
                 # it back (after a FAIL, or to withdraw the handoff); anyone else
                 # only once the last entry is stale.
-                if ($state.Holder -and $state.Holder -ne $agent -and -not (Test-Stale $task)) {
+                if ($state.Holder -and $state.Holder -cne $agent -and -not (Test-Stale $task)) {
                     throw "claim failed: $task is in REVIEW, held by $($state.Holder)"
                 }
             }
@@ -842,7 +902,7 @@ function Invoke-Claim {
 
 function Invoke-Pause {
     if ($Arguments.Count -lt 4) { throw "pause requires: agent task-id category detail" }
-    $agent = ConvertTo-CleanField $Arguments[0]
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
     $task = ConvertTo-CleanField $Arguments[1]
     $category = ConvertTo-CleanField $Arguments[2]
     $detail = ConvertTo-CleanField $Arguments[3]
@@ -855,7 +915,7 @@ function Invoke-Pause {
         $state = Get-TaskState $task
         if (-not $state) { throw "pause failed: $task has no IN_PROGRESS entry to pause" }
         if ($state.Status -ne "IN_PROGRESS") { throw "pause failed: $task is not IN_PROGRESS (current: $($state.Status))" }
-        if ($state.Agent -ne $agent) { throw "pause failed: $task is owned by $($state.Agent), not $agent" }
+        if ($state.Agent -cne $agent) { throw "pause failed: $task is owned by $($state.Agent), not $agent" }
         $name = Assert-ValidName $task "pause"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         $log = Join-Path $DocsDir "Agentslog.md"
@@ -878,7 +938,7 @@ function Invoke-Pause {
 # Owner: the stage lives in the ledger only). Same ownership checks as pause.
 function Invoke-Handoff {
     if ($Arguments.Count -lt 4) { throw "handoff requires: agent task-id summary verify [reviewer]" }
-    $agent = ConvertTo-CleanField $Arguments[0]
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
     $task = ConvertTo-CleanField $Arguments[1]
     $summary = ConvertTo-CleanField $Arguments[2]
     $verify = ConvertTo-CleanField $Arguments[3]
@@ -922,7 +982,7 @@ function Invoke-Handoff {
 # freeze) unless PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1.
 function Invoke-Review {
     if ($Arguments.Count -lt 4) { throw "review requires: agent task-id PASS|FAIL note [verify]" }
-    $agent = ConvertTo-CleanField $Arguments[0]
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
     $task = ConvertTo-CleanField $Arguments[1]
     $result = ConvertTo-CleanField $Arguments[2]
     $note = ConvertTo-CleanField $Arguments[3]
@@ -945,6 +1005,9 @@ function Invoke-Review {
             }
             [Console]::Error.WriteLine("WARN: self-review: $agent reviews its own handoff of $task")
         }
+        if ((Get-RosterRole $agent) -ceq "DEVELOPER") {
+            [Console]::Error.WriteLine("WARN: $agent has role DEVELOPER in the Agent identity table, not QA or BOTH")
+        }
         $name = Assert-ValidName $task "review"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         $entryLines = @(
@@ -964,7 +1027,7 @@ function Invoke-Review {
 
 function Invoke-Done {
     if ($Arguments.Count -lt 5) { throw "done requires: agent task-id summary files verify" }
-    $agent = ConvertTo-CleanField $Arguments[0]
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
     $task = ConvertTo-CleanField $Arguments[1]
     $summary = ConvertTo-CleanField $Arguments[2]
     $files = ConvertTo-CleanField $Arguments[3]
@@ -1518,9 +1581,9 @@ function Test-LogEntries {
             $name = if ($Matches[5]) { $Matches[5].Trim() } else { "" }
             $tsnow = $Matches[1].Trim()
             $conflictMsg = $null
-            if ($status -eq "IN_PROGRESS" -and $lastStatus.ContainsKey($tidnow) -and $lastStatus[$tidnow] -eq "IN_PROGRESS" -and $lastAgent[$tidnow] -ne $agentnow) {
+            if ($status -eq "IN_PROGRESS" -and $lastStatus.ContainsKey($tidnow) -and $lastStatus[$tidnow] -eq "IN_PROGRESS" -and $lastAgent[$tidnow] -cne $agentnow) {
                 $conflictMsg = "ERROR: conflicting concurrent claim on $tidnow`: $($lastAgent[$tidnow]) and $agentnow"
-            } elseif ($status -eq "IN_PROGRESS" -and $lastStatus.ContainsKey($tidnow) -and $lastStatus[$tidnow] -eq "REVIEW" -and $holdMap.ContainsKey($tidnow) -and $holdMap[$tidnow] -ne $agentnow -and -not (Test-IsOld $lastTsMap[$tidnow] $tsnow)) {
+            } elseif ($status -eq "IN_PROGRESS" -and $lastStatus.ContainsKey($tidnow) -and $lastStatus[$tidnow] -eq "REVIEW" -and $holdMap.ContainsKey($tidnow) -and $holdMap[$tidnow] -cne $agentnow -and -not (Test-IsOld $lastTsMap[$tidnow] $tsnow)) {
                 # Two REVIEW entries by different agents (developer, reviewer)
                 # are normal; only a third agent starting work on a task that is
                 # held by someone else, and not stale, is a conflict.
@@ -1811,6 +1874,40 @@ function Test-IdFormatInSection([string]$Rel, [string]$Heading, [string]$Pattern
     }
 }
 
+# Warns (never fails) about agent names in the hot ledger that are neither an
+# Agent id nor an alias, at most 10 of them plus a count. Silent without a roster.
+function Write-RosterWarnings {
+    $rows = @(Get-RosterRows)
+    if ($rows.Count -eq 0) { return }
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { return }
+    $known = @{}
+    foreach ($r in $rows) {
+        $known[$r.Id.ToLowerInvariant()] = $true
+        foreach ($a in @(Get-RosterAliases $r)) { $known[$a.ToLowerInvariant()] = $true }
+    }
+    $seen = @{}
+    $unknown = [System.Collections.Generic.List[string]]::new()
+    $inEntries = $false
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $log)) {
+        if ($line -eq "## Entries") { $inEntries = $true; continue }
+        if (-not $inEntries) { continue }
+        if ($line -match '^## \[([^\]]*)\] \| ([^|]*) \|') {
+            $ag = $Matches[2].Trim()
+            if (-not $known.ContainsKey($ag.ToLowerInvariant()) -and -not $seen.ContainsKey($ag)) {
+                $seen[$ag] = $true
+                $unknown.Add($ag)
+            }
+        }
+    }
+    for ($i = 0; $i -lt $unknown.Count -and $i -lt 10; $i++) {
+        [Console]::Error.WriteLine("WARN: unknown agent `"$($unknown[$i])`" in the ledger (not in the Agent identity table)")
+    }
+    if ($unknown.Count -gt 10) {
+        [Console]::Error.WriteLine("WARN: $($unknown.Count - 10) more unknown agent name(s) in the ledger")
+    }
+}
+
 function Write-CheckWarnings {
     $unknownCount = 0
     foreach ($f in @("docs/ProductDescription.md", "docs/Stack_Tecnologies.md", "docs/Features.md")) {
@@ -1824,6 +1921,7 @@ function Write-CheckWarnings {
     if ($unknownCount -gt 0) {
         [Console]::Error.WriteLine("WARN: $unknownCount UNKNOWN field(s) in Operational summaries")
     }
+    Write-RosterWarnings
     foreach ($name in $LinkTargetsDefault) {
         $rel = Get-LinkTargetPath $name
         $full = Join-Path $Project $rel

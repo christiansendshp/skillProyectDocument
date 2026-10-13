@@ -514,6 +514,58 @@ run_suite() {
   review_proj dn_real_verify
   assert_success "$label a real verify does not warn" run done "$rp" dev F01-E01-T01 "implemented" "x" "sh scripts/smoke_test.sh passed"
   grep -q "says nothing about what was checked" "$WORK/.out" && bad "$label a real verify warned" || ok "$label a real verify does not warn"
+
+  echo "== $label: agent identity roster (Change 5) =="
+  roster_rows='| claude-sonnet-5-5 | AI | Claude Sonnet 5.5 | BOTH | claude, claude-sonnet-5 |\n| qa-bot | AI | QA bot | QA | — |\n| dev-bot | AI | Dev bot | DEVELOPER | — |'
+  roster_proj() {
+    rp="$WORK/${label}_$1"
+    mkdir -p "$rp"
+    run init "$rp" >/dev/null 2>&1
+    seed_replace "$rp/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO |" \
+      "| F01-E01-T01 | Build the demo onboarding flow | detail | real accept | TODO |"
+    seed_replace "$rp/AGENTS.md" "| — | — | — | — | — |" "$roster_rows"
+  }
+
+  # Without a roster nothing changes.
+  review_proj id_none
+  assert_success "$label a new project ships the Agent identity section" grep -q "## Agent identity" "$rp/AGENTS.md"
+  assert_failure "$label without a roster names are compared exactly (Dev is not dev)" run pause "$rp" Dev F01-E01-T01 OTRO "switching"
+  seed_active_row "$rp" ID-T02 "Identity task two"
+  assert_success "$label without a roster any name is accepted silently" run claim "$rp" stranger ID-T02 "start"
+  grep -q "WARN" "$WORK/.out" && bad "$label an empty roster must not warn: $(cat "$WORK/.out")" || ok "$label an empty roster does not warn"
+  assert_success "$label check passes without a roster" run check "$rp"
+  grep -q "unknown agent" "$WORK/.out" && bad "$label check warned about agents without a roster" || ok "$label check does not warn about agents without a roster"
+
+  old="$WORK/${label}_id_old"
+  mkdir -p "$old"
+  printf '<!-- project-documentation:start -->\n## Repository rules\n- old rules\n## Startup\n## Close\n<!-- project-documentation:end -->\n' > "$old/AGENTS.md"
+  assert_success "$label init on a project that has the old block" run init "$old"
+  grep -q "Agent identity" "$old/AGENTS.md" && bad "$label init must not add the roster to an existing block" || ok "$label init leaves an existing AGENTS.md block alone"
+  assert_success "$label check does not require the roster section" run check "$old"
+
+  # With a roster.
+  roster_proj id_roster
+  assert_success "$label claim by an alias is normalised" run claim "$rp" Claude F01-E01-T01 "start"
+  assert_contains "$label the ledger header carries the Agent id" "$rp/docs/Agentslog.md" "| claude-sonnet-5-5 | F01-E01-T01 | IN_PROGRESS"
+  assert_contains "$label the Roadmap Owner carries the Agent id" "$rp/docs/Roadmap.md" "claude-sonnet-5-5@"
+  assert_success "$label another alias of the same agent can pause" run pause "$rp" claude-sonnet-5 F01-E01-T01 OTRO "switching"
+  seed_active_row "$rp" ID-T02 "Identity task two"
+  assert_success "$label an unknown agent still works but warns" run claim "$rp" stranger ID-T02 "start"
+  grep -q 'unknown agent "stranger"' "$WORK/.out" && ok "$label the unknown agent warning names it" || bad "$label unknown agent warning missing: $(cat "$WORK/.out")"
+  assert_contains "$label an unknown name is used as typed" "$rp/docs/Agentslog.md" "| stranger | ID-T02 | IN_PROGRESS"
+  assert_success "$label check lists unknown ledger agents without failing" run check "$rp"
+  grep -q 'unknown agent "stranger" in the ledger' "$WORK/.out" && ok "$label check names the unknown ledger agent" || bad "$label check unknown agent warning missing: $(cat "$WORK/.out")"
+  grep -q 'unknown agent "claude' "$WORK/.out" && bad "$label check wrongly reported a known agent" || ok "$label check does not report known agents or aliases"
+
+  roster_proj id_role
+  run claim "$rp" claude-sonnet-5-5 F01-E01-T01 "start" >/dev/null 2>&1
+  run handoff "$rp" claude-sonnet-5-5 F01-E01-T01 "code complete" "unit tests pass" >/dev/null 2>&1
+  assert_success "$label a DEVELOPER may review but warns" run review "$rp" dev-bot F01-E01-T01 FAIL "not my area"
+  grep -q "role DEVELOPER" "$WORK/.out" && ok "$label review by a DEVELOPER warns" || bad "$label DEVELOPER review warning missing: $(cat "$WORK/.out")"
+  run claim "$rp" claude-sonnet-5-5 F01-E01-T01 "retake" >/dev/null 2>&1
+  run handoff "$rp" claude-sonnet-5-5 F01-E01-T01 "fixed" "unit tests pass" >/dev/null 2>&1
+  assert_success "$label a QA agent reviews without a role warning" run review "$rp" qa-bot F01-E01-T01 PASS "fine" "reran the tests"
+  grep -q "role DEVELOPER" "$WORK/.out" && bad "$label a QA reviewer must not trigger the role warning" || ok "$label a QA reviewer triggers no role warning"
 }
 
 file_hash() {

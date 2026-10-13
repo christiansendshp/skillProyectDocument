@@ -65,7 +65,6 @@ Spec: the handoff prompt in the PM Hub repo (docs/prompts/skill-review-handoff-a
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F05-E02-T01 | Add the Agent identity roster and canonical ids | Change 5 of the spec | no roster means unchanged behaviour; with roster aliases normalise and unknown names warn; smoke sh+ps1 pass | TODO | — | F05-E01-T01 | — |
 | F05-E02-T02 | Warn when work is documented after it is done | Change 6 of the spec | done right after claim warns without failing; check prints one summary plus at most 5; smoke sh+ps1 pass | TODO | — | F05-E01-T04 | — |
 | F05-E02-T03 | Add the assign command and ASSIGNED state | Change 7 of the spec, optional | assign writes ASSIGNED and sets Owner; check accepts it; smoke sh+ps1 pass | TODO | — | F05-E02-T01 | — |
 

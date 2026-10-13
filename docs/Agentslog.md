@@ -168,3 +168,12 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: done now verifies who closes a task: the holder, the reviewer who left Review PASS, anyone on a stale or PROJECT_DOCS_FORCE=1 task, or anyone for a never-claimed task; it warns on closing without a passing review and on verify markers such as none, n/a, no run, ninguno, an em dash or UNKNOWN
 - Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh
 - Verify: sh scripts/smoke_test.sh -> 428 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T17:35:29Z] | claude-sonnet-5-5 | F05-E02-T01 | IN_PROGRESS | Add the Agent identity roster and canonical ids
+- Summary: Change 5: Agent identity roster and canonical agent ids
+- Verify: pending
+
+## [2026-10-13T17:46:39Z] | claude-sonnet-5-5 | F05-E02-T01 | DONE | Add the Agent identity roster and canonical ids
+- Summary: Optional Agent identity roster: aliases normalise to the Agent id in claim, pause, handoff, review and done; unknown names warn
+- Files: scripts/,templates/AGENTS.md,AGENTS.md
+- Verify: sh scripts/smoke_test.sh -> 474 passed, 0 failed (sh + PowerShell); check . -> OK

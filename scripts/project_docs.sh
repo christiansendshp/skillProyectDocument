@@ -404,6 +404,60 @@ age_hours() {
   echo $(( (now - then_epoch) / 3600 ))
 }
 
+# ---------------------------------------------------------------------------
+# Agent identity. The optional "## Agent identity" table in the project root
+# AGENTS.md lists one stable id per agent plus aliases. With at least one data
+# row, claim/pause/handoff/review/done normalise the agent name to its Agent id
+# (case-insensitive match against id and aliases); an unknown name only warns
+# and is used as typed. Without the section or rows nothing changes: no
+# normalisation, no warnings.
+# ---------------------------------------------------------------------------
+# roster_rows: one TSV line per data row: id kind model role aliases.
+roster_rows() {
+  [ -f "$PROJECT/AGENTS.md" ] || return 0
+  awk '
+    $0 == "## Agent identity" { insec=1; next }
+    insec && /^## / { insec=0 }
+    insec && /^\|/ {
+      line=$0
+      sub(/^\|/,"",line); sub(/\|[ \t]*$/,"",line)
+      n=split(line,c,"|")
+      for (i=1;i<=n;i++) gsub(/^[ \t]+|[ \t]+$/,"",c[i])
+      id=c[1]
+      if (id=="" || id=="Agent id" || id=="—" || id ~ /^-+$/) next
+      printf "%s\t%s\t%s\t%s\t%s\n", id, c[2], c[3], c[4], c[5]
+    }
+  ' "$PROJECT/AGENTS.md"
+}
+
+canonical_agent() {
+  raw="$1"
+  roster="$(roster_rows)"
+  if [ -z "$roster" ]; then printf '%s' "$raw"; return 0; fi
+  found="$(printf '%s\n' "$roster" | awk -F'\t' -v want="$raw" '
+    BEGIN { w=tolower(want) }
+    {
+      if (tolower($1)==w) { print $1; exit }
+      n=split($5,a,",")
+      for (i=1;i<=n;i++) {
+        x=a[i]; gsub(/^[ \t]+|[ \t]+$/,"",x)
+        if (x!="" && x!="—" && tolower(x)==w) { print $1; exit }
+      }
+    }
+  ')"
+  if [ -n "$found" ]; then
+    printf '%s' "$found"
+  else
+    echo "WARN: unknown agent \"$raw\" (not in the Agent identity table)" >&2
+    printf '%s' "$raw"
+  fi
+}
+
+# roster_role ID: prints the Role (DEVELOPER, QA or BOTH) of a roster id.
+roster_role() {
+  roster_rows | awk -F'\t' -v id="$1" '$1==id { print $4; exit }'
+}
+
 is_stale() {
   task="$1"
   if state="$(task_state "$task")"; then
@@ -738,7 +792,7 @@ with_lock() {
 cmd_claim() {
   shift 2
   [ "$#" -ge 3 ] || die "claim requires: agent task-id summary"
-  agent="$(clean_field "$1")"
+  agent="$(canonical_agent "$(clean_field "$1")")"
   task="$(clean_field "$2")"
   summary="$(clean_field "$3")"
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
@@ -783,7 +837,7 @@ cmd_claim() {
 cmd_pause() {
   shift 2
   [ "$#" -ge 4 ] || die "pause requires: agent task-id category detail"
-  agent="$(clean_field "$1")"
+  agent="$(canonical_agent "$(clean_field "$1")")"
   task="$(clean_field "$2")"
   category="$(clean_field "$3")"
   detail="$(clean_field "$4")"
@@ -819,7 +873,7 @@ cmd_pause() {
 cmd_handoff() {
   shift 2
   [ "$#" -ge 4 ] || die "handoff requires: agent task-id summary verify [reviewer]"
-  agent="$(clean_field "$1")"
+  agent="$(canonical_agent "$(clean_field "$1")")"
   task="$(clean_field "$2")"
   summary="$(clean_field "$3")"
   verify="$(clean_field "$4")"
@@ -863,7 +917,7 @@ cmd_handoff() {
 cmd_review() {
   shift 2
   [ "$#" -ge 4 ] || die "review requires: agent task-id PASS|FAIL note [verify]"
-  agent="$(clean_field "$1")"
+  agent="$(canonical_agent "$(clean_field "$1")")"
   task="$(clean_field "$2")"
   result="$(clean_field "$3")"
   note="$(clean_field "$4")"
@@ -894,6 +948,9 @@ cmd_review() {
     fi
     echo "WARN: self-review: $agent reviews its own handoff of $task" >&2
   fi
+  if [ "$(roster_role "$agent")" = "DEVELOPER" ]; then
+    echo "WARN: $agent has role DEVELOPER in the Agent identity table, not QA or BOTH" >&2
+  fi
   name="$(require_valid_name "$task" review)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   {
@@ -909,7 +966,7 @@ cmd_review() {
 cmd_done() {
   shift 2
   [ "$#" -ge 5 ] || die "done requires: agent task-id summary files verify"
-  agent="$(clean_field "$1")"
+  agent="$(canonical_agent "$(clean_field "$1")")"
   task="$(clean_field "$2")"
   summary="$(clean_field "$3")"
   files="$(clean_field "$4")"
@@ -1839,6 +1896,36 @@ check_agentslog_roadmap_names() {
   fi
 }
 
+# Warns (never fails) about agent names in the hot ledger that are neither an
+# Agent id nor an alias, at most 10 of them plus a count. Silent without a roster.
+check_roster_names() {
+  [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
+  rf="$(mktemp "${TMPDIR:-/tmp}/project-docs-roster.XXXXXX")"
+  roster_rows > "$rf"
+  if [ ! -s "$rf" ]; then rm -f "$rf"; return 0; fi
+  awk -F'\t' '
+    FNR==NR {
+      known[tolower($1)]=1
+      n=split($5,a,",")
+      for (i=1;i<=n;i++) { x=a[i]; gsub(/^[ \t]+|[ \t]+$/,"",x); if (x!="" && x!="—") known[tolower(x)]=1 }
+      next
+    }
+    $0=="## Entries" { in_e=1; next }
+    in_e && /^## \[/ {
+      line=$0
+      sub(/^## \[/,"",line); sub(/\] \| /,"|",line); gsub(/ \| /,"|",line)
+      split(line,f,"|")
+      ag=f[2]
+      if (!(tolower(ag) in known) && !(ag in seen)) { seen[ag]=1; order[++cnt]=ag }
+    }
+    END {
+      for (i=1;i<=cnt && i<=10;i++) print "WARN: unknown agent \"" order[i] "\" in the ledger (not in the Agent identity table)"
+      if (cnt>10) print "WARN: " (cnt-10) " more unknown agent name(s) in the ledger"
+    }
+  ' "$rf" "$DOCS_DIR/Agentslog.md" >&2
+  rm -f "$rf"
+}
+
 check_warnings() {
   unknown_count=0
   for f in docs/ProductDescription.md docs/Stack_Tecnologies.md docs/Features.md; do
@@ -1851,6 +1938,7 @@ check_warnings() {
   if [ "$unknown_count" -gt 0 ]; then
     echo "WARN: $unknown_count UNKNOWN field(s) in Operational summaries" >&2
   fi
+  check_roster_names
   for name in $LINK_TARGETS_DEFAULT; do
     rel="$(link_target_path "$name")"
     full="$PROJECT/$rel"
