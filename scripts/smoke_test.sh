@@ -566,6 +566,35 @@ run_suite() {
   run handoff "$rp" claude-sonnet-5-5 F01-E01-T01 "fixed" "unit tests pass" >/dev/null 2>&1
   assert_success "$label a QA agent reviews without a role warning" run review "$rp" qa-bot F01-E01-T01 PASS "fine" "reran the tests"
   grep -q "role DEVELOPER" "$WORK/.out" && bad "$label a QA reviewer must not trigger the role warning" || ok "$label a QA reviewer triggers no role warning"
+
+  echo "== $label: work documented after it is done (Change 6) =="
+  review_proj ic_done
+  assert_success "$label done right after claim succeeds" run done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass"
+  grep -q "F01-E01-T01 was claimed and closed" "$WORK/.out" && ok "$label done right after claim warns" || bad "$label instant-close warning missing: $(cat "$WORK/.out")"
+  grep -q "claim before the first edit" "$WORK/.out" && ok "$label the warning says what to do" || bad "$label the warning does not say what to do"
+  review_proj ic_silenced
+  assert_success "$label PROJECT_DOCS_MIN_WORK_MINUTES=0 silences it" run_env PROJECT_DOCS_MIN_WORK_MINUTES=0 done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass"
+  grep -q "claimed and closed" "$WORK/.out" && bad "$label a zero threshold still warned" || ok "$label a zero threshold does not warn"
+  review_proj ic_slow
+  seed_active_row "$rp" SMOKE-SLOW "Smoke slow task"
+  seed_entry "$rp" "2026-10-01T10:00:00Z" dev SMOKE-SLOW IN_PROGRESS "Smoke slow task" "- Summary: started days ago\n- Verify: pending\n"
+  assert_success "$label done long after the claim succeeds" run done "$rp" dev SMOKE-SLOW "implemented" "x" "tests pass"
+  grep -q "claimed and closed" "$WORK/.out" && bad "$label a slow close warned" || ok "$label a slow close does not warn"
+
+  review_proj ic_check
+  qn=1
+  while [ "$qn" -le 6 ]; do
+    seed_active_row "$rp" "SMOKE-Q$qn" "Smoke quick task $qn"
+    run claim "$rp" dev "SMOKE-Q$qn" "start" >/dev/null 2>&1
+    run done "$rp" dev "SMOKE-Q$qn" "implemented" "x" "tests pass" >/dev/null 2>&1
+    qn=$((qn + 1))
+  done
+  assert_success "$label check does not fail on instant closes" run check "$rp"
+  grep -q "6 of 6 closed tasks were closed within 5 min of their claim" "$WORK/.out" && ok "$label check prints one summary line" || bad "$label check summary missing: $(cat "$WORK/.out")"
+  [ "$(grep -c 'was claimed and closed' "$WORK/.out")" -eq 5 ] && ok "$label check lists at most the 5 most recent" || bad "$label check listed $(grep -c 'was claimed and closed' "$WORK/.out") tasks instead of 5"
+  grep -q "SMOKE-Q1 was claimed" "$WORK/.out" && bad "$label the oldest instant close should be left out of the list" || ok "$label the oldest instant close is left out of the list"
+  assert_success "$label check is quiet when the threshold is 0" run_env PROJECT_DOCS_MIN_WORK_MINUTES=0 check "$rp"
+  grep -q "closed within" "$WORK/.out" && bad "$label a zero threshold still printed the summary" || ok "$label a zero threshold prints no summary"
 }
 
 file_hash() {

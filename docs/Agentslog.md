@@ -177,3 +177,12 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: Optional Agent identity roster: aliases normalise to the Agent id in claim, pause, handoff, review and done; unknown names warn
 - Files: scripts/,templates/AGENTS.md,AGENTS.md
 - Verify: sh scripts/smoke_test.sh -> 474 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T17:46:53Z] | claude-sonnet-5-5 | F05-E02-T02 | IN_PROGRESS | Warn when work is documented after it is done
+- Summary: Change 6: warn when work is claimed and closed minutes apart
+- Verify: pending
+
+## [2026-10-13T17:57:27Z] | claude-sonnet-5-5 | F05-E02-T02 | DONE | Warn when work is documented after it is done
+- Summary: Warn when a task is claimed and closed minutes apart; check prints one summary plus the 5 most recent
+- Files: scripts/
+- Verify: sh scripts/smoke_test.sh -> 500 passed, 0 failed (sh + PowerShell); check . -> OK

@@ -500,6 +500,41 @@ function Get-RosterRole([string]$Id) {
     return ""
 }
 
+# Seconds between two ledger timestamps, or -1 when either does not parse.
+function Get-GapSeconds([string]$A, [string]$B) {
+    try {
+        $styles = [System.Globalization.DateTimeStyles]::AdjustToUniversal -bor [System.Globalization.DateTimeStyles]::AssumeUniversal
+        $fmt = "yyyy-MM-ddTHH:mm:ssZ"
+        $inv = [System.Globalization.CultureInfo]::InvariantCulture
+        $x = [DateTime]::ParseExact($A, $fmt, $inv, $styles)
+        $y = [DateTime]::ParseExact($B, $fmt, $inv, $styles)
+        return [long][Math]::Floor(($y - $x).TotalSeconds)
+    } catch {
+        return -1
+    }
+}
+
+# "3s" under a minute, otherwise "2m".
+function Get-GapLabel([long]$Seconds) {
+    if ($Seconds -lt 60) { return "${Seconds}s" }
+    return "$([long][Math]::Floor($Seconds / 60))m"
+}
+
+# Timestamp of the first IN_PROGRESS entry of a task in the hot ledger.
+function Get-FirstClaimTs([string]$Task) {
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { return "" }
+    $inEntries = $false
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $log)) {
+        if ($line -eq "## Entries") { $inEntries = $true; continue }
+        if (-not $inEntries) { continue }
+        if ($line -match '^## \[([^\]]*)\] \| ([^|]*) \| ([^|]*) \| ([^|]*)') {
+            if ($Matches[3].Trim() -eq $Task -and $Matches[4].Trim() -eq "IN_PROGRESS") { return $Matches[1].Trim() }
+        }
+    }
+    return ""
+}
+
 function Get-TaskState([string]$Task) {
     return (Get-TaskStates | Where-Object { $_.Task -eq $Task } | Select-Object -First 1)
 }
@@ -1061,6 +1096,15 @@ function Invoke-Done {
         }
         $name = Assert-ValidName $task "done"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $claimTs = Get-FirstClaimTs $task
+        if ($claimTs) {
+            $minWork = 5
+            if ($env:PROJECT_DOCS_MIN_WORK_MINUTES -match '^\d+$') { $minWork = [int]$env:PROJECT_DOCS_MIN_WORK_MINUTES }
+            $gap = Get-GapSeconds $claimTs $timestamp
+            if ($gap -ge 0 -and $gap -lt ($minWork * 60)) {
+                [Console]::Error.WriteLine("WARN: $task was claimed and closed $(Get-GapLabel $gap) apart; claim before the first edit so the work is visible while it happens")
+            }
+        }
         $log = Join-Path $DocsDir "Agentslog.md"
         $entry = (@(
             "",
@@ -1908,6 +1952,43 @@ function Write-RosterWarnings {
     }
 }
 
+# One summary line plus at most the 5 most recent tasks closed within
+# PROJECT_DOCS_MIN_WORK_MINUTES (default 5) of their first claim. Closing a
+# batch afterwards is legitimate: this only says so. Never fails.
+function Write-InstantCloseWarnings {
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { return }
+    $minWork = 5
+    if ($env:PROJECT_DOCS_MIN_WORK_MINUTES -match '^\d+$') { $minWork = [int]$env:PROJECT_DOCS_MIN_WORK_MINUTES }
+    $first = @{}; $counted = @{}
+    $closed = 0
+    $quick = [System.Collections.Generic.List[object]]::new()
+    $inEntries = $false
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $log)) {
+        if ($line -eq "## Entries") { $inEntries = $true; continue }
+        if (-not $inEntries) { continue }
+        if ($line -match '^## \[([^\]]*)\] \| ([^|]*) \| ([^|]*) \| ([^|]*)') {
+            $ts = $Matches[1].Trim(); $tid = $Matches[3].Trim(); $st = $Matches[4].Trim()
+            if ($st -eq "IN_PROGRESS" -and -not $first.ContainsKey($tid)) { $first[$tid] = $ts }
+            if ($st -eq "DONE" -and $first.ContainsKey($tid) -and -not $counted.ContainsKey($tid)) {
+                $counted[$tid] = $true
+                $g = Get-GapSeconds $first[$tid] $ts
+                if ($g -ge 0) {
+                    $closed++
+                    if ($g -lt ($minWork * 60)) { $quick.Add([PSCustomObject]@{ Id = $tid; Gap = $g }) }
+                }
+            }
+        }
+    }
+    if ($quick.Count -gt 0) {
+        [Console]::Error.WriteLine("WARN: $($quick.Count) of $closed closed tasks were closed within $minWork min of their claim")
+        $start = [Math]::Max(0, $quick.Count - 5)
+        for ($i = $start; $i -lt $quick.Count; $i++) {
+            [Console]::Error.WriteLine("WARN: $($quick[$i].Id) was claimed and closed $(Get-GapLabel $quick[$i].Gap) apart; claim before the first edit so the work is visible while it happens")
+        }
+    }
+}
+
 function Write-CheckWarnings {
     $unknownCount = 0
     foreach ($f in @("docs/ProductDescription.md", "docs/Stack_Tecnologies.md", "docs/Features.md")) {
@@ -1922,6 +2003,7 @@ function Write-CheckWarnings {
         [Console]::Error.WriteLine("WARN: $unknownCount UNKNOWN field(s) in Operational summaries")
     }
     Write-RosterWarnings
+    Write-InstantCloseWarnings
     foreach ($name in $LinkTargetsDefault) {
         $rel = Get-LinkTargetPath $name
         $full = Join-Path $Project $rel

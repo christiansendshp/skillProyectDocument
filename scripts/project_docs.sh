@@ -14,6 +14,7 @@ CONTEXT_LIMIT=8192
 LOG_BYTES_LIMIT=131072
 LOG_ENTRIES_LIMIT=200
 STALE_HOURS="${PROJECT_DOCS_STALE_HOURS:-24}"
+MIN_WORK_MINUTES="${PROJECT_DOCS_MIN_WORK_MINUTES:-5}"
 BLOCK_START='<!-- project-documentation:start -->'
 BLOCK_END='<!-- project-documentation:end -->'
 TAB="$(printf '\t')"
@@ -456,6 +457,25 @@ canonical_agent() {
 # roster_role ID: prints the Role (DEVELOPER, QA or BOTH) of a roster id.
 roster_role() {
   roster_rows | awk -F'\t' -v id="$1" '$1==id { print $4; exit }'
+}
+
+# Timestamp of the first IN_PROGRESS entry of a task in the hot ledger.
+first_claim_ts() {
+  [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
+  awk -v want="$1" '
+    $0=="## Entries" { in_e=1; next }
+    in_e && /^## \[/ {
+      line=$0
+      sub(/^## \[/,"",line); sub(/\] \| /,"|",line); gsub(/ \| /,"|",line)
+      split(line,f,"|")
+      if (f[3]==want && f[4]=="IN_PROGRESS") { print f[1]; exit }
+    }
+  ' "$DOCS_DIR/Agentslog.md"
+}
+
+# gap_label SECONDS: "3s" under a minute, otherwise "2m".
+gap_label() {
+  if [ "$1" -lt 60 ]; then printf '%ss' "$1"; else printf '%sm' "$(( $1 / 60 ))"; fi
 }
 
 is_stale() {
@@ -1007,6 +1027,13 @@ cmd_done() {
   esac
   name="$(require_valid_name "$task" done)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  claim_ts="$(first_claim_ts "$task")"
+  if [ -n "$claim_ts" ]; then
+    gap="$(awk -v a="$claim_ts" -v b="$timestamp" "$AWK_EPOCH"'BEGIN { x=iso_epoch(a); y=iso_epoch(b); if (x<0 || y<0) print -1; else print y-x }')"
+    if [ "$gap" -ge 0 ] && [ "$gap" -lt $(( MIN_WORK_MINUTES * 60 )) ]; then
+      echo "WARN: $task was claimed and closed $(gap_label "$gap") apart; claim before the first edit so the work is visible while it happens" >&2
+    fi
+  fi
   {
     echo
     echo "## [$timestamp] | $agent | $task | DONE | $name"
@@ -1926,6 +1953,42 @@ check_roster_names() {
   rm -f "$rf"
 }
 
+# One summary line plus at most the 5 most recent tasks closed within
+# PROJECT_DOCS_MIN_WORK_MINUTES (default 5) of their first claim. Closing a
+# batch afterwards is legitimate: this only says so. Never fails.
+check_instant_closes() {
+  [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
+  awk -v min_s="$(( MIN_WORK_MINUTES * 60 ))" -v min_m="$MIN_WORK_MINUTES" "$AWK_EPOCH"'
+    $0=="## Entries" { in_e=1; next }
+    in_e && /^## \[/ {
+      line=$0
+      sub(/^## \[/,"",line); sub(/\] \| /,"|",line); gsub(/ \| /,"|",line)
+      split(line,f,"|")
+      ts=f[1]; tid=f[3]; st=f[4]
+      if (st=="IN_PROGRESS" && !(tid in first)) first[tid]=ts
+      if (st=="DONE" && (tid in first) && !(tid in counted)) {
+        counted[tid]=1
+        e1=iso_epoch(first[tid]); e2=iso_epoch(ts)
+        if (e1>=0 && e2>=0) {
+          closed++
+          g=e2-e1
+          if (g>=0 && g<min_s) { quick++; qid[quick]=tid; qgap[quick]=g }
+        }
+      }
+    }
+    END {
+      if (quick>0) {
+        print "WARN: " quick " of " closed " closed tasks were closed within " min_m " min of their claim"
+        start=quick-4; if (start<1) start=1
+        for (i=start;i<=quick;i++) {
+          g=qgap[i]; lab=(g<60 ? g "s" : int(g/60) "m")
+          print "WARN: " qid[i] " was claimed and closed " lab " apart; claim before the first edit so the work is visible while it happens"
+        }
+      }
+    }
+  ' "$DOCS_DIR/Agentslog.md" >&2
+}
+
 check_warnings() {
   unknown_count=0
   for f in docs/ProductDescription.md docs/Stack_Tecnologies.md docs/Features.md; do
@@ -1939,6 +2002,7 @@ check_warnings() {
     echo "WARN: $unknown_count UNKNOWN field(s) in Operational summaries" >&2
   fi
   check_roster_names
+  check_instant_closes
   for name in $LINK_TARGETS_DEFAULT; do
     rel="$(link_target_path "$name")"
     full="$PROJECT/$rel"
