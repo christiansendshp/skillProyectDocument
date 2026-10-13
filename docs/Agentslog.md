@@ -159,3 +159,12 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: review command in sh and PowerShell: needs a pending handoff and a note, PASS needs a real verify, writes a REVIEW entry in the reviewer name with a Review line and leaves the Roadmap row alone; FAIL returns the task to its holder; self-review warns or fails with PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1
 - Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh
 - Verify: sh scripts/smoke_test.sh -> 366 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T17:24:41Z] | claude-sonnet-5-5 | F05-E01-T04 | IN_PROGRESS | done verifies who is closing the task
+- Summary: Change 4: done verifies who closes the task
+- Verify: pending
+
+## [2026-10-13T17:35:10Z] | claude-sonnet-5-5 | F05-E01-T04 | DONE | done verifies who is closing the task
+- Summary: done now verifies who closes a task: the holder, the reviewer who left Review PASS, anyone on a stale or PROJECT_DOCS_FORCE=1 task, or anyone for a never-claimed task; it warns on closing without a passing review and on verify markers such as none, n/a, no run, ninguno, an em dash or UNKNOWN
+- Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh
+- Verify: sh scripts/smoke_test.sh -> 428 passed, 0 failed (sh + PowerShell); check . -> OK

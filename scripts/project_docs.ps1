@@ -972,6 +972,30 @@ function Invoke-Done {
     if (-not $verify) { throw "done requires a non-empty verify" }
     Enter-DocsLock
     try {
+        # Who may close a task: nobody has an entry for it (retroactive close,
+        # the normal case for batches), the holder, the reviewer who left
+        # Review: PASS, anyone once the last entry is stale, or anyone with
+        # PROJECT_DOCS_FORCE=1.
+        $state = Get-TaskState $task
+        if ($state) {
+            $allowed = $false
+            if ($agent -ceq $state.Holder) { $allowed = $true }
+            elseif ($state.Status -eq "REVIEW" -and $state.Review -ceq "PASS" -and $agent -ceq $state.Agent) { $allowed = $true }
+            elseif ($env:PROJECT_DOCS_FORCE -eq "1") { $allowed = $true }
+            elseif (Test-Stale $task) { $allowed = $true }
+            if (-not $allowed) { throw "done failed: $task is held by $($state.Holder)" }
+            if ($state.Status -eq "REVIEW" -and $state.Review -cne "PASS") {
+                if ($state.Review -ceq "FAIL") {
+                    [Console]::Error.WriteLine("WARN: ${task}: closing without a passing review (the last review was FAIL)")
+                } else {
+                    [Console]::Error.WriteLine("WARN: ${task}: closing without a passing review (the handoff is still pending)")
+                }
+            }
+        }
+        $vlow = $verify.Trim().ToLowerInvariant()
+        if ($vlow -in @("none", "n/a", "no run", "ninguno", [string]$EmDash, "unknown")) {
+            [Console]::Error.WriteLine("WARN: verify `"$verify`" says nothing about what was checked")
+        }
         $name = Assert-ValidName $task "done"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         $log = Join-Path $DocsDir "Agentslog.md"

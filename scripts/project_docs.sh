@@ -916,6 +916,38 @@ cmd_done() {
   verify="$(clean_field "$5")"
   [ -n "$verify" ] || die "done requires a non-empty verify"
   with_lock
+  # Who may close a task: nobody has an entry for it (retroactive close, the
+  # normal case for batches), the holder, the reviewer who left Review: PASS,
+  # anyone once the last entry is stale, or anyone with PROJECT_DOCS_FORCE=1.
+  if state="$(task_state "$task")"; then
+    status="$(printf '%s' "$state" | cut -f2)"
+    last_agent="$(printf '%s' "$state" | cut -f3)"
+    holder="$(printf '%s' "$state" | cut -f9)"
+    review="$(printf '%s' "$state" | cut -f11)"
+    allowed=0
+    if [ "$agent" = "$holder" ]; then
+      allowed=1
+    elif [ "$status" = "REVIEW" ] && [ "$review" = "PASS" ] && [ "$agent" = "$last_agent" ]; then
+      allowed=1
+    elif [ "${PROJECT_DOCS_FORCE:-0}" = "1" ]; then
+      allowed=1
+    elif is_stale "$task"; then
+      allowed=1
+    fi
+    [ "$allowed" -eq 1 ] || die "done failed: $task is held by $holder"
+    if [ "$status" = "REVIEW" ] && [ "$review" != "PASS" ]; then
+      if [ "$review" = "FAIL" ]; then
+        echo "WARN: $task: closing without a passing review (the last review was FAIL)" >&2
+      else
+        echo "WARN: $task: closing without a passing review (the handoff is still pending)" >&2
+      fi
+    fi
+  fi
+  vlow="$(printf '%s' "$verify" | tr 'A-Z' 'a-z' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  case "$vlow" in
+    none|n/a|"no run"|ninguno|"—"|unknown)
+      echo "WARN: verify \"$verify\" says nothing about what was checked" >&2 ;;
+  esac
   name="$(require_valid_name "$task" done)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   {

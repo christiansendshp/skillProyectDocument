@@ -454,6 +454,66 @@ run_suite() {
   assert_failure "$label self-review fails with PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1" run_env PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1 review "$rp" dev F01-E01-T01 PASS "my own work is fine" "unit tests pass"
   grep -q "independent review is required" "$WORK/.out" && ok "$label strict self-review error text" || bad "$label strict self-review error wrong: $(cat "$WORK/.out")"
   assert_success "$label another agent still reviews under the strict setting" run_env PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1 review "$rp" qa-agent F01-E01-T01 PASS "fine" "reran the tests"
+
+  echo "== $label: done checks who closes the task (Change 4) =="
+  review_proj dn_holder
+  assert_failure "$label done by a third agent fails" run done "$rp" intruder F01-E01-T01 "implemented" "x" "tests pass"
+  grep -q "done failed: F01-E01-T01 is held by dev" "$WORK/.out" && ok "$label done error names the holder" || bad "$label done error wrong: $(cat "$WORK/.out")"
+  assert_contains "$label a refused done leaves the Roadmap row in place" "$rp/docs/Roadmap.md" "F01-E01-T01"
+  assert_success "$label done by the holder succeeds without any handoff" run done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass"
+
+  review_proj dn_reviewer
+  run handoff "$rp" dev F01-E01-T01 "code complete" "tests pass" qa-agent >/dev/null 2>&1
+  run review "$rp" qa-agent F01-E01-T01 PASS "fine" "reran the tests" >/dev/null 2>&1
+  assert_failure "$label done by a third agent fails after a review PASS" run done "$rp" intruder F01-E01-T01 "implemented" "x" "tests pass"
+  assert_success "$label done by the reviewer who passed it succeeds" run done "$rp" qa-agent F01-E01-T01 "implemented" "x" "tests pass and reviewed"
+
+  review_proj dn_holder_pass
+  run handoff "$rp" dev F01-E01-T01 "code complete" "tests pass" qa-agent >/dev/null 2>&1
+  run review "$rp" qa-agent F01-E01-T01 PASS "fine" "reran the tests" >/dev/null 2>&1
+  assert_success "$label done by the holder after a review PASS succeeds" run done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass and reviewed"
+  grep -q "closing without a passing review" "$WORK/.out" && bad "$label done after a passing review should not warn" || ok "$label done after a passing review does not warn"
+
+  review_proj dn_after_fail
+  run handoff "$rp" dev F01-E01-T01 "code complete" "tests pass" qa-agent >/dev/null 2>&1
+  run review "$rp" qa-agent F01-E01-T01 FAIL "two tests fail" >/dev/null 2>&1
+  assert_failure "$label the reviewer cannot close a task they failed" run done "$rp" qa-agent F01-E01-T01 "implemented" "x" "tests pass"
+  assert_success "$label the holder may still close after a FAIL, with a warning" run done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass"
+  grep -q "closing without a passing review (the last review was FAIL)" "$WORK/.out" && ok "$label done after FAIL warns" || bad "$label done after FAIL missing warning: $(cat "$WORK/.out")"
+
+  review_proj dn_pending
+  run handoff "$rp" dev F01-E01-T01 "code complete" "tests pass" qa-agent >/dev/null 2>&1
+  assert_success "$label the holder may close with the handoff still pending" run done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass"
+  grep -q "closing without a passing review (the handoff is still pending)" "$WORK/.out" && ok "$label done with a pending handoff warns" || bad "$label done with a pending handoff missing warning: $(cat "$WORK/.out")"
+
+  review_proj dn_force
+  assert_success "$label PROJECT_DOCS_FORCE=1 lets any agent close" run_env PROJECT_DOCS_FORCE=1 done "$rp" intruder F01-E01-T01 "implemented" "x" "tests pass"
+  review_proj dn_stale
+  assert_success "$label anyone may close once the last entry is stale" run_env PROJECT_DOCS_STALE_HOURS=0 done "$rp" intruder F01-E01-T01 "implemented" "x" "tests pass"
+
+  review_proj dn_retro
+  seed_active_row "$rp" SMOKE-NEVER "Smoke never claimed"
+  assert_success "$label closing a never-claimed task still works (retroactive close)" run done "$rp" anyone SMOKE-NEVER "implemented" "x" "tests pass"
+  grep -q "WARN" "$WORK/.out" && bad "$label a retroactive close should not warn: $(cat "$WORK/.out")" || ok "$label a retroactive close does not warn"
+  assert_success "$label check passes after a retroactive close" run check "$rp"
+
+  mi=0
+  for marker in none "N/A" "no run" ninguno UNKNOWN; do
+    mi=$((mi + 1))
+    review_proj dn_marker$mi
+    assert_success "$label done with verify '$marker' succeeds" run done "$rp" dev F01-E01-T01 "implemented" "x" "$marker"
+    grep -q "says nothing about what was checked" "$WORK/.out" && ok "$label verify '$marker' warns" || bad "$label verify '$marker' did not warn: $(cat "$WORK/.out")"
+  done
+  if [ "$label" = "sh" ]; then
+    # The em dash cannot travel through the PowerShell command line unmangled,
+    # so only the sh launcher exercises this literal.
+    review_proj dn_marker_dash
+    assert_success "$label done with an em dash verify succeeds" run done "$rp" dev F01-E01-T01 "implemented" "x" "—"
+    grep -q "says nothing about what was checked" "$WORK/.out" && ok "$label an em dash verify warns" || bad "$label an em dash verify did not warn"
+  fi
+  review_proj dn_real_verify
+  assert_success "$label a real verify does not warn" run done "$rp" dev F01-E01-T01 "implemented" "x" "sh scripts/smoke_test.sh passed"
+  grep -q "says nothing about what was checked" "$WORK/.out" && bad "$label a real verify warned" || ok "$label a real verify does not warn"
 }
 
 file_hash() {

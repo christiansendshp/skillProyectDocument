@@ -2,8 +2,8 @@
 
 ## Operational summary
 
-- Verified capabilities: 18
-- Latest verification: `sh scripts/smoke_test.sh -> 366 passed, 0 failed (sh + PowerShell); check . -> OK` (2026-10-13)
+- Verified capabilities: 20
+- Latest verification: `sh scripts/smoke_test.sh -> 428 passed, 0 failed (sh + PowerShell); check . -> OK` (2026-10-13)
 - Known limitation: the AGENTS.md/Agents.md case collision cannot be tested end to end on Windows or macOS.
 
 <!-- context:end -->
@@ -33,3 +33,5 @@ Use one row per stable capability. Link long specifications or runbooks from
 | F05-E01-T01 | REVIEW is a valid ledger word: check validates Summary, Verify, Handoff and Review lines; task-state TSV gains holder, handoff and review; status, open tasks, stale warning and rotate keep REVIEW tasks; two REVIEW entries by different agents are no conflict; the holder may retake a REVIEW task | sh scripts/smoke_test.sh -> 272 passed, 0 failed (sh + PowerShell); check . -> OK | log:F05-E01-T01 | 2026-10-13 |
 | F05-E01-T02 | handoff command in sh and PowerShell: holder-only, real verify required, writes a REVIEW entry with an optional Handoff line and leaves the Roadmap row IN_PROGRESS with the same Owner; smoke rotation test now seeds filler entries in one process | sh scripts/smoke_test.sh -> 312 passed, 0 failed (sh + PowerShell); check . -> OK | log:F05-E01-T02 | 2026-10-13 |
 | F05-E01-T03 | review command in sh and PowerShell: needs a pending handoff and a note, PASS needs a real verify, writes a REVIEW entry in the reviewer name with a Review line and leaves the Roadmap row alone; FAIL returns the task to its holder; self-review warns or fails with PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1 | sh scripts/smoke_test.sh -> 366 passed, 0 failed (sh + PowerShell); check . -> OK | log:F05-E01-T03 | 2026-10-13 |
+| F05-E01-T04 | done now verifies who closes a task: the holder, the reviewer who left Review PASS, anyone on a stale or PROJECT_DOCS_FORCE=1 task, or anyone for a never-claimed task; it warns on closing without a passing review and on verify markers such as none, n/a, no run, ninguno, an em dash or UNKNOWN | sh scripts/smoke_test.sh -> 428 passed, 0 failed (sh + PowerShell); check . -> OK | log:F05-E01-T04 | 2026-10-13 |
+| F05-E01 | Epic complete | all tasks DONE | log:F05-E01-T04 | 2026-10-13 |

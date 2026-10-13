@@ -60,7 +60,6 @@ Spec: the handoff prompt in the PM Hub repo (docs/prompts/skill-review-handoff-a
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F05-E01-T04 | done verifies who is closing the task | Change 4 of the spec | done by a third party fails; retroactive close still works; closing without passing review warns; smoke sh+ps1 pass | TODO | — | F05-E01-T03 | — |
 
 #### F05-E02 — Agent identity and warnings
 
