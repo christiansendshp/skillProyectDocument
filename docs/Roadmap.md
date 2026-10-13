@@ -19,7 +19,6 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F05-E01-T01 | Accept REVIEW in the ledger and task states | Change 1 of the spec; see ADR-021 | check accepts REVIEW, rejects unknown words; REVIEW needs real Verify; no conflict between two REVIEW; status, context, stale warn, rotate keep REVIEW tasks; smoke sh+ps1 pass | IN_PROGRESS | claude-sonnet-5-5@2026-10-13T16:32:05Z | — | — |
 
 <!-- context:end -->
 

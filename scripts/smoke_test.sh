@@ -114,6 +114,12 @@ run_suite() {
   run done "$proj2" seed SMOKE-T01 "seed close" "n/a" "n/a" >/dev/null 2>&1
   seed_active_row "$proj2" SMOKE-T02 "Smoke task two"
   run claim "$proj2" agentD SMOKE-T02 "stay open across rotation" >/dev/null 2>&1
+  # A task handed to review and already passed by another agent, so rotation has
+  # to carry the holder, the handoff target and the review result forward.
+  seed_active_row "$proj2" SMOKE-T03 "Smoke review task"
+  run claim "$proj2" agentD SMOKE-T03 "reviewed across rotation" >/dev/null 2>&1
+  seed_entry "$proj2" "$(now_ts)" agentD SMOKE-T03 REVIEW "Smoke review task" "- Summary: coded\n- Verify: unit tests pass\n- Handoff: qa-agent\n"
+  seed_entry "$proj2" "$(now_ts)" qa-agent SMOKE-T03 REVIEW "Smoke review task" "- Summary: reviewed\n- Verify: reran tests\n- Review: PASS - fine\n"
   i=1
   while [ "$i" -le 205 ]; do
     run append-log "$proj2" filler SMOKE-T01 DONE "filler $i" "n/a" "n/a" >/dev/null 2>&1
@@ -121,6 +127,7 @@ run_suite() {
   done
   assert_success "$label context stays open task visible" run context "$proj2"
   grep -q "SMOKE-T02" "$WORK/.out" && ok "$label Open tasks section lists SMOKE-T02" || bad "$label Open tasks section missing SMOKE-T02"
+  grep -q "SMOKE-T03 | agentD | REVIEW(PASS)->qa-agent" "$WORK/.out" && ok "$label Open tasks lists the REVIEW task with its holder and stage" || bad "$label Open tasks missing the REVIEW task or its stage"
   assert_success "$label rotate archives the ledger" run rotate "$proj2"
   assert_success "$label status still shows SMOKE-T02 after rotation" run status "$proj2"
   grep -q "SMOKE-T02" "$WORK/.out" && ok "$label status lists SMOKE-T02 after rotation" || bad "$label status missing SMOKE-T02 after rotation"
@@ -128,6 +135,8 @@ run_suite() {
   # whitespace IFS merged the empty pausecat/conflict fields in the task-state TSV.
   grep -q "Smoke task two" "$WORK/.out" && ok "$label status prints the task Name after rotation" || bad "$label status lost the task Name after rotation"
   assert_contains "$label rotate carries the Name into the new ledger" "$proj2/docs/Agentslog.md" "| Smoke task two"
+  grep -q "SMOKE-T03 | Smoke review task | agentD | REVIEW(PASS)->qa-agent" "$WORK/.out" && ok "$label status keeps the REVIEW task after rotation (holder, result, handoff)" || bad "$label status lost the REVIEW task after rotation: $(grep SMOKE-T03 "$WORK/.out")"
+  assert_contains "$label rotate carries the Handoff line" "$proj2/docs/Agentslog.md" "- Handoff: qa-agent"
   assert_success "$label check passes after rotation" run check "$proj2"
 
   echo "== $label: migrate legacy docs/Agents.md (eval 12) =="
@@ -316,6 +325,72 @@ run_suite() {
   hp2="$(file_hash "$proj14/docs/Roadmap.md")"
   [ "$hp1" = "$hp2" ] && ok "$label second migrate leaves Roadmap.md unchanged" || bad "$label second migrate changed Roadmap.md"
   assert_success "$label claim works on a migrated Gaps row" run claim "$proj14" agentN F70-GAP-01 "start"
+
+  echo "== $label: REVIEW stage in the ledger (Change 1) =="
+  review_proj() {
+    rp="$WORK/${label}_$1"
+    mkdir -p "$rp"
+    run init "$rp" >/dev/null 2>&1
+    seed_replace "$rp/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO |" \
+      "| F01-E01-T01 | Build the demo onboarding flow | detail | real accept | TODO |"
+    run claim "$rp" dev F01-E01-T01 "start" >/dev/null 2>&1
+  }
+  n="Build the demo onboarding flow"
+  review_proj rv_ok
+  seed_entry "$rp" "$(now_ts)" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n- Verify: unit tests pass\n- Handoff: qa-agent\n"
+  assert_success "$label check accepts a valid REVIEW entry" run check "$rp"
+  assert_success "$label status lists the REVIEW task" run status "$rp"
+  grep -q "dev | REVIEW->qa-agent" "$WORK/.out" && ok "$label status shows holder, stage and handoff target" || bad "$label status stage text wrong: $(cat "$WORK/.out")"
+  assert_success "$label context renders" run context "$rp"
+  grep -q "F01-E01-T01 | dev | REVIEW->qa-agent" "$WORK/.out" && ok "$label Open tasks shows the REVIEW stage and target" || bad "$label Open tasks stage text wrong"
+  seed_entry "$rp" "$(now_ts)" qa-agent F01-E01-T01 REVIEW "$n" "- Summary: reviewed\n- Verify: reran tests\n- Review: PASS - fine\n"
+  assert_success "$label two REVIEW entries by different agents are not a conflict" run check "$rp"
+  assert_failure "$label a third agent cannot claim a task held in REVIEW" run claim "$rp" intruder F01-E01-T01 "steal"
+  grep -q "REVIEW, held by dev" "$WORK/.out" && ok "$label claim error names the holder" || bad "$label claim error doesn't name the holder"
+  assert_success "$label the holder can take a REVIEW task back" run claim "$rp" dev F01-E01-T01 "withdraw the handoff"
+
+  review_proj rv_novfy
+  seed_entry "$rp" "$(now_ts)" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n"
+  assert_failure "$label REVIEW without Verify fails check" run check "$rp"
+  grep -q "REVIEW entry missing Verify" "$WORK/.out" && ok "$label check names the missing REVIEW Verify" || bad "$label check doesn't name the missing REVIEW Verify"
+  review_proj rv_pending
+  seed_entry "$rp" "$(now_ts)" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n- Verify: pending\n"
+  assert_failure "$label REVIEW with a pending Verify fails check" run check "$rp"
+  review_proj rv_badres
+  seed_entry "$rp" "$(now_ts)" qa F01-E01-T01 REVIEW "$n" "- Summary: x\n- Verify: ok\n- Review: MAYBE - hmm\n"
+  assert_failure "$label Review result other than PASS/FAIL fails check" run check "$rp"
+  review_proj rv_nodetail
+  seed_entry "$rp" "$(now_ts)" qa F01-E01-T01 REVIEW "$n" "- Summary: x\n- Verify: ok\n- Review: PASS\n"
+  assert_failure "$label Review without detail fails check" run check "$rp"
+  review_proj rv_unknown
+  seed_entry "$rp" "$(now_ts)" dev F01-E01-T01 BOGUS "$n" "- Summary: x\n- Verify: ok\n"
+  assert_failure "$label an unknown ledger word is still rejected" run check "$rp"
+
+  review_proj rv_fail
+  seed_entry "$rp" "$(now_ts)" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n- Verify: tests pass\n- Handoff: qa-agent\n"
+  seed_entry "$rp" "$(now_ts)" qa-agent F01-E01-T01 REVIEW "$n" "- Summary: broke it\n- Review: FAIL - two tests fail\n"
+  assert_success "$label a Review: FAIL entry needs no Verify" run check "$rp"
+  assert_success "$label status after FAIL" run status "$rp"
+  grep -q "dev | IN_PROGRESS" "$WORK/.out" && ok "$label after FAIL the task is back with its holder (IN_PROGRESS)" || bad "$label after FAIL status is wrong: $(cat "$WORK/.out")"
+  assert_failure "$label a third agent still cannot claim after FAIL" run claim "$rp" intruder F01-E01-T01 "steal"
+  assert_success "$label the holder retakes the task after FAIL" run claim "$rp" dev F01-E01-T01 "fix the failing tests"
+
+  echo "== $label: conflict rule and stale REVIEW =="
+  review_proj rv_conflict
+  seed_entry "$rp" "$(now_ts)" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n- Verify: ok\n"
+  seed_entry "$rp" "$(now_ts)" intruder F01-E01-T01 IN_PROGRESS "$n" "- Summary: grabbed it\n- Verify: pending\n"
+  assert_failure "$label a third agent starting work right after REVIEW is a conflict" run check "$rp"
+  grep -q "conflicting concurrent claim" "$WORK/.out" && ok "$label check names the conflicting claim" || bad "$label check doesn't name the conflicting claim"
+  review_proj rv_takeover
+  seed_entry "$rp" "2026-10-01T10:00:00Z" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n- Verify: ok\n"
+  seed_entry "$rp" "2026-10-05T10:00:00Z" intruder F01-E01-T01 IN_PROGRESS "$n" "- Summary: took over a stale review\n- Verify: pending\n"
+  assert_success "$label taking over a REVIEW older than the stale threshold is not a conflict" run check "$rp"
+  review_proj rv_stale
+  seed_entry "$rp" "2026-10-01T10:00:00Z" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n- Verify: ok\n- Handoff: qa-agent\n"
+  assert_success "$label check warns about a stale REVIEW without failing" run_env PROJECT_DOCS_STALE_HOURS=1 check "$rp"
+  grep -q "has been in REVIEW for" "$WORK/.out" && ok "$label stale REVIEW warning text" || bad "$label stale REVIEW warning missing: $(cat "$WORK/.out")"
+  assert_success "$label status marks a stale REVIEW" run_env PROJECT_DOCS_STALE_HOURS=1 status "$rp"
+  grep -q "(stale)" "$WORK/.out" && ok "$label status shows (stale) on a REVIEW" || bad "$label status doesn't mark the stale REVIEW"
 }
 
 file_hash() {
@@ -323,6 +398,19 @@ file_hash() {
   elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
   else cksum "$1"; fi
 }
+
+# Current UTC timestamp in the ledger format.
+now_ts() { date -u +'%Y-%m-%dT%H:%M:%SZ'; }
+
+# Appends a hand-written ledger entry (header + body lines) for a given agent,
+# task, state word and Name. Used to build REVIEW entries directly.
+seed_entry() {
+  proj="$1"; ts="$2"; agent="$3"; id="$4"; status="$5"; name="$6"; body="$7"
+  printf '\n## [%s] | %s | %s | %s | %s\n%b' "$ts" "$agent" "$id" "$status" "$name" "$body" >> "$proj/docs/Agentslog.md"
+}
+
+# run with one extra environment variable (VAR=value) for that call only.
+run_env() { ( export "$1"; shift; run "$@" ); }
 
 # Replaces the first occurrence of a literal string in a file (portable, no
 # sed -i dependency across the shells this runs under). Uses index()/substr()

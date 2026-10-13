@@ -22,6 +22,30 @@ TAB="$(printf '\t')"
 # usually empty) and shifts every later variable. Pipe the task-state TSV
 # through tr '\t' to US before any while-read loop.
 US="$(printf '\037')"
+# Shared awk helpers (spliced in front of awk programs with "$AWK_EPOCH"'...').
+# iso_epoch turns YYYY-MM-DDTHH:MM:SSZ into epoch seconds without date(1), so
+# the scanners can compare entry timestamps on any platform; is_old needs
+# -v stale_s=<seconds>. No apostrophes in here: this text sits inside a
+# single-quoted shell string and an apostrophe would end it.
+AWK_EPOCH='
+function iso_epoch(ts,   y,m,d,hh,mi,ss,era,yoe,mp,doy,doe) {
+  if (ts !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/) return -1
+  y=substr(ts,1,4)+0; m=substr(ts,6,2)+0; d=substr(ts,9,2)+0
+  hh=substr(ts,12,2)+0; mi=substr(ts,15,2)+0; ss=substr(ts,18,2)+0
+  if (m<=2) y--
+  era=int(y/400)
+  yoe=y-era*400
+  mp=(m+9)%12
+  doy=int((153*mp+2)/5)+d-1
+  doe=yoe*365+int(yoe/4)-int(yoe/100)+doy
+  return (era*146097+doe-719468)*86400+hh*3600+mi*60+ss
+}
+function is_old(prev, cur,   a, b) {
+  a=iso_epoch(prev); b=iso_epoch(cur)
+  if (a<0 || b<0) return 0
+  return (b-a) >= stale_s
+}
+'
 
 die() {
   echo "project_docs: $*" >&2
@@ -289,11 +313,22 @@ latest_log_entries() {
 # ---------------------------------------------------------------------------
 # Agentslog scanner: one pass, reused by claim/pause/done/status/context/
 # check/rotate. Emits one TSV line per task id (order of first appearance):
-#   task  status  agent  timestamp  pause_category  conflict  ever_done
+#   task  status  agent  timestamp  pause_category  conflict  ever_done  name
+#   holder  handoff  review
+# status is the word of the LAST entry (IN_PROGRESS, PAUSE, REVIEW, DONE).
+# holder is the agent of the last IN_PROGRESS entry (the developer who owns
+# the task, also while it is in REVIEW), or the last entry agent if there is
+# none. handoff is the destination named by the latest "- Handoff:" line of
+# the current review cycle (reset by a new IN_PROGRESS). review is PASS or
+# FAIL when the LAST entry carries a "- Review:" line, otherwise empty. New
+# fields are only ever appended: callers use cut -fN and read with a
+# unit-separator IFS, so earlier columns must never move.
+# Effective stage: REVIEW unless review is FAIL, which means the task is back
+# with its holder (IN_PROGRESS for them).
 # ---------------------------------------------------------------------------
 all_task_states() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
-  awk '
+  awk -v stale_s="$((STALE_HOURS * 3600))" "$AWK_EPOCH"'
     $0 == "## Entries" { in_entries=1; next }
     in_entries && /^## \[/ {
       line=$0
@@ -303,11 +338,18 @@ all_task_states() {
       split(line,f,"|")
       ts=f[1]; agent=f[2]; tid=f[3]; status=f[4]; name=f[5]
       if (!(tid in seen)) { seen[tid]=1; order[++cnt]=tid }
-      if (status=="IN_PROGRESS" && last_status[tid]=="IN_PROGRESS" && last_agent[tid]!=agent) {
-        conflict[tid] = last_agent[tid] " vs " agent
+      if (status=="IN_PROGRESS") {
+        if (last_status[tid]=="IN_PROGRESS" && last_agent[tid]!=agent) {
+          conflict[tid] = last_agent[tid] " vs " agent
+        } else if (last_status[tid]=="REVIEW" && hold[tid]!="" && hold[tid]!=agent && !is_old(last_ts[tid], ts)) {
+          conflict[tid] = hold[tid] " vs " agent
+        }
+        hold[tid]=agent
+        last_handoff[tid]=""
       }
       if (status=="DONE") { ever_done[tid]=1 }
       last_status[tid]=status; last_agent[tid]=agent; last_ts[tid]=ts; last_pause[tid]=""
+      last_review[tid]=""
       if (name!="") last_name[tid]=name
       cur=tid
       next
@@ -320,10 +362,25 @@ all_task_states() {
       last_pause[cur]=p
       next
     }
+    in_entries && cur!="" && /^- Handoff:/ {
+      line=$0
+      sub(/^- Handoff:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
+      last_handoff[cur]=line
+      next
+    }
+    in_entries && cur!="" && /^- Review:/ {
+      line=$0
+      sub(/^- Review:[ \t]*/,"",line)
+      dash=index(line," - ")
+      if (dash>0) p=substr(line,1,dash-1); else p=line
+      gsub(/[ \t]+$/,"",p)
+      last_review[cur]=p
+      next
+    }
     END {
       for (i=1;i<=cnt;i++) {
         t=order[i]
-        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t]
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t], (t in hold ? hold[t] : last_agent[t]), last_handoff[t], last_review[t]
       }
     }
   ' "$DOCS_DIR/Agentslog.md"
@@ -359,15 +416,36 @@ is_stale() {
   return 1
 }
 
+# Open tasks: last entry IN_PROGRESS, PAUSE or REVIEW (a REVIEW task stays open
+# until DONE, including after a Review: FAIL, when it is back with its holder).
+open_task_states() {
+  all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE" || $2=="REVIEW"'
+}
+
+# stage_label STATUS REVIEW HANDOFF: the stage text status and context print.
+# REVIEW shows the handoff destination (ASCII "->", so sh and PowerShell print
+# the same bytes); REVIEW(PASS) once a reviewer passed it; a Review: FAIL means
+# the task is back with its holder, i.e. IN_PROGRESS.
+stage_label() {
+  if [ "$1" != "REVIEW" ]; then printf '%s' "$1"; return 0; fi
+  if [ "$2" = "FAIL" ]; then printf 'IN_PROGRESS'; return 0; fi
+  label="REVIEW"
+  if [ "$2" = "PASS" ]; then label="REVIEW(PASS)"; fi
+  if [ -n "$3" ]; then label="$label->$3"; fi
+  printf '%s' "$label"
+}
+
 open_tasks_line() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
-  all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE"' | tr '\t' '\037' |
-  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name; do
+  open_task_states | tr '\t' '\037' |
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
     if [ "$status" = "PAUSE" ]; then reason="$pausecat"; fi
-    printf '%s | %s | %s | %sh | %s\n' "$tid" "$agent" "$status" "$hrs" "$reason"
+    shown="$agent"
+    if [ "$status" = "REVIEW" ]; then shown="$holder"; fi
+    printf '%s | %s | %s | %sh | %s\n' "$tid" "$shown" "$(stage_label "$status" "$review" "$handoff")" "$hrs" "$reason"
   done
 }
 
@@ -680,6 +758,14 @@ cmd_claim() {
       if [ "$pausecat" != "LIMITE" ] && [ "$owner" != "$agent" ]; then
         die "claim failed: $task is PAUSE ($pausecat); resolvable only by $owner until the reason clears"
       fi
+    elif [ "$status" = "REVIEW" ]; then
+      # During REVIEW the developer is still the holder: they may take it back
+      # (after a FAIL, or to withdraw the handoff); anyone else only once the
+      # last entry is stale.
+      holder="$(printf '%s' "$state" | cut -f9)"
+      if [ -n "$holder" ] && [ "$holder" != "$agent" ] && ! is_stale "$task"; then
+        die "claim failed: $task is in REVIEW, held by $holder"
+      fi
     fi
   fi
   name="$(require_valid_name "$task")"
@@ -752,17 +838,19 @@ cmd_done() {
 
 cmd_status() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
-  all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE"' | tr '\t' '\037' |
-  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name; do
+  open_task_states | tr '\t' '\037' |
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
     if [ "$status" = "PAUSE" ]; then reason="$pausecat"; fi
     stale=""
-    if [ "$status" = "IN_PROGRESS" ] && [ "$hrs" != "?" ] && [ "$hrs" -ge "$STALE_HOURS" ]; then
+    if [ "$status" != "PAUSE" ] && [ "$hrs" != "?" ] && [ "$hrs" -ge "$STALE_HOURS" ]; then
       stale=" (stale)"
     fi
-    printf '%s | %s | %s | %s | %sh%s | %s\n' "$tid" "$name" "$agent" "$status" "$hrs" "$stale" "$reason"
+    shown="$agent"
+    if [ "$status" = "REVIEW" ]; then shown="$holder"; fi
+    printf '%s | %s | %s | %s | %sh%s | %s\n' "$tid" "$name" "$shown" "$(stage_label "$status" "$review" "$handoff")" "$hrs" "$stale" "$reason"
   done
 }
 
@@ -1255,7 +1343,7 @@ check_log_rotation() {
 
 check_log_entries() {
   log="$DOCS_DIR/Agentslog.md"
-  out="$(awk '
+  out="$(awk -v stale_s="$((STALE_HOURS * 3600))" "$AWK_EPOCH"'
     $0 == "## Entries" { in_entries=1; next }
     in_entries && /^## \[/ {
       if (hdr != "") { validate() }
@@ -1265,22 +1353,68 @@ check_log_entries() {
       sub(/\] \| /,"|",line)
       gsub(/ \| /,"|",line)
       split(line,f,"|")
-      status=f[4]; tidnow=f[3]; agentnow=f[2]; name=f[5]
+      status=f[4]; tidnow=f[3]; agentnow=f[2]; name=f[5]; tsnow=f[1]
       if (status=="IN_PROGRESS" && last_status[tidnow]=="IN_PROGRESS" && last_agent[tidnow]!=agentnow) {
         print "ERROR: conflicting concurrent claim on " tidnow ": " last_agent[tidnow] " and " agentnow
+      } else if (status=="IN_PROGRESS" && last_status[tidnow]=="REVIEW" && hold[tidnow]!="" && hold[tidnow]!=agentnow && !is_old(last_ts[tidnow], tsnow)) {
+        # Two REVIEW entries by different agents (developer, reviewer) are
+        # normal; only a third agent starting work on a task that is held by
+        # someone else, and not stale, is a conflict.
+        print "ERROR: conflicting concurrent claim on " tidnow ": " hold[tidnow] " and " agentnow
       }
+      if (status=="IN_PROGRESS") hold[tidnow]=agentnow
       last_status[tidnow]=status
       last_agent[tidnow]=agentnow
+      last_ts[tidnow]=tsnow
       pauseline=""
       verifyline=""
+      summaryline=""
+      handoffline=""
+      reviewline=""
       next
     }
     in_entries && /^- Pause:/ { pauseline=$0; next }
     in_entries && /^- Verify:/ { verifyline=$0; next }
+    in_entries && /^- Summary:/ { summaryline=$0; next }
+    in_entries && /^- Handoff:/ { handoffline=$0; next }
+    in_entries && /^- Review:/ { reviewline=$0; next }
     END { if (hdr != "") validate() }
-    function validate(   body,dash,cat,detail) {
-      if (status!="IN_PROGRESS" && status!="PAUSE" && status!="DONE") {
-        print "ERROR: invalid status in entry: " hdr
+    function validate(   body,dash,cat,detail,rres,rdetail) {
+      if (status!="IN_PROGRESS" && status!="PAUSE" && status!="DONE" && status!="REVIEW") {
+        print "ERROR: invalid status in entry (expected IN_PROGRESS, PAUSE, REVIEW or DONE): " hdr
+      }
+      if (status=="REVIEW") {
+        rres=""; rdetail=""
+        if (reviewline!="") {
+          body=reviewline
+          sub(/^- Review:[ 	]*/,"",body)
+          dash=index(body," - ")
+          rres=(dash>0) ? substr(body,1,dash-1) : body
+          rdetail=(dash>0) ? substr(body,dash+3) : ""
+          gsub(/^[ 	]+|[ 	]+$/,"",rres); gsub(/^[ 	]+|[ 	]+$/,"",rdetail)
+          if (rres!="PASS" && rres!="FAIL") {
+            print "ERROR: REVIEW entry has invalid Review result (expected PASS or FAIL): " hdr
+          }
+          if (rdetail=="") {
+            print "ERROR: REVIEW entry missing Review detail: " hdr
+          }
+        }
+        body=summaryline
+        sub(/^- Summary:[ 	]*/,"",body); gsub(/[ 	]+$/,"",body)
+        if (summaryline=="" || body=="") {
+          print "ERROR: REVIEW entry missing Summary: " hdr
+        }
+        # A handoff and a Review: PASS say what was verified; a Review: FAIL
+        # may carry no Verify (the reviewer verified nothing that passed).
+        if (verifyline=="") {
+          if (rres!="FAIL") print "ERROR: REVIEW entry missing Verify line: " hdr
+        } else {
+          body=verifyline
+          sub(/^- Verify:[ 	]*/,"",body); gsub(/[ 	]+$/,"",body)
+          if (body=="" || body=="pending") {
+            print "ERROR: REVIEW entry has empty or pending Verify: " hdr
+          }
+        }
       }
       if (status=="PAUSE") {
         if (pauseline=="") {
@@ -1599,13 +1733,22 @@ check_warnings() {
     fi
   done
   if [ -f "$DOCS_DIR/Agentslog.md" ]; then
-    stale_out="$(all_task_states | awk -F'\t' '$2=="IN_PROGRESS"{print $1"\t"$4}')"
+    # A REVIEW whose last entry says Review: FAIL is back with its holder, so
+    # it is reported as IN_PROGRESS; a pending or passed REVIEW as REVIEW.
+    stale_out="$(all_task_states | awk -F'\t' '
+      $2=="IN_PROGRESS" { print $1"\t"$4"\tIN_PROGRESS" }
+      $2=="REVIEW" { print $1"\t"$4"\t"($11=="FAIL" ? "IN_PROGRESS" : "REVIEW") }
+    ')"
     if [ -n "$stale_out" ]; then
-      printf '%s\n' "$stale_out" | while IFS="$TAB" read -r tid ts; do
+      printf '%s\n' "$stale_out" | while IFS="$TAB" read -r tid ts stage; do
         [ -n "$tid" ] || continue
         hrs="$(age_hours "$ts")"
         if [ "$hrs" != "?" ] && [ "$hrs" -ge "$STALE_HOURS" ]; then
-          echo "WARN: $tid has been IN_PROGRESS for ${hrs}h (>= ${STALE_HOURS}h)" >&2
+          if [ "$stage" = "REVIEW" ]; then
+            echo "WARN: $tid has been in REVIEW for ${hrs}h (>= ${STALE_HOURS}h)" >&2
+          else
+            echo "WARN: $tid has been IN_PROGRESS for ${hrs}h (>= ${STALE_HOURS}h)" >&2
+          fi
         fi
       done
     fi
@@ -1741,7 +1884,7 @@ rotate_log() {
   archive_hash="$(file_hash "$archive")"
   [ "$source_hash" = "$archive_hash" ] || die "archive hash verification failed"
 
-  open_summary="$(all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE"')"
+  open_summary="$(open_task_states)"
   archive_name="$(basename "$archive")"
 
   tmp="$DOCS_DIR/.Agentslog.md.tmp.$$"
@@ -1768,13 +1911,27 @@ rotate_log() {
     echo
     echo "## Entries"
     if [ -n "$open_summary" ]; then
-      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name; do
+      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review; do
         [ -n "$tid" ] || continue
+        if [ "$status" = "REVIEW" ]; then
+          # The developer who holds the task is not necessarily the agent of the
+          # last entry (a reviewer wrote it), so re-open the holder first and
+          # then the REVIEW entry with its handoff/review lines; otherwise done
+          # by the holder would stop working after a rotation.
+          echo
+          echo "## [$ts] | $holder | $tid | IN_PROGRESS | $name"
+          echo "- Summary: carried forward from docs/history/$archive_name at rotation"
+        fi
         echo
         echo "## [$ts] | $agent | $tid | $status | $name"
         echo "- Summary: carried forward from docs/history/$archive_name at rotation"
         if [ "$status" = "PAUSE" ]; then
           echo "- Pause: $pausecat - see docs/history/$archive_name for detail"
+        fi
+        if [ "$status" = "REVIEW" ]; then
+          echo "- Verify: carried forward from docs/history/$archive_name"
+          if [ -n "$handoff" ]; then echo "- Handoff: $handoff"; fi
+          if [ -n "$review" ]; then echo "- Review: $review - carried forward from docs/history/$archive_name"; fi
         fi
       done
     fi

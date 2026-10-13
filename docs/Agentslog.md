@@ -136,3 +136,8 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: Read task-state TSV with a non-whitespace separator so empty fields stop shifting Name in status, open tasks and rotate; regression asserts added
 - Files: scripts/project_docs.sh,scripts/smoke_test.sh
 - Verify: sh scripts/smoke_test.sh -> 212 passed, 0 failed (sh + PowerShell); status and rotate print and carry the Name
+
+## [2026-10-13T17:09:36Z] | claude-sonnet-5-5 | F05-E01-T01 | DONE | Accept REVIEW in the ledger and task states
+- Summary: REVIEW is a valid ledger word: check validates Summary, Verify, Handoff and Review lines; task-state TSV gains holder, handoff and review; status, open tasks, stale warning and rotate keep REVIEW tasks; two REVIEW entries by different agents are no conflict; the holder may retake a REVIEW task
+- Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh
+- Verify: sh scripts/smoke_test.sh -> 272 passed, 0 failed (sh + PowerShell); check . -> OK
