@@ -281,6 +281,180 @@
         "check passes after migrate (or names only a Near term row still over the word limit)",
         "A second migrate run produces a byte-identical Roadmap.md"
       ]
+    },
+    {
+      "id": 26,
+      "prompt": "Write a ledger entry whose state word is REVIEW with a Summary and a real Verify, then another whose state word is BOGUS, then a REVIEW entry with no Verify and one with Verify: pending. Run check on each.",
+      "expected_output": "check accepts the valid REVIEW entry and keeps rejecting an unknown state word. A REVIEW entry without a Verify line, or whose Verify is empty or pending, fails with a message naming the missing or pending Verify.",
+      "files": [],
+      "expectations": [
+        "A valid REVIEW entry passes check",
+        "An unknown state word is still rejected, and the message lists the valid words",
+        "REVIEW without Verify fails check",
+        "REVIEW with a pending Verify fails check",
+        "A REVIEW entry that carries Review: FAIL needs no Verify"
+      ]
+    },
+    {
+      "id": 27,
+      "prompt": "Claim a task, then run handoff as the holder naming a reviewer. Read the ledger, the Roadmap row, status and context.",
+      "expected_output": "handoff writes a REVIEW entry carrying the Roadmap Name, the Summary, the Verify and a Handoff line, leaves the Roadmap row IN_PROGRESS with the same Owner, and the task appears in status and in the Open tasks section of context with its stage and destination (for example REVIEW->qa-agent).",
+      "files": [],
+      "expectations": [
+        "The ledger has a REVIEW entry for the task",
+        "The Roadmap row is still IN_PROGRESS and its Owner cell is unchanged",
+        "status shows the holder, the stage and the destination",
+        "The context Open tasks section lists the task",
+        "check passes"
+      ]
+    },
+    {
+      "id": 28,
+      "prompt": "Run handoff as an agent that does not hold the task, on a task that is not IN_PROGRESS, with an empty verify, with a pending verify, and with an empty summary.",
+      "expected_output": "Every attempt fails with a message that names the reason and writes nothing to the ledger.",
+      "files": [],
+      "expectations": [
+        "handoff by a non-holder fails and names the holder",
+        "handoff on a paused or already handed-off task fails",
+        "handoff with an empty or pending verify fails",
+        "handoff with an empty summary fails",
+        "The ledger is unchanged after each refusal"
+      ]
+    },
+    {
+      "id": 29,
+      "prompt": "After a handoff, run review PASS from another agent with a note and a verify. Then try done as a third agent, as the holder and as the reviewer who passed it (on separate copies).",
+      "expected_output": "review PASS writes a REVIEW entry in the reviewer name with a Review: PASS line. done by a third agent fails with 'held by <holder>'; done by the holder works; done by the reviewer who left Review: PASS works.",
+      "files": [],
+      "expectations": [
+        "The review entry is written in the reviewer name with Review: PASS - note",
+        "The Roadmap row is untouched by review",
+        "done by a third agent fails and names the holder",
+        "done by the holder succeeds without a warning about the review",
+        "done by the reviewer who passed the task succeeds"
+      ]
+    },
+    {
+      "id": 30,
+      "prompt": "After a handoff, run review FAIL with a note. Then claim as the holder, and (on a copy) claim as a third agent.",
+      "expected_output": "After FAIL the effective stage is back with the holder: status shows IN_PROGRESS. The holder's claim works and writes IN_PROGRESS; a third agent's claim fails while the entry is not stale.",
+      "files": [],
+      "expectations": [
+        "status shows the task back with its holder after FAIL",
+        "FAIL needs no verify",
+        "The holder retakes the task with claim",
+        "A third agent cannot claim the task",
+        "A reviewer who failed the task cannot close it"
+      ]
+    },
+    {
+      "id": 31,
+      "prompt": "Run review on a handoff as the same agent that made it, then again with PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1.",
+      "expected_output": "By default the self-review succeeds and prints a self-review warning, so a single-agent project does not freeze. With PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1 it fails; another agent can still review.",
+      "files": [],
+      "expectations": [
+        "Self-review succeeds and prints WARN: self-review",
+        "With the strict variable it fails with an independent review required message",
+        "Another agent reviews successfully under the strict variable"
+      ]
+    },
+    {
+      "id": 32,
+      "prompt": "Write a REVIEW entry by the developer and a REVIEW entry by a different agent for the same task, then run check. Then add an IN_PROGRESS entry by a third agent right after.",
+      "expected_output": "Two REVIEW entries by different agents are not a conflict. A third agent starting IN_PROGRESS on a task held by someone else right after REVIEW is a conflict, unless the REVIEW entry is older than PROJECT_DOCS_STALE_HOURS.",
+      "files": [],
+      "expectations": [
+        "Two REVIEW entries by different agents pass check",
+        "A third agent starting work right after REVIEW fails check with conflicting concurrent claim",
+        "The same takeover after the stale threshold passes check"
+      ]
+    },
+    {
+      "id": 33,
+      "prompt": "Put a task in REVIEW with a Handoff and a Review: PASS, write more than 200 entries, run rotate, then status and check.",
+      "expected_output": "The new ledger keeps the task: the holder is re-opened as IN_PROGRESS and the REVIEW entry keeps its Handoff and Review lines. status still shows the stage, holder and destination and check passes.",
+      "files": [],
+      "expectations": [
+        "rotate archives the ledger",
+        "The new ledger contains the carried-forward REVIEW entry with its Handoff and Review lines",
+        "status still lists the task with its stage after rotation",
+        "The holder can still run done after rotation",
+        "check passes"
+      ]
+    },
+    {
+      "id": 34,
+      "prompt": "Leave a task in REVIEW older than PROJECT_DOCS_STALE_HOURS and run check and status.",
+      "expected_output": "check prints WARN: <id> has been in REVIEW for Nh (>= Mh) without failing, and status marks the task (stale).",
+      "files": [],
+      "expectations": [
+        "check prints the stale REVIEW warning",
+        "check still exits zero",
+        "status marks the REVIEW task as stale"
+      ]
+    },
+    {
+      "id": 35,
+      "prompt": "Add an Agent identity table to AGENTS.md with an id and aliases, then run claim with an alias, claim with an unknown name, and check. Also run a project that has no such section.",
+      "expected_output": "Without the section or with no rows nothing changes and nothing warns. With rows an alias (any case) is written as the Agent id in the ledger header and in the Roadmap Owner, an unknown name warns and is used as typed, and check lists the unknown names without failing.",
+      "files": [],
+      "expectations": [
+        "Without a roster no warning is printed and names are compared exactly",
+        "An alias is normalised to the Agent id in the ledger header and the Owner cell",
+        "An unknown name prints a warning and is used as typed",
+        "check lists the unknown ledger agents and still passes",
+        "init does not add the section to an existing AGENTS.md block"
+      ]
+    },
+    {
+      "id": 36,
+      "prompt": "Run done immediately after claim.",
+      "expected_output": "done succeeds and prints WARN: <id> was claimed and closed Ns apart; claim before the first edit so the work is visible while it happens. check prints one summary line plus at most the 5 most recent. Neither fails; PROJECT_DOCS_MIN_WORK_MINUTES=0 silences them.",
+      "files": [],
+      "expectations": [
+        "done succeeds and prints the instant-close warning",
+        "check prints one summary line and at most 5 detail lines",
+        "A threshold of 0 prints nothing",
+        "A close long after the claim does not warn"
+      ]
+    },
+    {
+      "id": 37,
+      "prompt": "Run done on a task that was never claimed, from any agent.",
+      "expected_output": "The retroactive close still works, writes a DONE entry and a Features row, and prints no warning.",
+      "files": [],
+      "expectations": [
+        "done succeeds for a task with no ledger entries",
+        "No warning is printed",
+        "check passes afterwards"
+      ]
+    },
+    {
+      "id": 38,
+      "prompt": "Take a project that never uses REVIEW, ASSIGNED or an Agent identity table and run check, status, context and rotate with the new scripts and with the previous version.",
+      "expected_output": "The outputs are identical: the new commands and words are opt-in, and the only warnings that can appear on an old ledger are the documented ones (an instant close).",
+      "files": [],
+      "expectations": [
+        "check output is unchanged",
+        "status output is unchanged",
+        "context output is unchanged",
+        "rotate output is unchanged",
+        "evals 1 to 25 still pass"
+      ]
+    },
+    {
+      "id": 39,
+      "prompt": "Assign a task to another agent, then claim it as the assignee, then as a different agent; try to assign a task that is already being worked on.",
+      "expected_output": "assign writes an ASSIGNED entry with an Assign line and sets the Roadmap Owner while the row stays TODO. status shows ASSIGNED->agent. The assignee's claim does not warn and moves the row to Active work; another agent's claim succeeds with a warning; assigning a task in progress fails.",
+      "files": [],
+      "expectations": [
+        "The ledger has an ASSIGNED entry with its Assign target and the row stays TODO",
+        "status and context show the assignment",
+        "The assignee claims without a warning",
+        "Another agent claims with an assigned-to warning",
+        "assign on an IN_PROGRESS or REVIEW task fails",
+        "rotate keeps the assignment"
+      ]
     }
   ]
 }

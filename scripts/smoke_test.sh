@@ -114,16 +114,31 @@ run_suite() {
   run done "$proj2" seed SMOKE-T01 "seed close" "n/a" "n/a" >/dev/null 2>&1
   seed_active_row "$proj2" SMOKE-T02 "Smoke task two"
   run claim "$proj2" agentD SMOKE-T02 "stay open across rotation" >/dev/null 2>&1
-  i=1
-  while [ "$i" -le 205 ]; do
-    run append-log "$proj2" filler SMOKE-T01 DONE "filler $i" "n/a" "n/a" >/dev/null 2>&1
-    i=$((i + 1))
-  done
+  # A task handed to review and already passed by another agent, so rotation has
+  # to carry the holder, the handoff target and the review result forward.
+  seed_active_row "$proj2" SMOKE-T03 "Smoke review task"
+  run claim "$proj2" agentD SMOKE-T03 "reviewed across rotation" >/dev/null 2>&1
+  seed_entry "$proj2" "$(now_ts)" agentD SMOKE-T03 REVIEW "Smoke review task" "- Summary: coded\n- Verify: unit tests pass\n- Handoff: qa-agent\n"
+  seed_entry "$proj2" "$(now_ts)" qa-agent SMOKE-T03 REVIEW "Smoke review task" "- Summary: reviewed\n- Verify: reran tests\n- Review: PASS - fine\n"
+  # A task assigned but not yet claimed: rotation must not drop the assignment.
+  seed_active_row "$proj2" SMOKE-T04 "Smoke assigned task"
+  run assign "$proj2" lead SMOKE-T04 agentZ >/dev/null 2>&1
+  seed_fill "$proj2" SMOKE-T01 205
   assert_success "$label context stays open task visible" run context "$proj2"
   grep -q "SMOKE-T02" "$WORK/.out" && ok "$label Open tasks section lists SMOKE-T02" || bad "$label Open tasks section missing SMOKE-T02"
+  grep -q "SMOKE-T03 | agentD | REVIEW(PASS)->qa-agent" "$WORK/.out" && ok "$label Open tasks lists the REVIEW task with its holder and stage" || bad "$label Open tasks missing the REVIEW task or its stage"
+  grep -q "SMOKE-T04 | lead | ASSIGNED->agentZ" "$WORK/.out" && ok "$label Open tasks lists the ASSIGNED task and its assignee" || bad "$label Open tasks missing the ASSIGNED task"
   assert_success "$label rotate archives the ledger" run rotate "$proj2"
   assert_success "$label status still shows SMOKE-T02 after rotation" run status "$proj2"
   grep -q "SMOKE-T02" "$WORK/.out" && ok "$label status lists SMOKE-T02 after rotation" || bad "$label status missing SMOKE-T02 after rotation"
+  # Regression (F05-BUG-01): status and rotate used to lose the Name because a
+  # whitespace IFS merged the empty pausecat/conflict fields in the task-state TSV.
+  grep -q "Smoke task two" "$WORK/.out" && ok "$label status prints the task Name after rotation" || bad "$label status lost the task Name after rotation"
+  assert_contains "$label rotate carries the Name into the new ledger" "$proj2/docs/Agentslog.md" "| Smoke task two"
+  grep -q "SMOKE-T03 | Smoke review task | agentD | REVIEW(PASS)->qa-agent" "$WORK/.out" && ok "$label status keeps the REVIEW task after rotation (holder, result, handoff)" || bad "$label status lost the REVIEW task after rotation: $(grep SMOKE-T03 "$WORK/.out")"
+  assert_contains "$label rotate carries the Handoff line" "$proj2/docs/Agentslog.md" "- Handoff: qa-agent"
+  grep -q "SMOKE-T04 | Smoke assigned task | lead | ASSIGNED->agentZ" "$WORK/.out" && ok "$label status keeps the ASSIGNED task after rotation" || bad "$label status lost the ASSIGNED task after rotation: $(grep SMOKE-T04 "$WORK/.out")"
+  assert_contains "$label rotate carries the Assign line" "$proj2/docs/Agentslog.md" "- Assign: agentZ"
   assert_success "$label check passes after rotation" run check "$proj2"
 
   echo "== $label: migrate legacy docs/Agents.md (eval 12) =="
@@ -312,6 +327,361 @@ run_suite() {
   hp2="$(file_hash "$proj14/docs/Roadmap.md")"
   [ "$hp1" = "$hp2" ] && ok "$label second migrate leaves Roadmap.md unchanged" || bad "$label second migrate changed Roadmap.md"
   assert_success "$label claim works on a migrated Gaps row" run claim "$proj14" agentN F70-GAP-01 "start"
+
+  echo "== $label: REVIEW stage in the ledger (Change 1) =="
+  review_proj() {
+    rp="$WORK/${label}_$1"
+    mkdir -p "$rp"
+    run init "$rp" >/dev/null 2>&1
+    seed_replace "$rp/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO |" \
+      "| F01-E01-T01 | Build the demo onboarding flow | detail | real accept | TODO |"
+    run claim "$rp" dev F01-E01-T01 "start" >/dev/null 2>&1
+  }
+  n="Build the demo onboarding flow"
+  review_proj rv_ok
+  seed_entry "$rp" "$(now_ts)" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n- Verify: unit tests pass\n- Handoff: qa-agent\n"
+  assert_success "$label check accepts a valid REVIEW entry" run check "$rp"
+  assert_success "$label status lists the REVIEW task" run status "$rp"
+  grep -q "dev | REVIEW->qa-agent" "$WORK/.out" && ok "$label status shows holder, stage and handoff target" || bad "$label status stage text wrong: $(cat "$WORK/.out")"
+  assert_success "$label context renders" run context "$rp"
+  grep -q "F01-E01-T01 | dev | REVIEW->qa-agent" "$WORK/.out" && ok "$label Open tasks shows the REVIEW stage and target" || bad "$label Open tasks stage text wrong"
+  seed_entry "$rp" "$(now_ts)" qa-agent F01-E01-T01 REVIEW "$n" "- Summary: reviewed\n- Verify: reran tests\n- Review: PASS - fine\n"
+  assert_success "$label two REVIEW entries by different agents are not a conflict" run check "$rp"
+  assert_failure "$label a third agent cannot claim a task held in REVIEW" run claim "$rp" intruder F01-E01-T01 "steal"
+  grep -q "REVIEW, held by dev" "$WORK/.out" && ok "$label claim error names the holder" || bad "$label claim error doesn't name the holder"
+  assert_success "$label the holder can take a REVIEW task back" run claim "$rp" dev F01-E01-T01 "withdraw the handoff"
+
+  review_proj rv_novfy
+  seed_entry "$rp" "$(now_ts)" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n"
+  assert_failure "$label REVIEW without Verify fails check" run check "$rp"
+  grep -q "REVIEW entry missing Verify" "$WORK/.out" && ok "$label check names the missing REVIEW Verify" || bad "$label check doesn't name the missing REVIEW Verify"
+  review_proj rv_pending
+  seed_entry "$rp" "$(now_ts)" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n- Verify: pending\n"
+  assert_failure "$label REVIEW with a pending Verify fails check" run check "$rp"
+  review_proj rv_badres
+  seed_entry "$rp" "$(now_ts)" qa F01-E01-T01 REVIEW "$n" "- Summary: x\n- Verify: ok\n- Review: MAYBE - hmm\n"
+  assert_failure "$label Review result other than PASS/FAIL fails check" run check "$rp"
+  review_proj rv_nodetail
+  seed_entry "$rp" "$(now_ts)" qa F01-E01-T01 REVIEW "$n" "- Summary: x\n- Verify: ok\n- Review: PASS\n"
+  assert_failure "$label Review without detail fails check" run check "$rp"
+  review_proj rv_unknown
+  seed_entry "$rp" "$(now_ts)" dev F01-E01-T01 BOGUS "$n" "- Summary: x\n- Verify: ok\n"
+  assert_failure "$label an unknown ledger word is still rejected" run check "$rp"
+
+  review_proj rv_fail
+  seed_entry "$rp" "$(now_ts)" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n- Verify: tests pass\n- Handoff: qa-agent\n"
+  seed_entry "$rp" "$(now_ts)" qa-agent F01-E01-T01 REVIEW "$n" "- Summary: broke it\n- Review: FAIL - two tests fail\n"
+  assert_success "$label a Review: FAIL entry needs no Verify" run check "$rp"
+  assert_success "$label status after FAIL" run status "$rp"
+  grep -q "dev | IN_PROGRESS" "$WORK/.out" && ok "$label after FAIL the task is back with its holder (IN_PROGRESS)" || bad "$label after FAIL status is wrong: $(cat "$WORK/.out")"
+  assert_failure "$label a third agent still cannot claim after FAIL" run claim "$rp" intruder F01-E01-T01 "steal"
+  assert_success "$label the holder retakes the task after FAIL" run claim "$rp" dev F01-E01-T01 "fix the failing tests"
+
+  echo "== $label: conflict rule and stale REVIEW =="
+  review_proj rv_conflict
+  seed_entry "$rp" "$(now_ts)" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n- Verify: ok\n"
+  seed_entry "$rp" "$(now_ts)" intruder F01-E01-T01 IN_PROGRESS "$n" "- Summary: grabbed it\n- Verify: pending\n"
+  assert_failure "$label a third agent starting work right after REVIEW is a conflict" run check "$rp"
+  grep -q "conflicting concurrent claim" "$WORK/.out" && ok "$label check names the conflicting claim" || bad "$label check doesn't name the conflicting claim"
+  review_proj rv_takeover
+  seed_entry "$rp" "2026-10-01T10:00:00Z" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n- Verify: ok\n"
+  seed_entry "$rp" "2026-10-05T10:00:00Z" intruder F01-E01-T01 IN_PROGRESS "$n" "- Summary: took over a stale review\n- Verify: pending\n"
+  assert_success "$label taking over a REVIEW older than the stale threshold is not a conflict" run check "$rp"
+  review_proj rv_stale
+  seed_entry "$rp" "2026-10-01T10:00:00Z" dev F01-E01-T01 REVIEW "$n" "- Summary: coded\n- Verify: ok\n- Handoff: qa-agent\n"
+  assert_success "$label check warns about a stale REVIEW without failing" run_env PROJECT_DOCS_STALE_HOURS=1 check "$rp"
+  grep -q "has been in REVIEW for" "$WORK/.out" && ok "$label stale REVIEW warning text" || bad "$label stale REVIEW warning missing: $(cat "$WORK/.out")"
+  assert_success "$label status marks a stale REVIEW" run_env PROJECT_DOCS_STALE_HOURS=1 status "$rp"
+  grep -q "(stale)" "$WORK/.out" && ok "$label status shows (stale) on a REVIEW" || bad "$label status doesn't mark the stale REVIEW"
+
+  echo "== $label: handoff command (Change 2) =="
+  review_proj ho_ok
+  owner_before="$(grep -o 'IN_PROGRESS | dev@[0-9TZ:-]*' "$rp/docs/Roadmap.md")"
+  assert_failure "$label handoff by a non-holder fails" run handoff "$rp" other F01-E01-T01 "coded" "tests pass"
+  grep -q "owned by dev, not other" "$WORK/.out" && ok "$label handoff error names the holder" || bad "$label handoff error doesn't name the holder"
+  assert_failure "$label handoff with a pending verify fails" run handoff "$rp" dev F01-E01-T01 "coded" "pending"
+  assert_failure "$label handoff with an empty verify fails" run handoff "$rp" dev F01-E01-T01 "coded" ""
+  assert_failure "$label handoff with an empty summary fails" run handoff "$rp" dev F01-E01-T01 "" "tests pass"
+  assert_failure "$label handoff on a task nobody claimed fails" run handoff "$rp" dev F01-E01-T09 "coded" "tests pass"
+  assert_success "$label handoff by the holder succeeds" run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass" qa-agent
+  assert_contains "$label handoff writes a REVIEW entry carrying the Name" "$rp/docs/Agentslog.md" "| dev | F01-E01-T01 | REVIEW | Build the demo onboarding flow"
+  assert_contains "$label handoff records the reviewer" "$rp/docs/Agentslog.md" "- Handoff: qa-agent"
+  owner_after="$(grep -o 'IN_PROGRESS | dev@[0-9TZ:-]*' "$rp/docs/Roadmap.md")"
+  [ -n "$owner_before" ] && [ "$owner_before" = "$owner_after" ] && ok "$label handoff leaves the Roadmap row IN_PROGRESS with the same Owner" || bad "$label handoff changed the Roadmap row: [$owner_before] -> [$owner_after]"
+  assert_success "$label status shows the handed-off task" run status "$rp"
+  grep -q "dev | REVIEW->qa-agent" "$WORK/.out" && ok "$label status shows the stage and target after handoff" || bad "$label status stage wrong after handoff: $(cat "$WORK/.out")"
+  assert_success "$label context after handoff" run context "$rp"
+  grep -q "F01-E01-T01 | dev | REVIEW->qa-agent" "$WORK/.out" && ok "$label Open tasks shows the handed-off task" || bad "$label Open tasks misses the handed-off task"
+  assert_failure "$label a second handoff while in REVIEW fails" run handoff "$rp" dev F01-E01-T01 "again" "ok"
+  assert_success "$label check passes after a handoff" run check "$rp"
+  review_proj ho_noreviewer
+  assert_success "$label handoff without a reviewer succeeds" run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass"
+  # Only the entries count: the ledger header documents the Handoff line in its
+  # entry-format block.
+  awk '/^## Entries/{p=1; next} p' "$rp/docs/Agentslog.md" > "$WORK/.entries"
+  assert_not_exists_pattern "$label no Handoff line is written without a reviewer" "$WORK/.entries" "- Handoff:"
+  assert_success "$label check passes after a handoff without a reviewer" run check "$rp"
+  review_proj ho_paused
+  run pause "$rp" dev F01-E01-T01 OTRO "switching" >/dev/null 2>&1
+  assert_failure "$label handoff on a paused task fails" run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass"
+
+  echo "== $label: review command (Change 3) =="
+  review_proj rvw_ok
+  assert_failure "$label review without a pending handoff fails" run review "$rp" qa-agent F01-E01-T01 PASS "looks good" "reran the tests"
+  grep -q "no pending handoff" "$WORK/.out" && ok "$label review error says there is no pending handoff" || bad "$label review error wrong: $(cat "$WORK/.out")"
+  run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass" qa-agent >/dev/null 2>&1
+  assert_failure "$label review with a result other than PASS or FAIL fails" run review "$rp" qa-agent F01-E01-T01 MAYBE "hmm" "x"
+  assert_failure "$label review with an empty note fails" run review "$rp" qa-agent F01-E01-T01 PASS "" "reran the tests"
+  assert_failure "$label review PASS without a verify fails" run review "$rp" qa-agent F01-E01-T01 PASS "looks good"
+  assert_failure "$label review PASS with a pending verify fails" run review "$rp" qa-agent F01-E01-T01 PASS "looks good" "pending"
+  assert_success "$label review PASS by another agent succeeds" run review "$rp" qa-agent F01-E01-T01 PASS "looks good" "reran the tests"
+  assert_contains "$label review writes a REVIEW entry in the reviewer name" "$rp/docs/Agentslog.md" "| qa-agent | F01-E01-T01 | REVIEW | Build the demo onboarding flow"
+  assert_contains "$label review records the result and note" "$rp/docs/Agentslog.md" "- Review: PASS - looks good"
+  assert_success "$label check passes after a review PASS" run check "$rp"
+  assert_success "$label status after review PASS" run status "$rp"
+  grep -q "dev | REVIEW(PASS)->qa-agent" "$WORK/.out" && ok "$label status shows REVIEW(PASS) for the holder" || bad "$label status after PASS wrong: $(cat "$WORK/.out")"
+  assert_failure "$label a second review of an already reviewed handoff fails" run review "$rp" qa-agent F01-E01-T01 PASS "again" "x"
+  assert_contains "$label the Roadmap row is untouched by review" "$rp/docs/Roadmap.md" "| IN_PROGRESS | dev@"
+
+  review_proj rvw_fail
+  run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass" qa-agent >/dev/null 2>&1
+  assert_success "$label review FAIL needs no verify" run review "$rp" qa-agent F01-E01-T01 FAIL "two tests fail"
+  assert_contains "$label review FAIL is recorded" "$rp/docs/Agentslog.md" "- Review: FAIL - two tests fail"
+  assert_success "$label check passes after a review FAIL" run check "$rp"
+  assert_success "$label status after review FAIL" run status "$rp"
+  grep -q "dev | IN_PROGRESS" "$WORK/.out" && ok "$label after FAIL the task is back with its holder" || bad "$label status after FAIL wrong: $(cat "$WORK/.out")"
+  assert_failure "$label a third agent cannot claim after FAIL" run claim "$rp" intruder F01-E01-T01 "steal"
+  assert_success "$label the holder retakes the task after FAIL with claim" run claim "$rp" dev F01-E01-T01 "fix the failing tests"
+  assert_success "$label the holder can hand off again after retaking" run handoff "$rp" dev F01-E01-T01 "fixed" "unit tests pass" qa-agent
+
+  review_proj rvw_self
+  run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass" >/dev/null 2>&1
+  assert_success "$label self-review warns by default and does not fail" run review "$rp" dev F01-E01-T01 PASS "my own work is fine" "unit tests pass"
+  grep -q "self-review" "$WORK/.out" && ok "$label self-review prints the warning" || bad "$label self-review warning missing: $(cat "$WORK/.out")"
+  review_proj rvw_self_strict
+  run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass" >/dev/null 2>&1
+  assert_failure "$label self-review fails with PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1" run_env PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1 review "$rp" dev F01-E01-T01 PASS "my own work is fine" "unit tests pass"
+  grep -q "independent review is required" "$WORK/.out" && ok "$label strict self-review error text" || bad "$label strict self-review error wrong: $(cat "$WORK/.out")"
+  assert_success "$label another agent still reviews under the strict setting" run_env PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1 review "$rp" qa-agent F01-E01-T01 PASS "fine" "reran the tests"
+
+  echo "== $label: done checks who closes the task (Change 4) =="
+  review_proj dn_holder
+  assert_failure "$label done by a third agent fails" run done "$rp" intruder F01-E01-T01 "implemented" "x" "tests pass"
+  grep -q "done failed: F01-E01-T01 is held by dev" "$WORK/.out" && ok "$label done error names the holder" || bad "$label done error wrong: $(cat "$WORK/.out")"
+  assert_contains "$label a refused done leaves the Roadmap row in place" "$rp/docs/Roadmap.md" "F01-E01-T01"
+  assert_success "$label done by the holder succeeds without any handoff" run done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass"
+
+  review_proj dn_reviewer
+  run handoff "$rp" dev F01-E01-T01 "code complete" "tests pass" qa-agent >/dev/null 2>&1
+  run review "$rp" qa-agent F01-E01-T01 PASS "fine" "reran the tests" >/dev/null 2>&1
+  assert_failure "$label done by a third agent fails after a review PASS" run done "$rp" intruder F01-E01-T01 "implemented" "x" "tests pass"
+  assert_success "$label done by the reviewer who passed it succeeds" run done "$rp" qa-agent F01-E01-T01 "implemented" "x" "tests pass and reviewed"
+
+  review_proj dn_holder_pass
+  run handoff "$rp" dev F01-E01-T01 "code complete" "tests pass" qa-agent >/dev/null 2>&1
+  run review "$rp" qa-agent F01-E01-T01 PASS "fine" "reran the tests" >/dev/null 2>&1
+  assert_success "$label done by the holder after a review PASS succeeds" run done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass and reviewed"
+  grep -q "closing without a passing review" "$WORK/.out" && bad "$label done after a passing review should not warn" || ok "$label done after a passing review does not warn"
+
+  review_proj dn_after_fail
+  run handoff "$rp" dev F01-E01-T01 "code complete" "tests pass" qa-agent >/dev/null 2>&1
+  run review "$rp" qa-agent F01-E01-T01 FAIL "two tests fail" >/dev/null 2>&1
+  assert_failure "$label the reviewer cannot close a task they failed" run done "$rp" qa-agent F01-E01-T01 "implemented" "x" "tests pass"
+  assert_success "$label the holder may still close after a FAIL, with a warning" run done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass"
+  grep -q "closing without a passing review (the last review was FAIL)" "$WORK/.out" && ok "$label done after FAIL warns" || bad "$label done after FAIL missing warning: $(cat "$WORK/.out")"
+
+  review_proj dn_pending
+  run handoff "$rp" dev F01-E01-T01 "code complete" "tests pass" qa-agent >/dev/null 2>&1
+  assert_success "$label the holder may close with the handoff still pending" run done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass"
+  grep -q "closing without a passing review (the handoff is still pending)" "$WORK/.out" && ok "$label done with a pending handoff warns" || bad "$label done with a pending handoff missing warning: $(cat "$WORK/.out")"
+
+  review_proj dn_force
+  assert_success "$label PROJECT_DOCS_FORCE=1 lets any agent close" run_env PROJECT_DOCS_FORCE=1 done "$rp" intruder F01-E01-T01 "implemented" "x" "tests pass"
+  review_proj dn_stale
+  assert_success "$label anyone may close once the last entry is stale" run_env PROJECT_DOCS_STALE_HOURS=0 done "$rp" intruder F01-E01-T01 "implemented" "x" "tests pass"
+
+  review_proj dn_retro
+  seed_active_row "$rp" SMOKE-NEVER "Smoke never claimed"
+  assert_success "$label closing a never-claimed task still works (retroactive close)" run done "$rp" anyone SMOKE-NEVER "implemented" "x" "tests pass"
+  grep -q "WARN" "$WORK/.out" && bad "$label a retroactive close should not warn: $(cat "$WORK/.out")" || ok "$label a retroactive close does not warn"
+  assert_success "$label check passes after a retroactive close" run check "$rp"
+
+  mi=0
+  for marker in none "N/A" "no run" ninguno UNKNOWN; do
+    mi=$((mi + 1))
+    review_proj dn_marker$mi
+    assert_success "$label done with verify '$marker' succeeds" run done "$rp" dev F01-E01-T01 "implemented" "x" "$marker"
+    grep -q "says nothing about what was checked" "$WORK/.out" && ok "$label verify '$marker' warns" || bad "$label verify '$marker' did not warn: $(cat "$WORK/.out")"
+  done
+  if [ "$label" = "sh" ]; then
+    # The em dash cannot travel through the PowerShell command line unmangled,
+    # so only the sh launcher exercises this literal.
+    review_proj dn_marker_dash
+    assert_success "$label done with an em dash verify succeeds" run done "$rp" dev F01-E01-T01 "implemented" "x" "—"
+    grep -q "says nothing about what was checked" "$WORK/.out" && ok "$label an em dash verify warns" || bad "$label an em dash verify did not warn"
+  fi
+  review_proj dn_real_verify
+  assert_success "$label a real verify does not warn" run done "$rp" dev F01-E01-T01 "implemented" "x" "sh scripts/smoke_test.sh passed"
+  grep -q "says nothing about what was checked" "$WORK/.out" && bad "$label a real verify warned" || ok "$label a real verify does not warn"
+
+  echo "== $label: agent identity roster (Change 5) =="
+  roster_rows='| claude-sonnet-5-5 | AI | Claude Sonnet 5.5 | BOTH | claude, claude-sonnet-5 |\n| qa-bot | AI | QA bot | QA | — |\n| dev-bot | AI | Dev bot | DEVELOPER | — |'
+  roster_proj() {
+    rp="$WORK/${label}_$1"
+    mkdir -p "$rp"
+    run init "$rp" >/dev/null 2>&1
+    seed_replace "$rp/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO |" \
+      "| F01-E01-T01 | Build the demo onboarding flow | detail | real accept | TODO |"
+    seed_replace "$rp/AGENTS.md" "| — | — | — | — | — |" "$roster_rows"
+  }
+
+  # Without a roster nothing changes.
+  review_proj id_none
+  assert_success "$label a new project ships the Agent identity section" grep -q "## Agent identity" "$rp/AGENTS.md"
+  assert_failure "$label without a roster names are compared exactly (Dev is not dev)" run pause "$rp" Dev F01-E01-T01 OTRO "switching"
+  seed_active_row "$rp" ID-T02 "Identity task two"
+  assert_success "$label without a roster any name is accepted silently" run claim "$rp" stranger ID-T02 "start"
+  grep -q "WARN" "$WORK/.out" && bad "$label an empty roster must not warn: $(cat "$WORK/.out")" || ok "$label an empty roster does not warn"
+  assert_success "$label check passes without a roster" run check "$rp"
+  grep -q "unknown agent" "$WORK/.out" && bad "$label check warned about agents without a roster" || ok "$label check does not warn about agents without a roster"
+
+  old="$WORK/${label}_id_old"
+  mkdir -p "$old"
+  printf '<!-- project-documentation:start -->\n## Repository rules\n- old rules\n## Startup\n## Close\n<!-- project-documentation:end -->\n' > "$old/AGENTS.md"
+  assert_success "$label init on a project that has the old block" run init "$old"
+  grep -q "Agent identity" "$old/AGENTS.md" && bad "$label init must not add the roster to an existing block" || ok "$label init leaves an existing AGENTS.md block alone"
+  assert_success "$label check does not require the roster section" run check "$old"
+
+  # With a roster.
+  roster_proj id_roster
+  assert_success "$label claim by an alias is normalised" run claim "$rp" Claude F01-E01-T01 "start"
+  assert_contains "$label the ledger header carries the Agent id" "$rp/docs/Agentslog.md" "| claude-sonnet-5-5 | F01-E01-T01 | IN_PROGRESS"
+  assert_contains "$label the Roadmap Owner carries the Agent id" "$rp/docs/Roadmap.md" "claude-sonnet-5-5@"
+  assert_success "$label another alias of the same agent can pause" run pause "$rp" claude-sonnet-5 F01-E01-T01 OTRO "switching"
+  seed_active_row "$rp" ID-T02 "Identity task two"
+  assert_success "$label an unknown agent still works but warns" run claim "$rp" stranger ID-T02 "start"
+  grep -q 'unknown agent "stranger"' "$WORK/.out" && ok "$label the unknown agent warning names it" || bad "$label unknown agent warning missing: $(cat "$WORK/.out")"
+  assert_contains "$label an unknown name is used as typed" "$rp/docs/Agentslog.md" "| stranger | ID-T02 | IN_PROGRESS"
+  assert_success "$label check lists unknown ledger agents without failing" run check "$rp"
+  grep -q 'unknown agent "stranger" in the ledger' "$WORK/.out" && ok "$label check names the unknown ledger agent" || bad "$label check unknown agent warning missing: $(cat "$WORK/.out")"
+  grep -q 'unknown agent "claude' "$WORK/.out" && bad "$label check wrongly reported a known agent" || ok "$label check does not report known agents or aliases"
+
+  roster_proj id_role
+  run claim "$rp" claude-sonnet-5-5 F01-E01-T01 "start" >/dev/null 2>&1
+  run handoff "$rp" claude-sonnet-5-5 F01-E01-T01 "code complete" "unit tests pass" >/dev/null 2>&1
+  assert_success "$label a DEVELOPER may review but warns" run review "$rp" dev-bot F01-E01-T01 FAIL "not my area"
+  grep -q "role DEVELOPER" "$WORK/.out" && ok "$label review by a DEVELOPER warns" || bad "$label DEVELOPER review warning missing: $(cat "$WORK/.out")"
+  run claim "$rp" claude-sonnet-5-5 F01-E01-T01 "retake" >/dev/null 2>&1
+  run handoff "$rp" claude-sonnet-5-5 F01-E01-T01 "fixed" "unit tests pass" >/dev/null 2>&1
+  assert_success "$label a QA agent reviews without a role warning" run review "$rp" qa-bot F01-E01-T01 PASS "fine" "reran the tests"
+  grep -q "role DEVELOPER" "$WORK/.out" && bad "$label a QA reviewer must not trigger the role warning" || ok "$label a QA reviewer triggers no role warning"
+
+  echo "== $label: work documented after it is done (Change 6) =="
+  review_proj ic_done
+  assert_success "$label done right after claim succeeds" run done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass"
+  grep -q "F01-E01-T01 was claimed and closed" "$WORK/.out" && ok "$label done right after claim warns" || bad "$label instant-close warning missing: $(cat "$WORK/.out")"
+  grep -q "claim before the first edit" "$WORK/.out" && ok "$label the warning says what to do" || bad "$label the warning does not say what to do"
+  review_proj ic_silenced
+  assert_success "$label PROJECT_DOCS_MIN_WORK_MINUTES=0 silences it" run_env PROJECT_DOCS_MIN_WORK_MINUTES=0 done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass"
+  grep -q "claimed and closed" "$WORK/.out" && bad "$label a zero threshold still warned" || ok "$label a zero threshold does not warn"
+  review_proj ic_slow
+  seed_active_row "$rp" SMOKE-SLOW "Smoke slow task"
+  seed_entry "$rp" "2026-10-01T10:00:00Z" dev SMOKE-SLOW IN_PROGRESS "Smoke slow task" "- Summary: started days ago\n- Verify: pending\n"
+  assert_success "$label done long after the claim succeeds" run done "$rp" dev SMOKE-SLOW "implemented" "x" "tests pass"
+  grep -q "claimed and closed" "$WORK/.out" && bad "$label a slow close warned" || ok "$label a slow close does not warn"
+
+  review_proj ic_check
+  qn=1
+  while [ "$qn" -le 6 ]; do
+    seed_active_row "$rp" "SMOKE-Q$qn" "Smoke quick task $qn"
+    run claim "$rp" dev "SMOKE-Q$qn" "start" >/dev/null 2>&1
+    run done "$rp" dev "SMOKE-Q$qn" "implemented" "x" "tests pass" >/dev/null 2>&1
+    qn=$((qn + 1))
+  done
+  assert_success "$label check does not fail on instant closes" run check "$rp"
+  grep -q "6 of 6 closed tasks were closed within 5 min of their claim" "$WORK/.out" && ok "$label check prints one summary line" || bad "$label check summary missing: $(cat "$WORK/.out")"
+  [ "$(grep -c 'was claimed and closed' "$WORK/.out")" -eq 5 ] && ok "$label check lists at most the 5 most recent" || bad "$label check listed $(grep -c 'was claimed and closed' "$WORK/.out") tasks instead of 5"
+  grep -q "SMOKE-Q1 was claimed" "$WORK/.out" && bad "$label the oldest instant close should be left out of the list" || ok "$label the oldest instant close is left out of the list"
+  assert_success "$label check is quiet when the threshold is 0" run_env PROJECT_DOCS_MIN_WORK_MINUTES=0 check "$rp"
+  grep -q "closed within" "$WORK/.out" && bad "$label a zero threshold still printed the summary" || ok "$label a zero threshold prints no summary"
+
+  echo "== $label: assign and ASSIGNED (Change 7) =="
+  fresh_proj() {
+    rp="$WORK/${label}_$1"
+    mkdir -p "$rp"
+    run init "$rp" >/dev/null 2>&1
+    seed_replace "$rp/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO |" \
+      "| F01-E01-T01 | Build the demo onboarding flow | detail | real accept | TODO |"
+  }
+  fresh_proj as_ok
+  assert_success "$label assign records the assignment" run assign "$rp" lead F01-E01-T01 dev
+  assert_contains "$label assign writes an ASSIGNED entry carrying the Name" "$rp/docs/Agentslog.md" "| lead | F01-E01-T01 | ASSIGNED | Build the demo onboarding flow"
+  assert_contains "$label assign records the target" "$rp/docs/Agentslog.md" "- Assign: dev"
+  assert_contains "$label assign leaves the row TODO and sets the Owner" "$rp/docs/Roadmap.md" "| TODO | dev@"
+  awk '/^## Active work/{a=1;next} /^## Near term/{a=0} a' "$rp/docs/Roadmap.md" > "$WORK/.active"
+  grep -q "F01-E01-T01" "$WORK/.active" && bad "$label assign must not move the row into Active work" || ok "$label assign leaves the row where it was"
+  assert_success "$label check accepts an ASSIGNED entry" run check "$rp"
+  assert_success "$label status after assign" run status "$rp"
+  grep -q "lead | ASSIGNED->dev" "$WORK/.out" && ok "$label status shows who assigned and to whom" || bad "$label status after assign wrong: $(cat "$WORK/.out")"
+  assert_success "$label context after assign" run context "$rp"
+  grep -q "F01-E01-T01 | lead | ASSIGNED->dev" "$WORK/.out" && ok "$label Open tasks shows the assignment" || bad "$label Open tasks misses the assignment"
+  assert_success "$label the assignee claims without a warning" run claim "$rp" dev F01-E01-T01 "start"
+  grep -q "WARN" "$WORK/.out" && bad "$label the assignee should not be warned: $(cat "$WORK/.out")" || ok "$label claim by the assignee does not warn"
+  awk '/^## Active work/{a=1;next} /^## Near term/{a=0} a' "$rp/docs/Roadmap.md" > "$WORK/.active"
+  grep -q "F01-E01-T01" "$WORK/.active" && ok "$label the claimed row moved into Active work" || bad "$label the claimed row did not move into Active work"
+  assert_contains "$label the Owner is now the claimant" "$rp/docs/Roadmap.md" "| IN_PROGRESS | dev@"
+
+  fresh_proj as_other
+  run assign "$rp" lead F01-E01-T01 dev >/dev/null 2>&1
+  assert_success "$label another agent may still claim an assigned task" run claim "$rp" other F01-E01-T01 "start"
+  grep -q "assigned to dev, not other" "$WORK/.out" && ok "$label claiming someone else's assignment warns" || bad "$label assignment warning missing: $(cat "$WORK/.out")"
+
+  fresh_proj as_again
+  run assign "$rp" lead F01-E01-T01 dev >/dev/null 2>&1
+  assert_success "$label a task can be assigned again" run assign "$rp" lead F01-E01-T01 qa
+  assert_success "$label status after re-assign" run status "$rp"
+  grep -q "ASSIGNED->qa" "$WORK/.out" && ok "$label the latest assignment wins" || bad "$label re-assign not reflected: $(cat "$WORK/.out")"
+
+  review_proj as_busy
+  assert_failure "$label assign refuses a task somebody is working on" run assign "$rp" lead F01-E01-T01 other
+  grep -q "held by dev" "$WORK/.out" && ok "$label assign error names the holder" || bad "$label assign error wrong: $(cat "$WORK/.out")"
+  run handoff "$rp" dev F01-E01-T01 "code complete" "unit tests pass" >/dev/null 2>&1
+  assert_failure "$label assign refuses a task in REVIEW" run assign "$rp" lead F01-E01-T01 other
+  assert_failure "$label assign on an unknown task fails" run assign "$rp" lead NOPE-9 other
+  assert_failure "$label assign needs a target" run assign "$rp" lead F01-E01-T01 ""
+
+  fresh_proj as_noassign
+  seed_entry "$rp" "$(now_ts)" lead F01-E01-T01 ASSIGNED "Build the demo onboarding flow" "- Summary: assigned\n"
+  assert_failure "$label an ASSIGNED entry without an Assign line fails check" run check "$rp"
+  grep -q "ASSIGNED entry missing Assign target" "$WORK/.out" && ok "$label check names the missing Assign target" || bad "$label missing Assign target message wrong: $(cat "$WORK/.out")"
+
+  fresh_proj as_done
+  run assign "$rp" lead F01-E01-T01 dev >/dev/null 2>&1
+  assert_failure "$label a third agent cannot close an assigned task" run done "$rp" other F01-E01-T01 "implemented" "x" "tests pass"
+  assert_success "$label the assignee can close it" run done "$rp" dev F01-E01-T01 "implemented" "x" "tests pass"
+
+  echo "== $label: a project that uses none of the new words is unaffected (Change 9, regression) =="
+  rg="$WORK/${label}_regress"
+  mkdir -p "$rg"
+  run init "$rg" >/dev/null 2>&1
+  seed_active_row "$rg" SMOKE-RG1 "Regress task one"
+  seed_active_row "$rg" SMOKE-RG2 "Regress task two"
+  run claim "$rg" agentA SMOKE-RG1 "working on one" >/dev/null 2>&1
+  run claim "$rg" agentB SMOKE-RG2 "working on two" >/dev/null 2>&1
+  run pause "$rg" agentB SMOKE-RG2 LIMITE "context limit" >/dev/null 2>&1
+  assert_success "$label regression: status runs" run status "$rg"
+  printf '%s\n' "SMOKE-RG1 | Regress task one | agentA | IN_PROGRESS | 0h | -" "SMOKE-RG2 | Regress task two | agentB | PAUSE | 0h | LIMITE" > "$WORK/.golden"
+  golden_eq "$WORK/.out" && ok "$label regression: status output is exactly what it was" || bad "$label regression: status output changed: $(cat "$WORK/.out")"
+  assert_success "$label regression: context runs" run context "$rg"
+  awk '/^## Open tasks/{p=1;next} /^## Latest agent entries/{p=0} p && NF' "$WORK/.out" > "$WORK/.open"
+  printf '%s\n' "SMOKE-RG1 | agentA | IN_PROGRESS | 0h | -" "SMOKE-RG2 | agentB | PAUSE | 0h | LIMITE" > "$WORK/.golden"
+  golden_eq "$WORK/.open" && ok "$label regression: the Open tasks section is exactly what it was" || bad "$label regression: Open tasks changed: $(cat "$WORK/.open")"
+  assert_success "$label regression: check runs" run check "$rg"
+  printf '%s\n' "WARN: 10 UNKNOWN field(s) in Operational summaries" "project_docs check: OK" > "$WORK/.golden"
+  golden_eq "$WORK/.out" sorted && ok "$label regression: check output is exactly what it was" || bad "$label regression: check output changed: $(cat "$WORK/.out")"
+  assert_success "$label regression: rotate runs" run rotate "$rg"
+  printf '%s\n' "project_docs rotate: not required" > "$WORK/.golden"
+  golden_eq "$WORK/.out" && ok "$label regression: rotate output is exactly what it was" || bad "$label regression: rotate output changed: $(cat "$WORK/.out")"
 }
 
 file_hash() {
@@ -319,6 +689,43 @@ file_hash() {
   elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
   else cksum "$1"; fi
 }
+
+# Current UTC timestamp in the ledger format.
+now_ts() { date -u +'%Y-%m-%dT%H:%M:%SZ'; }
+
+# Appends a hand-written ledger entry (header + body lines) for a given agent,
+# task, state word and Name. Used to build REVIEW entries directly.
+seed_entry() {
+  proj="$1"; ts="$2"; agent="$3"; id="$4"; status="$5"; name="$6"; body="$7"
+  printf '\n## [%s] | %s | %s | %s | %s\n%b' "$ts" "$agent" "$id" "$status" "$name" "$body" >> "$proj/docs/Agentslog.md"
+}
+
+# Appends N filler DONE entries in the exact shape append-log writes, in ONE
+# process: 205 separate append-log runs cost minutes under PowerShell. The
+# append-log command itself is still exercised by the bad-status assertion.
+seed_fill() {
+  proj="$1"; id="$2"; count="$3"; fill_ts="$(now_ts)"; i=1
+  while [ "$i" -le "$count" ]; do
+    printf '\n## [%s] | filler | %s | DONE\n- Summary: filler %s\n- Files: n/a\n- Verify: n/a\n- Follow-up: none\n' "$fill_ts" "$id" "$i"
+    i=$((i + 1))
+  done >> "$proj/docs/Agentslog.md"
+}
+
+# True when FILE (carriage returns stripped, optionally sorted) equals
+# $WORK/.golden (sorted the same way). PowerShell ends lines with CRLF and may
+# interleave stderr and stdout, so the golden comparisons normalise both.
+golden_eq() {
+  tr -d '\r' < "$1" > "$WORK/.norm"
+  if [ "${2:-}" = "sorted" ]; then
+    sort "$WORK/.norm" > "$WORK/.norm.s"; sort "$WORK/.golden" > "$WORK/.golden.s"
+    cmp -s "$WORK/.golden.s" "$WORK/.norm.s"
+  else
+    cmp -s "$WORK/.golden" "$WORK/.norm"
+  fi
+}
+
+# run with one extra environment variable (VAR=value) for that call only.
+run_env() { ( export "$1"; shift; run "$@" ); }
 
 # Replaces the first occurrence of a literal string in a file (portable, no
 # sed -i dependency across the shells this runs under). Uses index()/substr()

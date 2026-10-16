@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "done", "status", "help")]
+    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "assign", "done", "status", "help")]
     [string]$Command = "help",
 
     [Parameter(Position = 1)]
@@ -339,6 +339,7 @@ function Get-TaskStates {
     $inEntries = $false
     $order = [System.Collections.Generic.List[string]]::new()
     $lastStatus = @{}; $lastAgent = @{}; $lastTs = @{}; $lastPause = @{}; $everDone = @{}; $conflict = @{}; $lastName = @{}
+    $hold = @{}; $lastHandoff = @{}; $lastReview = @{}
     $cur = $null
     foreach ($line in $lines) {
         if ($line -eq "## Entries") { $inEntries = $true; continue }
@@ -350,16 +351,41 @@ function Get-TaskStates {
             $status = $Matches[4].Trim()
             $name = if ($Matches[5]) { $Matches[5].Trim() } else { "" }
             if (-not $lastStatus.ContainsKey($tid)) { $order.Add($tid) }
-            if ($status -eq "IN_PROGRESS" -and $lastStatus[$tid] -eq "IN_PROGRESS" -and $lastAgent[$tid] -ne $agent) {
-                $conflict[$tid] = "$($lastAgent[$tid]) vs $agent"
+            if ($status -eq "IN_PROGRESS") {
+                if ($lastStatus[$tid] -eq "IN_PROGRESS" -and $lastAgent[$tid] -cne $agent) {
+                    $conflict[$tid] = "$($lastAgent[$tid]) vs $agent"
+                } elseif ($lastStatus[$tid] -eq "REVIEW" -and $hold.ContainsKey($tid) -and $hold[$tid] -cne $agent -and -not (Test-IsOld $lastTs[$tid] $ts)) {
+                    $conflict[$tid] = "$($hold[$tid]) vs $agent"
+                }
+                $hold[$tid] = $agent
+                $lastHandoff[$tid] = ""
             }
+            if ($status -eq "ASSIGNED") { $lastHandoff[$tid] = "" }
             if ($status -eq "DONE") { $everDone[$tid] = $true }
             $lastStatus[$tid] = $status
             $lastAgent[$tid] = $agent
             $lastTs[$tid] = $ts
             $lastPause[$tid] = ""
+            $lastReview[$tid] = ""
             if ($name -ne "") { $lastName[$tid] = $name }
             $cur = $tid
+            continue
+        }
+        if ($cur -and $line -match '^- Assign:\s*(.*?)\s*$') {
+            if ($lastStatus[$cur] -eq "ASSIGNED" -and $Matches[1]) {
+                $hold[$cur] = $Matches[1]
+                $lastHandoff[$cur] = $Matches[1]
+            }
+            continue
+        }
+        if ($cur -and $line -match '^- Handoff:\s*(.*?)\s*$') {
+            $lastHandoff[$cur] = $Matches[1]
+            continue
+        }
+        if ($cur -and $line -match '^- Review:\s*(.*)$') {
+            $rbody = $Matches[1]
+            $rdash = $rbody.IndexOf(" - ")
+            if ($rdash -ge 0) { $lastReview[$cur] = $rbody.Substring(0, $rdash).TrimEnd() } else { $lastReview[$cur] = $rbody.TrimEnd() }
             continue
         }
         if ($cur -and $line -match '^- Pause: (.*)$') {
@@ -380,9 +406,145 @@ function Get-TaskStates {
             Conflict = $(if ($conflict.ContainsKey($t)) { $conflict[$t] } else { "" })
             EverDone = [bool]$everDone[$t]
             Name = $(if ($lastName.ContainsKey($t)) { $lastName[$t] } else { "" })
+            Holder = $(if ($hold.ContainsKey($t)) { $hold[$t] } else { $lastAgent[$t] })
+            Handoff = $(if ($lastHandoff.ContainsKey($t)) { $lastHandoff[$t] } else { "" })
+            Review = $(if ($lastReview.ContainsKey($t)) { $lastReview[$t] } else { "" })
         })
     }
     return $result
+}
+
+# True when the gap between two entry timestamps is at least the stale
+# threshold (PROJECT_DOCS_STALE_HOURS). Unparseable timestamps are never old.
+function Test-IsOld([string]$Prev, [string]$Cur) {
+    try {
+        $styles = [System.Globalization.DateTimeStyles]::AdjustToUniversal -bor [System.Globalization.DateTimeStyles]::AssumeUniversal
+        $fmt = "yyyy-MM-ddTHH:mm:ssZ"
+        $inv = [System.Globalization.CultureInfo]::InvariantCulture
+        $a = [DateTime]::ParseExact($Prev, $fmt, $inv, $styles)
+        $b = [DateTime]::ParseExact($Cur, $fmt, $inv, $styles)
+        return (($b - $a).TotalSeconds -ge ($StaleHours * 3600))
+    } catch {
+        return $false
+    }
+}
+
+# The stage text status and context print. ASCII "->" so sh and PowerShell
+# print the same bytes whatever the console code page. A Review: FAIL means
+# the task is back with its holder, i.e. IN_PROGRESS.
+function Get-StageLabel([string]$Status, [string]$Review, [string]$Handoff) {
+    if ($Status -eq "ASSIGNED") {
+        if ($Handoff) { return "ASSIGNED->$Handoff" }
+        return "ASSIGNED"
+    }
+    if ($Status -ne "REVIEW") { return $Status }
+    if ($Review -eq "FAIL") { return "IN_PROGRESS" }
+    $label = "REVIEW"
+    if ($Review -eq "PASS") { $label = "REVIEW(PASS)" }
+    if ($Handoff) { $label = "$label->$Handoff" }
+    return $label
+}
+
+# Open tasks: last entry IN_PROGRESS, PAUSE or REVIEW (a REVIEW task stays
+# open until DONE, including after a Review: FAIL, when it is back with its
+# holder).
+function Get-OpenTaskStates {
+    return @(Get-TaskStates | Where-Object { $_.Status -eq "IN_PROGRESS" -or $_.Status -eq "PAUSE" -or $_.Status -eq "REVIEW" -or $_.Status -eq "ASSIGNED" })
+}
+
+# ---------------------------------------------------------------------------
+# Agent identity. The optional "## Agent identity" table in the project root
+# AGENTS.md lists one stable id per agent plus aliases. With at least one data
+# row, claim/pause/handoff/review/done normalise the agent name to its Agent id
+# (case-insensitive match against id and aliases); an unknown name only warns
+# and is used as typed. Without the section or rows nothing changes: no
+# normalisation, no warnings.
+# ---------------------------------------------------------------------------
+# Get-RosterRows: one object per data row (Id, Kind, Model, Role, Aliases).
+function Get-RosterRows {
+    $path = Join-Path $Project "AGENTS.md"
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return @() }
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $insec = $false
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $path)) {
+        if ($line -eq "## Agent identity") { $insec = $true; continue }
+        if ($insec -and $line.StartsWith("## ")) { $insec = $false }
+        if ($insec -and $line.StartsWith("|")) {
+            $c = @(Split-TableCells $line)
+            if ($c.Count -lt 1) { continue }
+            $id = $c[0]
+            if ($id -eq "" -or $id -eq "Agent id" -or $id -eq $EmDash -or $id -match '^-+$') { continue }
+            $rows.Add([PSCustomObject]@{
+                Id = $id
+                Kind = $(if ($c.Count -gt 1) { $c[1] } else { "" })
+                Model = $(if ($c.Count -gt 2) { $c[2] } else { "" })
+                Role = $(if ($c.Count -gt 3) { $c[3] } else { "" })
+                Aliases = $(if ($c.Count -gt 4) { $c[4] } else { "" })
+            })
+        }
+    }
+    return $rows
+}
+
+function Get-RosterAliases($Row) {
+    $out = [System.Collections.Generic.List[string]]::new()
+    foreach ($a in @($Row.Aliases -split ',')) {
+        $x = $a.Trim()
+        if ($x -ne "" -and $x -ne $EmDash) { $out.Add($x) }
+    }
+    return $out
+}
+
+function Get-CanonicalAgent([string]$Raw) {
+    $rows = @(Get-RosterRows)
+    if ($rows.Count -eq 0) { return $Raw }
+    foreach ($r in $rows) {
+        if ($r.Id -ieq $Raw) { return $r.Id }
+        foreach ($a in @(Get-RosterAliases $r)) { if ($a -ieq $Raw) { return $r.Id } }
+    }
+    [Console]::Error.WriteLine("WARN: unknown agent `"$Raw`" (not in the Agent identity table)")
+    return $Raw
+}
+
+# Get-RosterRole ID: the Role (DEVELOPER, QA or BOTH) of a roster id, or "".
+function Get-RosterRole([string]$Id) {
+    foreach ($r in @(Get-RosterRows)) { if ($r.Id -ceq $Id) { return $r.Role } }
+    return ""
+}
+
+# Seconds between two ledger timestamps, or -1 when either does not parse.
+function Get-GapSeconds([string]$A, [string]$B) {
+    try {
+        $styles = [System.Globalization.DateTimeStyles]::AdjustToUniversal -bor [System.Globalization.DateTimeStyles]::AssumeUniversal
+        $fmt = "yyyy-MM-ddTHH:mm:ssZ"
+        $inv = [System.Globalization.CultureInfo]::InvariantCulture
+        $x = [DateTime]::ParseExact($A, $fmt, $inv, $styles)
+        $y = [DateTime]::ParseExact($B, $fmt, $inv, $styles)
+        return [long][Math]::Floor(($y - $x).TotalSeconds)
+    } catch {
+        return -1
+    }
+}
+
+# "3s" under a minute, otherwise "2m".
+function Get-GapLabel([long]$Seconds) {
+    if ($Seconds -lt 60) { return "${Seconds}s" }
+    return "$([long][Math]::Floor($Seconds / 60))m"
+}
+
+# Timestamp of the first IN_PROGRESS entry of a task in the hot ledger.
+function Get-FirstClaimTs([string]$Task) {
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { return "" }
+    $inEntries = $false
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $log)) {
+        if ($line -eq "## Entries") { $inEntries = $true; continue }
+        if (-not $inEntries) { continue }
+        if ($line -match '^## \[([^\]]*)\] \| ([^|]*) \| ([^|]*) \| ([^|]*)') {
+            if ($Matches[3].Trim() -eq $Task -and $Matches[4].Trim() -eq "IN_PROGRESS") { return $Matches[1].Trim() }
+        }
+    }
+    return ""
 }
 
 function Get-TaskState([string]$Task) {
@@ -410,13 +572,14 @@ function Test-Stale([string]$Task) {
 function Get-OpenTasksLines {
     $log = Join-Path $DocsDir "Agentslog.md"
     if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { return @() }
-    $states = @(Get-TaskStates | Where-Object { $_.Status -eq "IN_PROGRESS" -or $_.Status -eq "PAUSE" })
+    $states = @(Get-OpenTaskStates)
     $lines = [System.Collections.Generic.List[string]]::new()
     foreach ($s in $states) {
         $hrs = Get-AgeHours $s.Ts
         $hrsStr = if ($null -ne $hrs) { "$hrs" } else { "?" }
         $reason = if ($s.Status -eq "PAUSE") { $s.PauseCat } else { "-" }
-        $lines.Add("$($s.Task) | $($s.Agent) | $($s.Status) | ${hrsStr}h | $reason")
+        $shown = if ($s.Status -eq "REVIEW") { $s.Holder } else { $s.Agent }
+        $lines.Add("$($s.Task) | $shown | $(Get-StageLabel $s.Status $s.Review $s.Handoff) | ${hrsStr}h | $reason")
     }
     return $lines
 }
@@ -741,7 +904,7 @@ function Exit-DocsLock {
 
 function Invoke-Claim {
     if ($Arguments.Count -lt 3) { throw "claim requires: agent task-id summary" }
-    $agent = ConvertTo-CleanField $Arguments[0]
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
     $task = ConvertTo-CleanField $Arguments[1]
     $summary = ConvertTo-CleanField $Arguments[2]
     $log = Join-Path $DocsDir "Agentslog.md"
@@ -752,12 +915,25 @@ function Invoke-Claim {
         $state = Get-TaskState $task
         if ($state) {
             if ($state.Status -eq "IN_PROGRESS") {
-                if ($state.Agent -ne $agent -and -not (Test-Stale $task)) {
+                if ($state.Agent -cne $agent -and -not (Test-Stale $task)) {
                     throw "claim failed: $task is IN_PROGRESS, owned by $($state.Agent)"
                 }
             } elseif ($state.Status -eq "PAUSE") {
-                if ($state.PauseCat -ne "LIMITE" -and $state.Agent -ne $agent) {
+                if ($state.PauseCat -ne "LIMITE" -and $state.Agent -cne $agent) {
                     throw "claim failed: $task is PAUSE ($($state.PauseCat)); resolvable only by $($state.Agent) until the reason clears"
+                }
+            } elseif ($state.Status -eq "REVIEW") {
+                # During REVIEW the developer is still the holder: they may take
+                # it back (after a FAIL, or to withdraw the handoff); anyone else
+                # only once the last entry is stale.
+                if ($state.Holder -and $state.Holder -cne $agent -and -not (Test-Stale $task)) {
+                    throw "claim failed: $task is in REVIEW, held by $($state.Holder)"
+                }
+            } elseif ($state.Status -eq "ASSIGNED") {
+                # An assignment is a request, not a lock: another agent may still
+                # take the task, but is told it was assigned to someone else.
+                if ($state.Holder -and $state.Holder -cne $agent) {
+                    [Console]::Error.WriteLine("WARN: $task is assigned to $($state.Holder), not $agent")
                 }
             }
         }
@@ -779,7 +955,7 @@ function Invoke-Claim {
 
 function Invoke-Pause {
     if ($Arguments.Count -lt 4) { throw "pause requires: agent task-id category detail" }
-    $agent = ConvertTo-CleanField $Arguments[0]
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
     $task = ConvertTo-CleanField $Arguments[1]
     $category = ConvertTo-CleanField $Arguments[2]
     $detail = ConvertTo-CleanField $Arguments[3]
@@ -792,7 +968,7 @@ function Invoke-Pause {
         $state = Get-TaskState $task
         if (-not $state) { throw "pause failed: $task has no IN_PROGRESS entry to pause" }
         if ($state.Status -ne "IN_PROGRESS") { throw "pause failed: $task is not IN_PROGRESS (current: $($state.Status))" }
-        if ($state.Agent -ne $agent) { throw "pause failed: $task is owned by $($state.Agent), not $agent" }
+        if ($state.Agent -cne $agent) { throw "pause failed: $task is owned by $($state.Agent), not $agent" }
         $name = Assert-ValidName $task "pause"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         $log = Join-Path $DocsDir "Agentslog.md"
@@ -809,9 +985,138 @@ function Invoke-Pause {
     }
 }
 
+# handoff <agent> <task-id> <summary> <verify> [reviewer]
+# The developer says the code is complete and their own verification passed.
+# Written as a REVIEW entry (the Roadmap row stays IN_PROGRESS with the same
+# Owner: the stage lives in the ledger only). Same ownership checks as pause.
+function Invoke-Handoff {
+    if ($Arguments.Count -lt 4) { throw "handoff requires: agent task-id summary verify [reviewer]" }
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
+    $task = ConvertTo-CleanField $Arguments[1]
+    $summary = ConvertTo-CleanField $Arguments[2]
+    $verify = ConvertTo-CleanField $Arguments[3]
+    $reviewer = if ($Arguments.Count -ge 5) { ConvertTo-CleanField $Arguments[4] } else { "" }
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "run init first" }
+    if (-not $summary) { throw "handoff requires a non-empty summary" }
+    if (-not $verify -or $verify -eq "pending") { throw "handoff requires a verify that is not empty or pending" }
+    Enter-DocsLock
+    try {
+        $state = Get-TaskState $task
+        if (-not $state) { throw "handoff failed: $task has no IN_PROGRESS entry to hand off" }
+        if ($state.Status -ne "IN_PROGRESS") { throw "handoff failed: $task is not IN_PROGRESS (current: $($state.Status))" }
+        if ($state.Agent -cne $agent) { throw "handoff failed: $task is owned by $($state.Agent), not $agent" }
+        $name = Assert-ValidName $task "handoff"
+        $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $entryLines = @(
+            "",
+            "## [$timestamp] | $agent | $task | REVIEW | $name",
+            "- Summary: $summary",
+            "- Verify: $verify"
+        )
+        if ($reviewer) { $entryLines += "- Handoff: $reviewer" }
+        $entry = ($entryLines -join "`n") + "`n"
+        [System.IO.File]::AppendAllText($log, $entry, $Utf8)
+        if ($reviewer) {
+            Write-Output "project_docs handoff: $task handed to review ($reviewer)"
+        } else {
+            Write-Output "project_docs handoff: $task handed to review"
+        }
+    } finally {
+        Exit-DocsLock
+    }
+}
+
+# review <agent> <task-id> <PASS|FAIL> <note> [verify]
+# A reviewer answers a pending handoff. Written as a REVIEW entry in the
+# reviewer's name carrying a "- Review: PASS|FAIL - note" line; the Roadmap row
+# is not touched. After FAIL the task is back with its holder, who retakes it
+# with claim. Reviewing your own handoff warns (a single-agent project must not
+# freeze) unless PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1.
+function Invoke-Review {
+    if ($Arguments.Count -lt 4) { throw "review requires: agent task-id PASS|FAIL note [verify]" }
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
+    $task = ConvertTo-CleanField $Arguments[1]
+    $result = ConvertTo-CleanField $Arguments[2]
+    $note = ConvertTo-CleanField $Arguments[3]
+    $verify = if ($Arguments.Count -ge 5) { ConvertTo-CleanField $Arguments[4] } else { "" }
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "run init first" }
+    if ($result -cne "PASS" -and $result -cne "FAIL") { throw "review requires PASS or FAIL as the result" }
+    if (-not $note) { throw "review requires a non-empty note" }
+    if ($verify -eq "pending") { throw "review verify must not be pending" }
+    if ($result -ceq "PASS" -and -not $verify) { throw "review PASS requires a verify that is not empty or pending" }
+    Enter-DocsLock
+    try {
+        $state = Get-TaskState $task
+        if (-not $state) { throw "review failed: $task has no handoff to review" }
+        if ($state.Status -ne "REVIEW") { throw "review failed: $task has no pending handoff (current: $($state.Status))" }
+        if ($state.Review) { throw "review failed: $task was already reviewed ($($state.Review)); the holder must claim it again" }
+        if ($agent -ceq $state.Holder) {
+            if ($env:PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW -eq "1") {
+                throw "review failed: $agent developed $task; an independent review is required"
+            }
+            [Console]::Error.WriteLine("WARN: self-review: $agent reviews its own handoff of $task")
+        }
+        if ((Get-RosterRole $agent) -ceq "DEVELOPER") {
+            [Console]::Error.WriteLine("WARN: $agent has role DEVELOPER in the Agent identity table, not QA or BOTH")
+        }
+        $name = Assert-ValidName $task "review"
+        $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $entryLines = @(
+            "",
+            "## [$timestamp] | $agent | $task | REVIEW | $name",
+            "- Summary: Review of the handoff from $($state.Holder)"
+        )
+        if ($verify) { $entryLines += "- Verify: $verify" }
+        $entryLines += "- Review: $result - $note"
+        $entry = ($entryLines -join "`n") + "`n"
+        [System.IO.File]::AppendAllText($log, $entry, $Utf8)
+        Write-Output "project_docs review: $task $result by $agent"
+    } finally {
+        Exit-DocsLock
+    }
+}
+
+# assign <agent> <task-id> <to-agent>
+# Records that <agent> assigned the task to <to-agent> (an ASSIGNED entry with a
+# "- Assign:" line) and sets the Roadmap Owner to <to-agent>@<timestamp>. The
+# row stays TODO and no work starts: the assignee still has to claim. A task
+# somebody is already working on (IN_PROGRESS, PAUSE, REVIEW) cannot be assigned.
+function Invoke-Assign {
+    if ($Arguments.Count -lt 3) { throw "assign requires: agent task-id to-agent" }
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
+    $task = ConvertTo-CleanField $Arguments[1]
+    $toAgent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[2])
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "run init first" }
+    if (-not $toAgent) { throw "assign requires a non-empty to-agent" }
+    if (-not (Test-RoadmapHasId $task)) { throw "assign failed: $task not found in docs/Roadmap.md" }
+    Enter-DocsLock
+    try {
+        $state = Get-TaskState $task
+        if ($state -and $state.Status -in @("IN_PROGRESS", "PAUSE", "REVIEW")) {
+            throw "assign failed: $task is $($state.Status), held by $($state.Holder)"
+        }
+        $name = Assert-ValidName $task "assign"
+        $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $entry = (@(
+            "",
+            "## [$timestamp] | $agent | $task | ASSIGNED | $name",
+            "- Summary: Assigned to $toAgent",
+            "- Assign: $toAgent"
+        ) -join "`n") + "`n"
+        [System.IO.File]::AppendAllText($log, $entry, $Utf8)
+        Set-RoadmapRowInPlace $task "TODO" "$toAgent@$timestamp" $EmDash
+        Write-Output "project_docs assign: $task assigned to $toAgent"
+    } finally {
+        Exit-DocsLock
+    }
+}
+
 function Invoke-Done {
     if ($Arguments.Count -lt 5) { throw "done requires: agent task-id summary files verify" }
-    $agent = ConvertTo-CleanField $Arguments[0]
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
     $task = ConvertTo-CleanField $Arguments[1]
     $summary = ConvertTo-CleanField $Arguments[2]
     $files = ConvertTo-CleanField $Arguments[3]
@@ -819,8 +1124,41 @@ function Invoke-Done {
     if (-not $verify) { throw "done requires a non-empty verify" }
     Enter-DocsLock
     try {
+        # Who may close a task: nobody has an entry for it (retroactive close,
+        # the normal case for batches), the holder, the reviewer who left
+        # Review: PASS, anyone once the last entry is stale, or anyone with
+        # PROJECT_DOCS_FORCE=1.
+        $state = Get-TaskState $task
+        if ($state) {
+            $allowed = $false
+            if ($agent -ceq $state.Holder) { $allowed = $true }
+            elseif ($state.Status -eq "REVIEW" -and $state.Review -ceq "PASS" -and $agent -ceq $state.Agent) { $allowed = $true }
+            elseif ($env:PROJECT_DOCS_FORCE -eq "1") { $allowed = $true }
+            elseif (Test-Stale $task) { $allowed = $true }
+            if (-not $allowed) { throw "done failed: $task is held by $($state.Holder)" }
+            if ($state.Status -eq "REVIEW" -and $state.Review -cne "PASS") {
+                if ($state.Review -ceq "FAIL") {
+                    [Console]::Error.WriteLine("WARN: ${task}: closing without a passing review (the last review was FAIL)")
+                } else {
+                    [Console]::Error.WriteLine("WARN: ${task}: closing without a passing review (the handoff is still pending)")
+                }
+            }
+        }
+        $vlow = $verify.Trim().ToLowerInvariant()
+        if ($vlow -in @("none", "n/a", "no run", "ninguno", [string]$EmDash, "unknown")) {
+            [Console]::Error.WriteLine("WARN: verify `"$verify`" says nothing about what was checked")
+        }
         $name = Assert-ValidName $task "done"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $claimTs = Get-FirstClaimTs $task
+        if ($claimTs) {
+            $minWork = 5
+            if ($env:PROJECT_DOCS_MIN_WORK_MINUTES -match '^\d+$') { $minWork = [int]$env:PROJECT_DOCS_MIN_WORK_MINUTES }
+            $gap = Get-GapSeconds $claimTs $timestamp
+            if ($gap -ge 0 -and $gap -lt ($minWork * 60)) {
+                [Console]::Error.WriteLine("WARN: $task was claimed and closed $(Get-GapLabel $gap) apart; claim before the first edit so the work is visible while it happens")
+            }
+        }
         $log = Join-Path $DocsDir "Agentslog.md"
         $entry = (@(
             "",
@@ -841,14 +1179,15 @@ function Invoke-Done {
 function Invoke-Status {
     $log = Join-Path $DocsDir "Agentslog.md"
     if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "run init first" }
-    $states = @(Get-TaskStates | Where-Object { $_.Status -eq "IN_PROGRESS" -or $_.Status -eq "PAUSE" })
+    $states = @(Get-OpenTaskStates)
     foreach ($s in $states) {
         $hrs = Get-AgeHours $s.Ts
         $hrsStr = if ($null -ne $hrs) { "$hrs" } else { "?" }
         $reason = if ($s.Status -eq "PAUSE") { $s.PauseCat } else { "-" }
         $stale = ""
-        if ($s.Status -eq "IN_PROGRESS" -and $null -ne $hrs -and $hrs -ge $StaleHours) { $stale = " (stale)" }
-        Write-Output "$($s.Task) | $($s.Name) | $($s.Agent) | $($s.Status) | ${hrsStr}h$stale | $reason"
+        if ($s.Status -ne "PAUSE" -and $s.Status -ne "ASSIGNED" -and $null -ne $hrs -and $hrs -ge $StaleHours) { $stale = " (stale)" }
+        $shown = if ($s.Status -eq "REVIEW") { $s.Holder } else { $s.Agent }
+        Write-Output "$($s.Task) | $($s.Name) | $shown | $(Get-StageLabel $s.Status $s.Review $s.Handoff) | ${hrsStr}h$stale | $reason"
     }
 }
 
@@ -1329,7 +1668,7 @@ function Test-LogEntries {
     $inEntries = $false
     $entries = [System.Collections.Generic.List[object]]::new()
     $cur = $null
-    $lastStatus = @{}; $lastAgent = @{}
+    $lastStatus = @{}; $lastAgent = @{}; $lastTsMap = @{}; $holdMap = @{}
     foreach ($line in $lines) {
         if ($line -eq "## Entries") { $inEntries = $true; continue }
         if (-not $inEntries) { continue }
@@ -1338,27 +1677,81 @@ function Test-LogEntries {
             $tidnow = $Matches[3].Trim()
             $status = $Matches[4].Trim()
             $name = if ($Matches[5]) { $Matches[5].Trim() } else { "" }
+            $tsnow = $Matches[1].Trim()
             $conflictMsg = $null
-            if ($status -eq "IN_PROGRESS" -and $lastStatus.ContainsKey($tidnow) -and $lastStatus[$tidnow] -eq "IN_PROGRESS" -and $lastAgent[$tidnow] -ne $agentnow) {
+            if ($status -eq "IN_PROGRESS" -and $lastStatus.ContainsKey($tidnow) -and $lastStatus[$tidnow] -eq "IN_PROGRESS" -and $lastAgent[$tidnow] -cne $agentnow) {
                 $conflictMsg = "ERROR: conflicting concurrent claim on $tidnow`: $($lastAgent[$tidnow]) and $agentnow"
+            } elseif ($status -eq "IN_PROGRESS" -and $lastStatus.ContainsKey($tidnow) -and $lastStatus[$tidnow] -eq "REVIEW" -and $holdMap.ContainsKey($tidnow) -and $holdMap[$tidnow] -cne $agentnow -and -not (Test-IsOld $lastTsMap[$tidnow] $tsnow)) {
+                # Two REVIEW entries by different agents (developer, reviewer)
+                # are normal; only a third agent starting work on a task that is
+                # held by someone else, and not stale, is a conflict.
+                $conflictMsg = "ERROR: conflicting concurrent claim on $tidnow`: $($holdMap[$tidnow]) and $agentnow"
             }
+            if ($status -eq "IN_PROGRESS") { $holdMap[$tidnow] = $agentnow }
             $lastStatus[$tidnow] = $status
             $lastAgent[$tidnow] = $agentnow
-            $cur = [PSCustomObject]@{ Hdr = $line; Status = $status; PauseLine = $null; VerifyLine = $null; ConflictMsg = $conflictMsg; Name = $name }
+            $lastTsMap[$tidnow] = $tsnow
+            $cur = [PSCustomObject]@{ Hdr = $line; Status = $status; PauseLine = $null; VerifyLine = $null; SummaryLine = $null; HandoffLine = $null; ReviewLine = $null; AssignLine = $null; ConflictMsg = $conflictMsg; Name = $name }
             $entries.Add($cur)
             continue
         }
         if ($cur -and $line -match '^- Pause:') { $cur.PauseLine = $line; continue }
         if ($cur -and $line -match '^- Verify:') { $cur.VerifyLine = $line; continue }
+        if ($cur -and $line -match '^- Summary:') { $cur.SummaryLine = $line; continue }
+        if ($cur -and $line -match '^- Handoff:') { $cur.HandoffLine = $line; continue }
+        if ($cur -and $line -match '^- Review:') { $cur.ReviewLine = $line; continue }
+        if ($cur -and $line -match '^- Assign:') { $cur.AssignLine = $line; continue }
     }
     foreach ($e in $entries) {
         if ($e.ConflictMsg) {
             [Console]::Error.WriteLine($e.ConflictMsg)
             $script:CheckFail = $true
         }
-        if ($e.Status -notin @("IN_PROGRESS", "PAUSE", "DONE")) {
-            [Console]::Error.WriteLine("ERROR: invalid status in entry: $($e.Hdr)")
+        if ($e.Status -notin @("IN_PROGRESS", "PAUSE", "DONE", "REVIEW", "ASSIGNED")) {
+            [Console]::Error.WriteLine("ERROR: invalid status in entry (expected IN_PROGRESS, PAUSE, REVIEW, ASSIGNED or DONE): $($e.Hdr)")
             $script:CheckFail = $true
+        }
+        if ($e.Status -eq "ASSIGNED") {
+            $abody = if ($e.AssignLine) { ($e.AssignLine -replace '^- Assign:\s*', '').Trim() } else { "" }
+            if (-not $abody) {
+                [Console]::Error.WriteLine("ERROR: ASSIGNED entry missing Assign target: $($e.Hdr)")
+                $script:CheckFail = $true
+            }
+        }
+        if ($e.Status -eq "REVIEW") {
+            $rres = ""; $rdetail = ""
+            if ($e.ReviewLine) {
+                $rbody = $e.ReviewLine -replace '^- Review:\s*', ''
+                $rdash = $rbody.IndexOf(" - ")
+                if ($rdash -ge 0) { $rres = $rbody.Substring(0, $rdash).Trim(); $rdetail = $rbody.Substring($rdash + 3).Trim() } else { $rres = $rbody.Trim() }
+                if ($rres -notin @("PASS", "FAIL")) {
+                    [Console]::Error.WriteLine("ERROR: REVIEW entry has invalid Review result (expected PASS or FAIL): $($e.Hdr)")
+                    $script:CheckFail = $true
+                }
+                if (-not $rdetail) {
+                    [Console]::Error.WriteLine("ERROR: REVIEW entry missing Review detail: $($e.Hdr)")
+                    $script:CheckFail = $true
+                }
+            }
+            $sbody = if ($e.SummaryLine) { ($e.SummaryLine -replace '^- Summary:\s*', '').Trim() } else { "" }
+            if (-not $sbody) {
+                [Console]::Error.WriteLine("ERROR: REVIEW entry missing Summary: $($e.Hdr)")
+                $script:CheckFail = $true
+            }
+            # A handoff and a Review: PASS say what was verified; a Review: FAIL
+            # may carry no Verify (the reviewer verified nothing that passed).
+            if (-not $e.VerifyLine) {
+                if ($rres -ne "FAIL") {
+                    [Console]::Error.WriteLine("ERROR: REVIEW entry missing Verify line: $($e.Hdr)")
+                    $script:CheckFail = $true
+                }
+            } else {
+                $vbody = ($e.VerifyLine -replace '^- Verify:\s*', '').Trim()
+                if (-not $vbody -or $vbody -eq "pending") {
+                    [Console]::Error.WriteLine("ERROR: REVIEW entry has empty or pending Verify: $($e.Hdr)")
+                    $script:CheckFail = $true
+                }
+            }
         }
         if ($e.Status -eq "PAUSE") {
             if (-not $e.PauseLine) {
@@ -1587,6 +1980,77 @@ function Test-IdFormatInSection([string]$Rel, [string]$Heading, [string]$Pattern
     }
 }
 
+# Warns (never fails) about agent names in the hot ledger that are neither an
+# Agent id nor an alias, at most 10 of them plus a count. Silent without a roster.
+function Write-RosterWarnings {
+    $rows = @(Get-RosterRows)
+    if ($rows.Count -eq 0) { return }
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { return }
+    $known = @{}
+    foreach ($r in $rows) {
+        $known[$r.Id.ToLowerInvariant()] = $true
+        foreach ($a in @(Get-RosterAliases $r)) { $known[$a.ToLowerInvariant()] = $true }
+    }
+    $seen = @{}
+    $unknown = [System.Collections.Generic.List[string]]::new()
+    $inEntries = $false
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $log)) {
+        if ($line -eq "## Entries") { $inEntries = $true; continue }
+        if (-not $inEntries) { continue }
+        if ($line -match '^## \[([^\]]*)\] \| ([^|]*) \|') {
+            $ag = $Matches[2].Trim()
+            if (-not $known.ContainsKey($ag.ToLowerInvariant()) -and -not $seen.ContainsKey($ag)) {
+                $seen[$ag] = $true
+                $unknown.Add($ag)
+            }
+        }
+    }
+    for ($i = 0; $i -lt $unknown.Count -and $i -lt 10; $i++) {
+        [Console]::Error.WriteLine("WARN: unknown agent `"$($unknown[$i])`" in the ledger (not in the Agent identity table)")
+    }
+    if ($unknown.Count -gt 10) {
+        [Console]::Error.WriteLine("WARN: $($unknown.Count - 10) more unknown agent name(s) in the ledger")
+    }
+}
+
+# One summary line plus at most the 5 most recent tasks closed within
+# PROJECT_DOCS_MIN_WORK_MINUTES (default 5) of their first claim. Closing a
+# batch afterwards is legitimate: this only says so. Never fails.
+function Write-InstantCloseWarnings {
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { return }
+    $minWork = 5
+    if ($env:PROJECT_DOCS_MIN_WORK_MINUTES -match '^\d+$') { $minWork = [int]$env:PROJECT_DOCS_MIN_WORK_MINUTES }
+    $first = @{}; $counted = @{}
+    $closed = 0
+    $quick = [System.Collections.Generic.List[object]]::new()
+    $inEntries = $false
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $log)) {
+        if ($line -eq "## Entries") { $inEntries = $true; continue }
+        if (-not $inEntries) { continue }
+        if ($line -match '^## \[([^\]]*)\] \| ([^|]*) \| ([^|]*) \| ([^|]*)') {
+            $ts = $Matches[1].Trim(); $tid = $Matches[3].Trim(); $st = $Matches[4].Trim()
+            if ($st -eq "IN_PROGRESS" -and -not $first.ContainsKey($tid)) { $first[$tid] = $ts }
+            if ($st -eq "DONE" -and $first.ContainsKey($tid) -and -not $counted.ContainsKey($tid)) {
+                $counted[$tid] = $true
+                $g = Get-GapSeconds $first[$tid] $ts
+                if ($g -ge 0) {
+                    $closed++
+                    if ($g -lt ($minWork * 60)) { $quick.Add([PSCustomObject]@{ Id = $tid; Gap = $g }) }
+                }
+            }
+        }
+    }
+    if ($quick.Count -gt 0) {
+        [Console]::Error.WriteLine("WARN: $($quick.Count) of $closed closed tasks were closed within $minWork min of their claim")
+        $start = [Math]::Max(0, $quick.Count - 5)
+        for ($i = $start; $i -lt $quick.Count; $i++) {
+            [Console]::Error.WriteLine("WARN: $($quick[$i].Id) was claimed and closed $(Get-GapLabel $quick[$i].Gap) apart; claim before the first edit so the work is visible while it happens")
+        }
+    }
+}
+
 function Write-CheckWarnings {
     $unknownCount = 0
     foreach ($f in @("docs/ProductDescription.md", "docs/Stack_Tecnologies.md", "docs/Features.md")) {
@@ -1600,6 +2064,8 @@ function Write-CheckWarnings {
     if ($unknownCount -gt 0) {
         [Console]::Error.WriteLine("WARN: $unknownCount UNKNOWN field(s) in Operational summaries")
     }
+    Write-RosterWarnings
+    Write-InstantCloseWarnings
     foreach ($name in $LinkTargetsDefault) {
         $rel = Get-LinkTargetPath $name
         $full = Join-Path $Project $rel
@@ -1609,10 +2075,16 @@ function Write-CheckWarnings {
     }
     $log = Join-Path $DocsDir "Agentslog.md"
     if (Test-Path -LiteralPath $log -PathType Leaf) {
-        foreach ($s in @(Get-TaskStates | Where-Object { $_.Status -eq "IN_PROGRESS" })) {
+        # A REVIEW whose last entry says Review: FAIL is back with its holder,
+        # so it is reported as IN_PROGRESS; a pending or passed REVIEW as REVIEW.
+        foreach ($s in @(Get-TaskStates | Where-Object { $_.Status -eq "IN_PROGRESS" -or $_.Status -eq "REVIEW" })) {
             $hrs = Get-AgeHours $s.Ts
             if ($null -ne $hrs -and $hrs -ge $StaleHours) {
-                [Console]::Error.WriteLine("WARN: $($s.Task) has been IN_PROGRESS for ${hrs}h (>= ${StaleHours}h)")
+                if ($s.Status -eq "REVIEW" -and $s.Review -ne "FAIL") {
+                    [Console]::Error.WriteLine("WARN: $($s.Task) has been in REVIEW for ${hrs}h (>= ${StaleHours}h)")
+                } else {
+                    [Console]::Error.WriteLine("WARN: $($s.Task) has been IN_PROGRESS for ${hrs}h (>= ${StaleHours}h)")
+                }
             }
         }
     }
@@ -1732,7 +2204,7 @@ function Invoke-Rotate {
     $archiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($sourceHash -ne $archiveHash) { throw "archive hash verification failed" }
 
-    $openStates = @(Get-TaskStates | Where-Object { $_.Status -eq "IN_PROGRESS" -or $_.Status -eq "PAUSE" })
+    $openStates = @(Get-OpenTaskStates)
 
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add("# Agents log")
@@ -1746,8 +2218,11 @@ function Invoke-Rotate {
     $lines.Add("## [YYYY-MM-DDTHH:mm:ssZ] | agent | TASK-ID | IN_PROGRESS | Name")
     $lines.Add("- Summary: what the agent will do or did")
     $lines.Add("- Files: paths or component names (optional)")
-    $lines.Add('- Verify: command and result, or "pending" (required for DONE)')
+    $lines.Add('- Verify: command and result, or "pending" (required for DONE and REVIEW)')
     $lines.Add("- Pause: CATEGORY - detail (required for PAUSE)")
+    $lines.Add("- Handoff: reviewer agent or role (optional, REVIEW)")
+    $lines.Add("- Review: PASS|FAIL - detail (optional, REVIEW)")
+    $lines.Add("- Assign: agent (required for ASSIGNED)")
     $lines.Add('```')
     $lines.Add("")
     $lines.Add("## Previous segment")
@@ -1757,11 +2232,28 @@ function Invoke-Rotate {
     $lines.Add("")
     $lines.Add("## Entries")
     foreach ($s in $openStates) {
+        if ($s.Status -eq "REVIEW") {
+            # The developer who holds the task is not necessarily the agent of
+            # the last entry (a reviewer wrote it), so re-open the holder first
+            # and then the REVIEW entry with its handoff/review lines; otherwise
+            # done by the holder would stop working after a rotation.
+            $lines.Add("")
+            $lines.Add("## [$($s.Ts)] | $($s.Holder) | $($s.Task) | IN_PROGRESS | $($s.Name)")
+            $lines.Add("- Summary: carried forward from docs/history/$name at rotation")
+        }
         $lines.Add("")
         $lines.Add("## [$($s.Ts)] | $($s.Agent) | $($s.Task) | $($s.Status) | $($s.Name)")
         $lines.Add("- Summary: carried forward from docs/history/$name at rotation")
         if ($s.Status -eq "PAUSE") {
             $lines.Add("- Pause: $($s.PauseCat) - see docs/history/$name for detail")
+        }
+        if ($s.Status -eq "ASSIGNED") {
+            $lines.Add("- Assign: $($s.Holder)")
+        }
+        if ($s.Status -eq "REVIEW") {
+            $lines.Add("- Verify: carried forward from docs/history/$name")
+            if ($s.Handoff) { $lines.Add("- Handoff: $($s.Handoff)") }
+            if ($s.Review) { $lines.Add("- Review: $($s.Review) - carried forward from docs/history/$name") }
         }
     }
     Write-Utf8File $log (ConvertTo-JoinedLines ([string[]]$lines))
@@ -1778,9 +2270,12 @@ switch ($Command) {
     "link" { Invoke-Link }
     "claim" { Invoke-Claim }
     "pause" { Invoke-Pause }
+    "handoff" { Invoke-Handoff }
+    "review" { Invoke-Review }
+    "assign" { Invoke-Assign }
     "done" { Invoke-Done }
     "status" { Invoke-Status }
     default {
-        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|done|status} <project> [args]"
+        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status} <project> [args]"
     }
 }

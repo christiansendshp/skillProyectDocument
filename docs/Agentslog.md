@@ -123,3 +123,84 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: Trimmed AGENTS.md (template and root) from ~4.9 KiB to ~4.3 KiB by tightening Startup/Taking-a-task/Technical-decisions/Close wording, no obligation dropped
 - Files: AGENTS.md,templates/AGENTS.md
 - Verify: sh scripts/project_docs.sh check . -> OK, hot context 8600 -> under 8192
+
+## [2026-10-13T16:32:05Z] | claude-sonnet-5-5 | F05-E01-T01 | IN_PROGRESS | Accept REVIEW in the ledger and task states
+- Summary: Change 1: REVIEW in the ledger, task-state TSV, status/open-task/stale/rotate
+- Verify: pending
+
+## [2026-10-13T16:34:32Z] | claude-sonnet-5-5 | F05-BUG-01 | IN_PROGRESS | status and rotate lose the task Name
+- Summary: Fix tab-IFS read merging empty fields in status, open tasks and rotate
+- Verify: pending
+
+## [2026-10-13T16:47:16Z] | claude-sonnet-5-5 | F05-BUG-01 | DONE | status and rotate lose the task Name
+- Summary: Read task-state TSV with a non-whitespace separator so empty fields stop shifting Name in status, open tasks and rotate; regression asserts added
+- Files: scripts/project_docs.sh,scripts/smoke_test.sh
+- Verify: sh scripts/smoke_test.sh -> 212 passed, 0 failed (sh + PowerShell); status and rotate print and carry the Name
+
+## [2026-10-13T17:09:36Z] | claude-sonnet-5-5 | F05-E01-T01 | DONE | Accept REVIEW in the ledger and task states
+- Summary: REVIEW is a valid ledger word: check validates Summary, Verify, Handoff and Review lines; task-state TSV gains holder, handoff and review; status, open tasks, stale warning and rotate keep REVIEW tasks; two REVIEW entries by different agents are no conflict; the holder may retake a REVIEW task
+- Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh
+- Verify: sh scripts/smoke_test.sh -> 272 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T17:09:51Z] | claude-sonnet-5-5 | F05-E01-T02 | IN_PROGRESS | Add the handoff command
+- Summary: Change 2: handoff moves a held task to REVIEW without touching the row
+- Verify: pending
+
+## [2026-10-13T17:17:23Z] | claude-sonnet-5-5 | F05-E01-T02 | DONE | Add the handoff command
+- Summary: handoff command in sh and PowerShell: holder-only, real verify required, writes a REVIEW entry with an optional Handoff line and leaves the Roadmap row IN_PROGRESS with the same Owner; smoke rotation test now seeds filler entries in one process
+- Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh
+- Verify: sh scripts/smoke_test.sh -> 312 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T17:17:43Z] | claude-sonnet-5-5 | F05-E01-T03 | IN_PROGRESS | Add the review command with PASS or FAIL
+- Summary: Change 3: review command with PASS or FAIL in the reviewer name
+- Verify: pending
+
+## [2026-10-13T17:24:24Z] | claude-sonnet-5-5 | F05-E01-T03 | DONE | Add the review command with PASS or FAIL
+- Summary: review command in sh and PowerShell: needs a pending handoff and a note, PASS needs a real verify, writes a REVIEW entry in the reviewer name with a Review line and leaves the Roadmap row alone; FAIL returns the task to its holder; self-review warns or fails with PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1
+- Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh
+- Verify: sh scripts/smoke_test.sh -> 366 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T17:24:41Z] | claude-sonnet-5-5 | F05-E01-T04 | IN_PROGRESS | done verifies who is closing the task
+- Summary: Change 4: done verifies who closes the task
+- Verify: pending
+
+## [2026-10-13T17:35:10Z] | claude-sonnet-5-5 | F05-E01-T04 | DONE | done verifies who is closing the task
+- Summary: done now verifies who closes a task: the holder, the reviewer who left Review PASS, anyone on a stale or PROJECT_DOCS_FORCE=1 task, or anyone for a never-claimed task; it warns on closing without a passing review and on verify markers such as none, n/a, no run, ninguno, an em dash or UNKNOWN
+- Files: scripts/project_docs.sh,scripts/project_docs.ps1,scripts/smoke_test.sh
+- Verify: sh scripts/smoke_test.sh -> 428 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T17:35:29Z] | claude-sonnet-5-5 | F05-E02-T01 | IN_PROGRESS | Add the Agent identity roster and canonical ids
+- Summary: Change 5: Agent identity roster and canonical agent ids
+- Verify: pending
+
+## [2026-10-13T17:46:39Z] | claude-sonnet-5-5 | F05-E02-T01 | DONE | Add the Agent identity roster and canonical ids
+- Summary: Optional Agent identity roster: aliases normalise to the Agent id in claim, pause, handoff, review and done; unknown names warn
+- Files: scripts/,templates/AGENTS.md,AGENTS.md
+- Verify: sh scripts/smoke_test.sh -> 474 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T17:46:53Z] | claude-sonnet-5-5 | F05-E02-T02 | IN_PROGRESS | Warn when work is documented after it is done
+- Summary: Change 6: warn when work is claimed and closed minutes apart
+- Verify: pending
+
+## [2026-10-13T17:57:27Z] | claude-sonnet-5-5 | F05-E02-T02 | DONE | Warn when work is documented after it is done
+- Summary: Warn when a task is claimed and closed minutes apart; check prints one summary plus the 5 most recent
+- Files: scripts/
+- Verify: sh scripts/smoke_test.sh -> 500 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T17:57:47Z] | claude-sonnet-5-5 | F05-E02-T03 | IN_PROGRESS | Add the assign command and ASSIGNED state
+- Summary: Change 7: assign command and ASSIGNED state
+- Verify: pending
+
+## [2026-10-13T18:08:30Z] | claude-sonnet-5-5 | F05-E02-T03 | DONE | Add the assign command and ASSIGNED state
+- Summary: assign command and ASSIGNED state: row stays TODO with the new Owner, claim by another agent warns, a task in progress cannot be assigned
+- Files: scripts/
+- Verify: sh scripts/smoke_test.sh -> 562 passed, 0 failed (sh + PowerShell); check . -> OK
+
+## [2026-10-13T18:09:26Z] | claude-sonnet-5-5 | F05-E03-T01 | IN_PROGRESS | Document review and identity in templates and docs
+- Summary: Change 8 and 9: templates, docs, evals and the regression test
+- Verify: pending
+
+## [2026-10-13T18:36:29Z] | claude-sonnet-5-5 | F05-E03-T01 | DONE | Document review and identity in templates and docs
+- Summary: Templates, docs and evals for review, handoff and agent identity; golden regression test; evals 26 to 39
+- Files: templates/,docs/,references/,scripts/smoke_test.sh,evals/evals.json
+- Verify: sh scripts/smoke_test.sh -> 578 passed, 0 failed (sh + PowerShell); check . -> OK; differential run old vs new scripts identical

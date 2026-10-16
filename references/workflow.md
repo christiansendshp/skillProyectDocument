@@ -157,8 +157,11 @@ no `Description` column; keep its `Name` itself to 10 words or fewer).
 
 - `claim <project> <agent> <task-id> <summary>`: fails if the ID is not a
   Roadmap row, if its Name is missing or over 10 words (fix the row by hand
-  first), or if its last log state is `IN_PROGRESS` by another agent (unless
-  that claim is stale) or `PAUSE` not yet retakeable. On success it appends
+  first), or if its last log state is `IN_PROGRESS` or `REVIEW` held by
+  another agent (unless that entry is stale) or `PAUSE` not yet retakeable.
+  The holder may always retake their own task, also from `REVIEW` (after a
+  `FAIL`, or to withdraw the handoff). A task `ASSIGNED` to someone else
+  can still be claimed, with a warning. On success it appends
   an `IN_PROGRESS` log entry carrying the row's Name, and moves the row (if
   it was in `## Plan`/`## Gaps, Bugs & Technical Debt`) or updates it in
   place into `## Active work` with Status `IN_PROGRESS` and Owner
@@ -168,19 +171,57 @@ no `Description` column; keep its `Name` itself to 10 words or fewer).
   non-empty. Only the current owner may pause. Sets the row's Status to
   `PAUSE`, Owner to `<agent>@<timestamp>`, Pause reason to `<category>`, and
   appends a log entry carrying the row's current Name.
+- `handoff <project> <agent> <task-id> <summary> <verify> [reviewer]`: the
+  developer says the code is complete and their own verification passed.
+  Needs the task `IN_PROGRESS` and held by `<agent>` (the same checks as
+  `pause`), a non-empty summary and a `verify` that is neither empty nor
+  `pending`. Appends a `REVIEW` entry carrying the Name, Summary, Verify and,
+  when a reviewer is named, a `- Handoff: <reviewer>` line. The Roadmap row is
+  not touched: it stays `IN_PROGRESS` with the same Owner. Optional: a
+  project without a reviewer goes straight from `claim` to `done`.
+- `review <project> <agent> <task-id> <PASS|FAIL> <note> [verify]`: a
+  reviewer answers a pending handoff (the last entry is a `REVIEW` with no
+  result). `note` must be non-empty and `PASS` needs a real `verify`. Appends
+  a `REVIEW` entry in the reviewer's name with `- Review: PASS|FAIL - note`;
+  the Roadmap row is not touched. After `FAIL` the task is back with its
+  holder, who retakes it with `claim`; nobody else can while the entry is not
+  stale, and a reviewer cannot close a task they failed. Reviewing your own
+  handoff prints `WARN: self-review` and succeeds, so a single-agent project
+  does not freeze; `PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1` makes it an
+  error. With a roster, a reviewer whose role is `DEVELOPER` also warns.
+- `assign <project> <agent> <task-id> <to-agent>`: records that `<agent>`
+  assigned the task to `<to-agent>` (an `ASSIGNED` entry with a
+  `- Assign: <to-agent>` line) and sets the Roadmap Owner to
+  `<to-agent>@<timestamp>`. The row stays `TODO` and no work starts: the
+  assignee still has to `claim`. A task that is `IN_PROGRESS`, `PAUSE` or in
+  `REVIEW` cannot be assigned. An assignment is a request, not a lock.
 - `done <project> <agent> <task-id> <summary> <files> <verify>`: `verify`
-  must be non-empty. Appends a `DONE` log entry carrying the row's Name,
+  must be non-empty. Only these agents may close a task: the holder, the
+  reviewer who left `Review: PASS`, anyone once the last entry is stale
+  (`PROJECT_DOCS_STALE_HOURS`), anyone with `PROJECT_DOCS_FORCE=1`, and anyone
+  when the task has no ledger entries at all (a retroactive close, the normal
+  case for batches). Otherwise `done failed: <id> is held by <agent>`. Warns,
+  without failing, when the holder closes with a handoff still pending or a
+  `Review: FAIL` ("closing without a passing review"), when `verify` says
+  nothing (`none`, `n/a`, `no run`, `ninguno`, an em dash or `UNKNOWN`, any
+  case), and when the task was claimed and closed less than
+  `PROJECT_DOCS_MIN_WORK_MINUTES` (default 5) apart: claim before the first
+  edit so the work is visible while it happens. Appends a `DONE` log entry carrying the row's Name,
   removes the row from `Roadmap.md`, and adds it to
   `Features.md#Verified capabilities`. When its ID is a task under an epic
   (`F01-E01-T01`, inferred from the ID shape) and no other Roadmap row still
   shares that epic prefix, the epic is rolled up too with its own Features
   row.
-- `status <project>`: lists every `IN_PROGRESS`/`PAUSE` task with owner,
-  age, and reason; flags stale `IN_PROGRESS` claims.
+- `status <project>`: lists every open task (`IN_PROGRESS`, `PAUSE`,
+  `REVIEW`, `ASSIGNED`) with its Name, holder, stage, age and reason; a
+  `REVIEW` shows its stage and destination (`REVIEW->qa-agent`, or
+  `REVIEW(PASS)->qa-agent` once passed) and a task back with its holder after
+  `FAIL` shows as `IN_PROGRESS`. Flags stale `IN_PROGRESS` and `REVIEW`
+  entries.
 - Retaking a `PAUSE`: `LIMITE` can be reclaimed by any agent immediately;
   `ESPERA_RESPUESTA` and `BLOQUEO` only once the blocking reason is
-  resolved (recorded in a new entry's Summary). An `IN_PROGRESS` untouched
-  for longer than `PROJECT_DOCS_STALE_HOURS` (default 24) is considered
+  resolved (recorded in a new entry's Summary). An `IN_PROGRESS` or `REVIEW`
+  untouched for longer than `PROJECT_DOCS_STALE_HOURS` (default 24) is considered
   abandoned and can be reclaimed by another agent. Age is computed from the
   entry's ISO-8601 timestamp using GNU `date -d` (sh) or
   `[DateTime]::Parse` (PowerShell); on a system with neither GNU nor a
@@ -203,8 +244,11 @@ Use one log entry per state change:
 ## [YYYY-MM-DDTHH:mm:ssZ] | agent | TASK-ID | IN_PROGRESS | Name
 - Summary: what the agent will do or did
 - Files: paths or component names (optional)
-- Verify: command and result, or "pending" (required for DONE)
+- Verify: command and result, or "pending" (required for DONE and REVIEW)
 - Pause: CATEGORY - detail (required for PAUSE)
+- Handoff: reviewer agent or role (optional, REVIEW)
+- Review: PASS|FAIL - detail (optional, REVIEW)
+- Assign: agent (required for ASSIGNED)
 ```
 
 Keep entries under six lines and approximately 700 characters. The ledger is
@@ -224,7 +268,36 @@ mismatch.
 
 `append-log` remains available, unchanged, for entries outside the claim
 lifecycle (its own header/Follow-up format, with no Name field); prefer
-`claim`/`pause`/`done` for anything with a task ID.
+`claim`/`pause`/`handoff`/`review`/`done` for anything with a task ID.
+
+### Review stage
+
+The stage of a task lives only in the ledger; the Roadmap `Status` values
+and columns do not change, and the row stays `IN_PROGRESS` throughout.
+
+```
+IN_PROGRESS (developer) --handoff--> REVIEW  (developer; optional Handoff line)
+REVIEW (reviewer)  "- Review: PASS - detail"  --> ready for done
+REVIEW (reviewer)  "- Review: FAIL - detail"  --> back with the developer
+```
+
+- A `REVIEW` entry needs a `Summary` and a `Verify` that is neither empty nor
+  `pending`, like `DONE`: it is what the author verified. The one exception is
+  an entry carrying `Review: FAIL`, whose reviewer verified nothing that
+  passed, so its `Verify` is optional. If a `Review` line is present its
+  result must be `PASS` or `FAIL` and its detail non-empty.
+- The **holder** is the agent of the last `IN_PROGRESS` entry (for an
+  `ASSIGNED` task, the assignee), also while the task is in `REVIEW`. The
+  effective stage is `REVIEW` unless the last entry says `Review: FAIL`, which
+  means the task is back with its holder.
+- Conflict rule: two `REVIEW` entries by different agents (developer and
+  reviewer) are normal. A third agent starting `IN_PROGRESS` on a task held by
+  someone else right after a `REVIEW`, and not stale, is a
+  `conflicting concurrent claim`.
+- The task-state scan appends `holder`, `handoff` and `review` after the
+  existing columns; consumers read the tab-separated line with a
+  non-whitespace separator, because a tab is whitespace for `read` and merges
+  empty fields.
 
 ## Rotation
 
@@ -236,9 +309,12 @@ until you do). Rotation must:
 2. verify the archived copy by hash;
 3. replace the hot ledger atomically with a fresh header plus the archive
    pointer and its hash;
-4. re-open a compact entry for every task still `IN_PROGRESS`/`PAUSE` at
-   rotation time, pointing back at the archive for the full history — a
-   paused task is never silently dropped by rotation.
+4. re-open a compact entry for every task still `IN_PROGRESS`, `PAUSE`,
+   `REVIEW` or `ASSIGNED` at rotation time, pointing back at the archive for
+   the full history — a paused task is never silently dropped by rotation.
+   A `REVIEW` task is re-opened as an `IN_PROGRESS` entry by its holder
+   followed by the `REVIEW` entry with its `Handoff` and `Review` lines, so
+   the holder keeps the right to close it.
 
 Archives are immutable — never edit a file under `docs/history/`. Read one
 only when a current entry or decision points to it, or when `check` needs
@@ -305,6 +381,32 @@ While a project still has `docs/Agents.md`, `docs/Roadmap.md` still uses the
 per-entry YAML format, or a Roadmap table has no `Name` column, `check`
 fails with a message pointing at `migrate`.
 
+## Agent identity
+
+Use one stable id per agent, always the same text, as the `<agent>` argument:
+the ledger compares names by exact equality, so `claude-sonnet-5` cannot pause
+what `claude-sonnet-5-5` claimed. The optional `## Agent identity` table in
+the project root `AGENTS.md` records them:
+
+```markdown
+| Agent id | Kind | Model | Role | Aliases |
+|---|---|---|---|---|
+| claude-sonnet-5-5 | AI | Claude Sonnet 5.5 | BOTH | claude, claude-sonnet-5 |
+```
+
+`Kind` is `HUMAN` or `AI`; `Role` is `DEVELOPER`, `QA` or `BOTH`. The section
+is not required by `check`, and `init` adds it to new projects only, never to
+an existing `AGENTS.md` block.
+
+With at least one data row, `claim`, `pause`, `handoff`, `review`, `assign`
+and `done` normalise `<agent>` to its `Agent id` (matching id and aliases
+without regard to case). An unknown name prints `WARN: unknown agent` and is
+used as typed. `check` lists unknown names found in the hot ledger (at most 10
+plus a count) and never fails on them; past entries are never rewritten.
+Without the section, or with no rows, nothing is normalised and nothing
+warns. Each runtime adapter must use the same id every session (see
+`references/adapters.md`).
+
 ## Content maintenance
 
 - Product keeps stable functional truth (`BR-xxx` rules, flows, glossary,
@@ -340,11 +442,15 @@ Run `check` after documentation updates. It exits non-zero only on errors:
   outside `TODO`/`IN_PROGRESS`/`PAUSE`/`DONE`;
 - a Roadmap table with an `ID` column but no `Name` column; a Roadmap row
   with an empty Name, or a Name over 10 words;
-- an Agentslog entry with a state outside `IN_PROGRESS`/`PAUSE`/`DONE`, or
-  an entry's own Name over 10 words;
+- an Agentslog entry with a state outside `IN_PROGRESS`/`PAUSE`/`REVIEW`/
+  `ASSIGNED`/`DONE`, or an entry's own Name over 10 words;
+- a `REVIEW` entry without a Summary or a real Verify (a `Review: FAIL` entry
+  needs no Verify), with a `Review` result other than `PASS`/`FAIL` or
+  without detail; an `ASSIGNED` entry without an Assign target;
 - a `PAUSE` entry without a valid category or non-empty detail;
 - a `DONE` entry with an empty or `"pending"` Verify;
-- two different agents both holding an open `IN_PROGRESS` on the same ID (a
+- two different agents both holding an open `IN_PROGRESS` on the same ID, or
+  a third agent starting one right after a non-stale `REVIEW` (a
   concurrent-claim conflict, typically from a git merge race);
 - a log ID that exists in neither `Roadmap.md` nor `Features.md`;
 - a `Features.md` ID with no matching `DONE` in the hot log or, if rotated
@@ -356,6 +462,10 @@ Run `check` after documentation updates. It exits non-zero only on errors:
 Warnings (do not fail the gate): `UNKNOWN` fields in Operational summaries
 (expected on a fresh, not-yet-filled template — but should be zero on a
 project's own maintained docs); an agent file missing its `link` block; a
-stale `IN_PROGRESS` claim.
+stale `IN_PROGRESS` claim or `REVIEW`; with a roster, agent names in the
+ledger that are neither an id nor an alias; and one summary line plus at most
+the 5 most recent tasks that were claimed and closed less than
+`PROJECT_DOCS_MIN_WORK_MINUTES` apart (closing a batch afterwards is
+legitimate, this only says so).
 
 A task is not complete while `check` exits non-zero.

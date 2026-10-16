@@ -26,13 +26,15 @@
 | BR-003 | Every new user-requested task is added to the Roadmap with an ID before execution | HYPOTHESIS | prompt-mejora-skillProyectDocument.md §4 |
 | BR-004 | The six canonical files contain only Markdown (tables and lists), never YAML or JSON | CONFIRMED | ADR-018; `check` rejects the per-entry YAML Roadmap format |
 | BR-005 | `done` refuses an empty verify, and `check` fails while any rule above is violated | CONFIRMED | evals/evals.json #11 |
+| BR-006 | The review stage of a task is recorded only in the Agentslog (state REVIEW with optional Handoff and Review lines); the Roadmap Status values and columns never change for it | CONFIRMED | ADR-021; smoke tests, Change 1 and 2 |
+| BR-007 | A project that never uses REVIEW, ASSIGNED or the Agent identity table behaves exactly as before: same check, status, context and rotate output; every new check beyond a refusal only warns | CONFIRMED | differential run against the previous scripts; evals/evals.json #38 |
 
 ## Main flows
 
 | Flow | Start -> outcome | Status |
 |---|---|---|
 | Start a project | `init` creates the six files and links other agent files; `context` gives a bounded start (8 KiB) | CONFIRMED |
-| Take and close a task | `claim` then work then `done` (or `pause`); the Agentslog records every state change | CONFIRMED |
+| Take and close a task | `claim` before the first edit, work, then `done` (or `pause`); with a reviewer, `handoff` then `review` first; the Agentslog records every state change | CONFIRMED |
 | Validate and archive | `check` gates completion; `rotate` archives an oversized ledger with a SHA-256 check | CONFIRMED |
 
 ## Glossary
@@ -43,6 +45,9 @@
 | Hot context | The bounded slice that `context` emits, at most 8 KiB | CONFIRMED |
 | Epistemic Status | `CONFIRMED`, `HYPOTHESIS`, or `UNKNOWN`, used on facts in Product and Stack | CONFIRMED |
 | Workflow Status | `TODO`, `IN_PROGRESS`, `PAUSE`, or `DONE`, used on work items in Roadmap | CONFIRMED |
+| Holder | The agent of the last IN_PROGRESS entry (the assignee of an ASSIGNED task), also while the task is in REVIEW; only the holder, or the reviewer who passed it, closes the task | CONFIRMED |
+| Handoff and Review | handoff moves a held task to REVIEW; review answers it with PASS or FAIL, and FAIL sends the task back to its holder | CONFIRMED |
+| Agent id | The one stable text an agent uses in every command; aliases in the optional Agent identity table normalise to it | CONFIRMED |
 
 ## Out of scope
 

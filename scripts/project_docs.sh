@@ -14,9 +14,39 @@ CONTEXT_LIMIT=8192
 LOG_BYTES_LIMIT=131072
 LOG_ENTRIES_LIMIT=200
 STALE_HOURS="${PROJECT_DOCS_STALE_HOURS:-24}"
+MIN_WORK_MINUTES="${PROJECT_DOCS_MIN_WORK_MINUTES:-5}"
 BLOCK_START='<!-- project-documentation:start -->'
 BLOCK_END='<!-- project-documentation:end -->'
 TAB="$(printf '\t')"
+# Unit separator: a NON-whitespace IFS for read -r. A tab IFS is whitespace,
+# so read merges adjacent empty fields (pausecat, conflict, handoff, ... are
+# usually empty) and shifts every later variable. Pipe the task-state TSV
+# through tr '\t' to US before any while-read loop.
+US="$(printf '\037')"
+# Shared awk helpers (spliced in front of awk programs with "$AWK_EPOCH"'...').
+# iso_epoch turns YYYY-MM-DDTHH:MM:SSZ into epoch seconds without date(1), so
+# the scanners can compare entry timestamps on any platform; is_old needs
+# -v stale_s=<seconds>. No apostrophes in here: this text sits inside a
+# single-quoted shell string and an apostrophe would end it.
+AWK_EPOCH='
+function iso_epoch(ts,   y,m,d,hh,mi,ss,era,yoe,mp,doy,doe) {
+  if (ts !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/) return -1
+  y=substr(ts,1,4)+0; m=substr(ts,6,2)+0; d=substr(ts,9,2)+0
+  hh=substr(ts,12,2)+0; mi=substr(ts,15,2)+0; ss=substr(ts,18,2)+0
+  if (m<=2) y--
+  era=int(y/400)
+  yoe=y-era*400
+  mp=(m+9)%12
+  doy=int((153*mp+2)/5)+d-1
+  doe=yoe*365+int(yoe/4)-int(yoe/100)+doy
+  return (era*146097+doe-719468)*86400+hh*3600+mi*60+ss
+}
+function is_old(prev, cur,   a, b) {
+  a=iso_epoch(prev); b=iso_epoch(cur)
+  if (a<0 || b<0) return 0
+  return (b-a) >= stale_s
+}
+'
 
 die() {
   echo "project_docs: $*" >&2
@@ -284,11 +314,22 @@ latest_log_entries() {
 # ---------------------------------------------------------------------------
 # Agentslog scanner: one pass, reused by claim/pause/done/status/context/
 # check/rotate. Emits one TSV line per task id (order of first appearance):
-#   task  status  agent  timestamp  pause_category  conflict  ever_done
+#   task  status  agent  timestamp  pause_category  conflict  ever_done  name
+#   holder  handoff  review
+# status is the word of the LAST entry (IN_PROGRESS, PAUSE, REVIEW, DONE).
+# holder is the agent of the last IN_PROGRESS entry (the developer who owns
+# the task, also while it is in REVIEW), or the last entry agent if there is
+# none. handoff is the destination named by the latest "- Handoff:" line of
+# the current review cycle (reset by a new IN_PROGRESS). review is PASS or
+# FAIL when the LAST entry carries a "- Review:" line, otherwise empty. New
+# fields are only ever appended: callers use cut -fN and read with a
+# unit-separator IFS, so earlier columns must never move.
+# Effective stage: REVIEW unless review is FAIL, which means the task is back
+# with its holder (IN_PROGRESS for them).
 # ---------------------------------------------------------------------------
 all_task_states() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
-  awk '
+  awk -v stale_s="$((STALE_HOURS * 3600))" "$AWK_EPOCH"'
     $0 == "## Entries" { in_entries=1; next }
     in_entries && /^## \[/ {
       line=$0
@@ -298,11 +339,19 @@ all_task_states() {
       split(line,f,"|")
       ts=f[1]; agent=f[2]; tid=f[3]; status=f[4]; name=f[5]
       if (!(tid in seen)) { seen[tid]=1; order[++cnt]=tid }
-      if (status=="IN_PROGRESS" && last_status[tid]=="IN_PROGRESS" && last_agent[tid]!=agent) {
-        conflict[tid] = last_agent[tid] " vs " agent
+      if (status=="IN_PROGRESS") {
+        if (last_status[tid]=="IN_PROGRESS" && last_agent[tid]!=agent) {
+          conflict[tid] = last_agent[tid] " vs " agent
+        } else if (last_status[tid]=="REVIEW" && hold[tid]!="" && hold[tid]!=agent && !is_old(last_ts[tid], ts)) {
+          conflict[tid] = hold[tid] " vs " agent
+        }
+        hold[tid]=agent
+        last_handoff[tid]=""
       }
+      if (status=="ASSIGNED") last_handoff[tid]=""
       if (status=="DONE") { ever_done[tid]=1 }
       last_status[tid]=status; last_agent[tid]=agent; last_ts[tid]=ts; last_pause[tid]=""
+      last_review[tid]=""
       if (name!="") last_name[tid]=name
       cur=tid
       next
@@ -315,10 +364,31 @@ all_task_states() {
       last_pause[cur]=p
       next
     }
+    in_entries && cur!="" && /^- Assign:/ {
+      line=$0
+      sub(/^- Assign:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
+      if (last_status[cur]=="ASSIGNED" && line!="") { hold[cur]=line; last_handoff[cur]=line }
+      next
+    }
+    in_entries && cur!="" && /^- Handoff:/ {
+      line=$0
+      sub(/^- Handoff:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
+      last_handoff[cur]=line
+      next
+    }
+    in_entries && cur!="" && /^- Review:/ {
+      line=$0
+      sub(/^- Review:[ \t]*/,"",line)
+      dash=index(line," - ")
+      if (dash>0) p=substr(line,1,dash-1); else p=line
+      gsub(/[ \t]+$/,"",p)
+      last_review[cur]=p
+      next
+    }
     END {
       for (i=1;i<=cnt;i++) {
         t=order[i]
-        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t]
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t], (t in hold ? hold[t] : last_agent[t]), last_handoff[t], last_review[t]
       }
     }
   ' "$DOCS_DIR/Agentslog.md"
@@ -342,6 +412,79 @@ age_hours() {
   echo $(( (now - then_epoch) / 3600 ))
 }
 
+# ---------------------------------------------------------------------------
+# Agent identity. The optional "## Agent identity" table in the project root
+# AGENTS.md lists one stable id per agent plus aliases. With at least one data
+# row, claim/pause/handoff/review/done normalise the agent name to its Agent id
+# (case-insensitive match against id and aliases); an unknown name only warns
+# and is used as typed. Without the section or rows nothing changes: no
+# normalisation, no warnings.
+# ---------------------------------------------------------------------------
+# roster_rows: one TSV line per data row: id kind model role aliases.
+roster_rows() {
+  [ -f "$PROJECT/AGENTS.md" ] || return 0
+  awk '
+    $0 == "## Agent identity" { insec=1; next }
+    insec && /^## / { insec=0 }
+    insec && /^\|/ {
+      line=$0
+      sub(/^\|/,"",line); sub(/\|[ \t]*$/,"",line)
+      n=split(line,c,"|")
+      for (i=1;i<=n;i++) gsub(/^[ \t]+|[ \t]+$/,"",c[i])
+      id=c[1]
+      if (id=="" || id=="Agent id" || id=="—" || id ~ /^-+$/) next
+      printf "%s\t%s\t%s\t%s\t%s\n", id, c[2], c[3], c[4], c[5]
+    }
+  ' "$PROJECT/AGENTS.md"
+}
+
+canonical_agent() {
+  raw="$1"
+  roster="$(roster_rows)"
+  if [ -z "$roster" ]; then printf '%s' "$raw"; return 0; fi
+  found="$(printf '%s\n' "$roster" | awk -F'\t' -v want="$raw" '
+    BEGIN { w=tolower(want) }
+    {
+      if (tolower($1)==w) { print $1; exit }
+      n=split($5,a,",")
+      for (i=1;i<=n;i++) {
+        x=a[i]; gsub(/^[ \t]+|[ \t]+$/,"",x)
+        if (x!="" && x!="—" && tolower(x)==w) { print $1; exit }
+      }
+    }
+  ')"
+  if [ -n "$found" ]; then
+    printf '%s' "$found"
+  else
+    echo "WARN: unknown agent \"$raw\" (not in the Agent identity table)" >&2
+    printf '%s' "$raw"
+  fi
+}
+
+# roster_role ID: prints the Role (DEVELOPER, QA or BOTH) of a roster id.
+roster_role() {
+  roster_rows | awk -F'\t' -v id="$1" '$1==id { print $4; exit }'
+}
+
+# Timestamp of the first IN_PROGRESS entry of a task in the hot ledger.
+first_claim_ts() {
+  [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
+  awk -v want="$1" '
+    $0=="## Entries" { in_e=1; next }
+    in_e && /^## \[/ {
+      line=$0
+      sub(/^## \[/,"",line); sub(/\] \| /,"|",line); gsub(/ \| /,"|",line)
+      split(line,f,"|")
+      if (f[3]==want && f[4]=="IN_PROGRESS") { print f[1]; exit }
+    }
+  ' "$DOCS_DIR/Agentslog.md"
+}
+
+# gap_label SECONDS: "3s" under a minute, otherwise "2m".
+gap_label() {
+  if [ "$1" -lt 60 ]; then printf '%ss' "$1"; else printf '%sm' "$(( $1 / 60 ))"; fi
+}
+
 is_stale() {
   task="$1"
   if state="$(task_state "$task")"; then
@@ -354,15 +497,40 @@ is_stale() {
   return 1
 }
 
+# Open tasks: last entry IN_PROGRESS, PAUSE or REVIEW (a REVIEW task stays open
+# until DONE, including after a Review: FAIL, when it is back with its holder).
+open_task_states() {
+  all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE" || $2=="REVIEW" || $2=="ASSIGNED"'
+}
+
+# stage_label STATUS REVIEW HANDOFF: the stage text status and context print.
+# REVIEW shows the handoff destination (ASCII "->", so sh and PowerShell print
+# the same bytes); REVIEW(PASS) once a reviewer passed it; a Review: FAIL means
+# the task is back with its holder, i.e. IN_PROGRESS.
+stage_label() {
+  if [ "$1" = "ASSIGNED" ]; then
+    if [ -n "$3" ]; then printf 'ASSIGNED->%s' "$3"; else printf 'ASSIGNED'; fi
+    return 0
+  fi
+  if [ "$1" != "REVIEW" ]; then printf '%s' "$1"; return 0; fi
+  if [ "$2" = "FAIL" ]; then printf 'IN_PROGRESS'; return 0; fi
+  label="REVIEW"
+  if [ "$2" = "PASS" ]; then label="REVIEW(PASS)"; fi
+  if [ -n "$3" ]; then label="$label->$3"; fi
+  printf '%s' "$label"
+}
+
 open_tasks_line() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
-  all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE"' |
-  while IFS="$TAB" read -r tid status agent ts pausecat conflict everdone name; do
+  open_task_states | tr '\t' '\037' |
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
     if [ "$status" = "PAUSE" ]; then reason="$pausecat"; fi
-    printf '%s | %s | %s | %sh | %s\n' "$tid" "$agent" "$status" "$hrs" "$reason"
+    shown="$agent"
+    if [ "$status" = "REVIEW" ]; then shown="$holder"; fi
+    printf '%s | %s | %s | %sh | %s\n' "$tid" "$shown" "$(stage_label "$status" "$review" "$handoff")" "$hrs" "$reason"
   done
 }
 
@@ -655,7 +823,7 @@ with_lock() {
 cmd_claim() {
   shift 2
   [ "$#" -ge 3 ] || die "claim requires: agent task-id summary"
-  agent="$(clean_field "$1")"
+  agent="$(canonical_agent "$(clean_field "$1")")"
   task="$(clean_field "$2")"
   summary="$(clean_field "$3")"
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
@@ -675,6 +843,21 @@ cmd_claim() {
       if [ "$pausecat" != "LIMITE" ] && [ "$owner" != "$agent" ]; then
         die "claim failed: $task is PAUSE ($pausecat); resolvable only by $owner until the reason clears"
       fi
+    elif [ "$status" = "REVIEW" ]; then
+      # During REVIEW the developer is still the holder: they may take it back
+      # (after a FAIL, or to withdraw the handoff); anyone else only once the
+      # last entry is stale.
+      holder="$(printf '%s' "$state" | cut -f9)"
+      if [ -n "$holder" ] && [ "$holder" != "$agent" ] && ! is_stale "$task"; then
+        die "claim failed: $task is in REVIEW, held by $holder"
+      fi
+    elif [ "$status" = "ASSIGNED" ]; then
+      # An assignment is a request, not a lock: another agent may still take
+      # the task, but is told it was assigned to someone else.
+      holder="$(printf '%s' "$state" | cut -f9)"
+      if [ -n "$holder" ] && [ "$holder" != "$agent" ]; then
+        echo "WARN: $task is assigned to $holder, not $agent" >&2
+      fi
     fi
   fi
   name="$(require_valid_name "$task")"
@@ -692,7 +875,7 @@ cmd_claim() {
 cmd_pause() {
   shift 2
   [ "$#" -ge 4 ] || die "pause requires: agent task-id category detail"
-  agent="$(clean_field "$1")"
+  agent="$(canonical_agent "$(clean_field "$1")")"
   task="$(clean_field "$2")"
   category="$(clean_field "$3")"
   detail="$(clean_field "$4")"
@@ -721,18 +904,190 @@ cmd_pause() {
   echo "project_docs pause: $task paused ($category)"
 }
 
+# handoff <agent> <task-id> <summary> <verify> [reviewer]
+# The developer says the code is complete and their own verification passed.
+# Written as a REVIEW entry (the Roadmap row stays IN_PROGRESS with the same
+# Owner: the stage lives in the ledger only). Same ownership checks as pause.
+cmd_handoff() {
+  shift 2
+  [ "$#" -ge 4 ] || die "handoff requires: agent task-id summary verify [reviewer]"
+  agent="$(canonical_agent "$(clean_field "$1")")"
+  task="$(clean_field "$2")"
+  summary="$(clean_field "$3")"
+  verify="$(clean_field "$4")"
+  reviewer="$(clean_field "${5:-}")"
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  [ -n "$summary" ] || die "handoff requires a non-empty summary"
+  if [ -z "$verify" ] || [ "$verify" = "pending" ]; then
+    die "handoff requires a verify that is not empty or pending"
+  fi
+  with_lock
+  if state="$(task_state "$task")"; then
+    status="$(printf '%s' "$state" | cut -f2)"
+    owner="$(printf '%s' "$state" | cut -f3)"
+  else
+    die "handoff failed: $task has no IN_PROGRESS entry to hand off"
+  fi
+  [ "$status" = "IN_PROGRESS" ] || die "handoff failed: $task is not IN_PROGRESS (current: $status)"
+  [ "$owner" = "$agent" ] || die "handoff failed: $task is owned by $owner, not $agent"
+  name="$(require_valid_name "$task" handoff)"
+  timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  {
+    echo
+    echo "## [$timestamp] | $agent | $task | REVIEW | $name"
+    echo "- Summary: $summary"
+    echo "- Verify: $verify"
+    if [ -n "$reviewer" ]; then echo "- Handoff: $reviewer"; fi
+  } >> "$DOCS_DIR/Agentslog.md"
+  if [ -n "$reviewer" ]; then
+    echo "project_docs handoff: $task handed to review ($reviewer)"
+  else
+    echo "project_docs handoff: $task handed to review"
+  fi
+}
+
+# review <agent> <task-id> <PASS|FAIL> <note> [verify]
+# A reviewer answers a pending handoff. Written as a REVIEW entry in the
+# reviewer's name carrying a "- Review: PASS|FAIL - note" line; the Roadmap row
+# is not touched. After FAIL the task is back with its holder, who retakes it
+# with claim. Reviewing your own handoff warns (a single-agent project must not
+# freeze) unless PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1.
+cmd_review() {
+  shift 2
+  [ "$#" -ge 4 ] || die "review requires: agent task-id PASS|FAIL note [verify]"
+  agent="$(canonical_agent "$(clean_field "$1")")"
+  task="$(clean_field "$2")"
+  result="$(clean_field "$3")"
+  note="$(clean_field "$4")"
+  verify="$(clean_field "${5:-}")"
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  case "$result" in
+    PASS|FAIL) ;;
+    *) die "review requires PASS or FAIL as the result" ;;
+  esac
+  [ -n "$note" ] || die "review requires a non-empty note"
+  if [ "$verify" = "pending" ]; then die "review verify must not be pending"; fi
+  if [ "$result" = "PASS" ] && [ -z "$verify" ]; then
+    die "review PASS requires a verify that is not empty or pending"
+  fi
+  with_lock
+  if state="$(task_state "$task")"; then
+    status="$(printf '%s' "$state" | cut -f2)"
+    holder="$(printf '%s' "$state" | cut -f9)"
+    reviewed="$(printf '%s' "$state" | cut -f11)"
+  else
+    die "review failed: $task has no handoff to review"
+  fi
+  [ "$status" = "REVIEW" ] || die "review failed: $task has no pending handoff (current: $status)"
+  [ -z "$reviewed" ] || die "review failed: $task was already reviewed ($reviewed); the holder must claim it again"
+  if [ "$agent" = "$holder" ]; then
+    if [ "${PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW:-0}" = "1" ]; then
+      die "review failed: $agent developed $task; an independent review is required"
+    fi
+    echo "WARN: self-review: $agent reviews its own handoff of $task" >&2
+  fi
+  if [ "$(roster_role "$agent")" = "DEVELOPER" ]; then
+    echo "WARN: $agent has role DEVELOPER in the Agent identity table, not QA or BOTH" >&2
+  fi
+  name="$(require_valid_name "$task" review)"
+  timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  {
+    echo
+    echo "## [$timestamp] | $agent | $task | REVIEW | $name"
+    echo "- Summary: Review of the handoff from $holder"
+    if [ -n "$verify" ]; then echo "- Verify: $verify"; fi
+    echo "- Review: $result - $note"
+  } >> "$DOCS_DIR/Agentslog.md"
+  echo "project_docs review: $task $result by $agent"
+}
+
+# assign <agent> <task-id> <to-agent>
+# Records that <agent> assigned the task to <to-agent> (an ASSIGNED entry with a
+# "- Assign:" line) and sets the Roadmap Owner to <to-agent>@<timestamp>. The
+# row stays TODO and no work starts: the assignee still has to claim. A task
+# somebody is already working on (IN_PROGRESS, PAUSE, REVIEW) cannot be assigned.
+cmd_assign() {
+  shift 2
+  [ "$#" -ge 3 ] || die "assign requires: agent task-id to-agent"
+  agent="$(canonical_agent "$(clean_field "$1")")"
+  task="$(clean_field "$2")"
+  to_agent="$(canonical_agent "$(clean_field "$3")")"
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  [ -n "$to_agent" ] || die "assign requires a non-empty to-agent"
+  if ! roadmap_has_id "$task"; then
+    die "assign failed: $task not found in docs/Roadmap.md"
+  fi
+  with_lock
+  if state="$(task_state "$task")"; then
+    status="$(printf '%s' "$state" | cut -f2)"
+    holder="$(printf '%s' "$state" | cut -f9)"
+    case "$status" in
+      IN_PROGRESS|PAUSE|REVIEW) die "assign failed: $task is $status, held by $holder" ;;
+    esac
+  fi
+  name="$(require_valid_name "$task" assign)"
+  timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  {
+    echo
+    echo "## [$timestamp] | $agent | $task | ASSIGNED | $name"
+    echo "- Summary: Assigned to $to_agent"
+    echo "- Assign: $to_agent"
+  } >> "$DOCS_DIR/Agentslog.md"
+  roadmap_update_row_inplace "$task" "TODO" "$to_agent@$timestamp" "—"
+  echo "project_docs assign: $task assigned to $to_agent"
+}
+
 cmd_done() {
   shift 2
   [ "$#" -ge 5 ] || die "done requires: agent task-id summary files verify"
-  agent="$(clean_field "$1")"
+  agent="$(canonical_agent "$(clean_field "$1")")"
   task="$(clean_field "$2")"
   summary="$(clean_field "$3")"
   files="$(clean_field "$4")"
   verify="$(clean_field "$5")"
   [ -n "$verify" ] || die "done requires a non-empty verify"
   with_lock
+  # Who may close a task: nobody has an entry for it (retroactive close, the
+  # normal case for batches), the holder, the reviewer who left Review: PASS,
+  # anyone once the last entry is stale, or anyone with PROJECT_DOCS_FORCE=1.
+  if state="$(task_state "$task")"; then
+    status="$(printf '%s' "$state" | cut -f2)"
+    last_agent="$(printf '%s' "$state" | cut -f3)"
+    holder="$(printf '%s' "$state" | cut -f9)"
+    review="$(printf '%s' "$state" | cut -f11)"
+    allowed=0
+    if [ "$agent" = "$holder" ]; then
+      allowed=1
+    elif [ "$status" = "REVIEW" ] && [ "$review" = "PASS" ] && [ "$agent" = "$last_agent" ]; then
+      allowed=1
+    elif [ "${PROJECT_DOCS_FORCE:-0}" = "1" ]; then
+      allowed=1
+    elif is_stale "$task"; then
+      allowed=1
+    fi
+    [ "$allowed" -eq 1 ] || die "done failed: $task is held by $holder"
+    if [ "$status" = "REVIEW" ] && [ "$review" != "PASS" ]; then
+      if [ "$review" = "FAIL" ]; then
+        echo "WARN: $task: closing without a passing review (the last review was FAIL)" >&2
+      else
+        echo "WARN: $task: closing without a passing review (the handoff is still pending)" >&2
+      fi
+    fi
+  fi
+  vlow="$(printf '%s' "$verify" | tr 'A-Z' 'a-z' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  case "$vlow" in
+    none|n/a|"no run"|ninguno|"—"|unknown)
+      echo "WARN: verify \"$verify\" says nothing about what was checked" >&2 ;;
+  esac
   name="$(require_valid_name "$task" done)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  claim_ts="$(first_claim_ts "$task")"
+  if [ -n "$claim_ts" ]; then
+    gap="$(awk -v a="$claim_ts" -v b="$timestamp" "$AWK_EPOCH"'BEGIN { x=iso_epoch(a); y=iso_epoch(b); if (x<0 || y<0) print -1; else print y-x }')"
+    if [ "$gap" -ge 0 ] && [ "$gap" -lt $(( MIN_WORK_MINUTES * 60 )) ]; then
+      echo "WARN: $task was claimed and closed $(gap_label "$gap") apart; claim before the first edit so the work is visible while it happens" >&2
+    fi
+  fi
   {
     echo
     echo "## [$timestamp] | $agent | $task | DONE | $name"
@@ -747,17 +1102,19 @@ cmd_done() {
 
 cmd_status() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
-  all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE"' |
-  while IFS="$TAB" read -r tid status agent ts pausecat conflict everdone name; do
+  open_task_states | tr '\t' '\037' |
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
     if [ "$status" = "PAUSE" ]; then reason="$pausecat"; fi
     stale=""
-    if [ "$status" = "IN_PROGRESS" ] && [ "$hrs" != "?" ] && [ "$hrs" -ge "$STALE_HOURS" ]; then
+    if [ "$status" != "PAUSE" ] && [ "$status" != "ASSIGNED" ] && [ "$hrs" != "?" ] && [ "$hrs" -ge "$STALE_HOURS" ]; then
       stale=" (stale)"
     fi
-    printf '%s | %s | %s | %s | %sh%s | %s\n' "$tid" "$name" "$agent" "$status" "$hrs" "$stale" "$reason"
+    shown="$agent"
+    if [ "$status" = "REVIEW" ]; then shown="$holder"; fi
+    printf '%s | %s | %s | %s | %sh%s | %s\n' "$tid" "$name" "$shown" "$(stage_label "$status" "$review" "$handoff")" "$hrs" "$stale" "$reason"
   done
 }
 
@@ -1250,7 +1607,7 @@ check_log_rotation() {
 
 check_log_entries() {
   log="$DOCS_DIR/Agentslog.md"
-  out="$(awk '
+  out="$(awk -v stale_s="$((STALE_HOURS * 3600))" "$AWK_EPOCH"'
     $0 == "## Entries" { in_entries=1; next }
     in_entries && /^## \[/ {
       if (hdr != "") { validate() }
@@ -1260,22 +1617,77 @@ check_log_entries() {
       sub(/\] \| /,"|",line)
       gsub(/ \| /,"|",line)
       split(line,f,"|")
-      status=f[4]; tidnow=f[3]; agentnow=f[2]; name=f[5]
+      status=f[4]; tidnow=f[3]; agentnow=f[2]; name=f[5]; tsnow=f[1]
       if (status=="IN_PROGRESS" && last_status[tidnow]=="IN_PROGRESS" && last_agent[tidnow]!=agentnow) {
         print "ERROR: conflicting concurrent claim on " tidnow ": " last_agent[tidnow] " and " agentnow
+      } else if (status=="IN_PROGRESS" && last_status[tidnow]=="REVIEW" && hold[tidnow]!="" && hold[tidnow]!=agentnow && !is_old(last_ts[tidnow], tsnow)) {
+        # Two REVIEW entries by different agents (developer, reviewer) are
+        # normal; only a third agent starting work on a task that is held by
+        # someone else, and not stale, is a conflict.
+        print "ERROR: conflicting concurrent claim on " tidnow ": " hold[tidnow] " and " agentnow
       }
+      if (status=="IN_PROGRESS") hold[tidnow]=agentnow
       last_status[tidnow]=status
       last_agent[tidnow]=agentnow
+      last_ts[tidnow]=tsnow
       pauseline=""
       verifyline=""
+      summaryline=""
+      handoffline=""
+      reviewline=""
+      assignline=""
       next
     }
     in_entries && /^- Pause:/ { pauseline=$0; next }
     in_entries && /^- Verify:/ { verifyline=$0; next }
+    in_entries && /^- Summary:/ { summaryline=$0; next }
+    in_entries && /^- Handoff:/ { handoffline=$0; next }
+    in_entries && /^- Review:/ { reviewline=$0; next }
+    in_entries && /^- Assign:/ { assignline=$0; next }
     END { if (hdr != "") validate() }
-    function validate(   body,dash,cat,detail) {
-      if (status!="IN_PROGRESS" && status!="PAUSE" && status!="DONE") {
-        print "ERROR: invalid status in entry: " hdr
+    function validate(   body,dash,cat,detail,rres,rdetail) {
+      if (status!="IN_PROGRESS" && status!="PAUSE" && status!="DONE" && status!="REVIEW" && status!="ASSIGNED") {
+        print "ERROR: invalid status in entry (expected IN_PROGRESS, PAUSE, REVIEW, ASSIGNED or DONE): " hdr
+      }
+      if (status=="ASSIGNED") {
+        body=assignline
+        sub(/^- Assign:[ \t]*/,"",body); gsub(/[ \t]+$/,"",body)
+        if (assignline=="" || body=="") {
+          print "ERROR: ASSIGNED entry missing Assign target: " hdr
+        }
+      }
+      if (status=="REVIEW") {
+        rres=""; rdetail=""
+        if (reviewline!="") {
+          body=reviewline
+          sub(/^- Review:[ 	]*/,"",body)
+          dash=index(body," - ")
+          rres=(dash>0) ? substr(body,1,dash-1) : body
+          rdetail=(dash>0) ? substr(body,dash+3) : ""
+          gsub(/^[ 	]+|[ 	]+$/,"",rres); gsub(/^[ 	]+|[ 	]+$/,"",rdetail)
+          if (rres!="PASS" && rres!="FAIL") {
+            print "ERROR: REVIEW entry has invalid Review result (expected PASS or FAIL): " hdr
+          }
+          if (rdetail=="") {
+            print "ERROR: REVIEW entry missing Review detail: " hdr
+          }
+        }
+        body=summaryline
+        sub(/^- Summary:[ 	]*/,"",body); gsub(/[ 	]+$/,"",body)
+        if (summaryline=="" || body=="") {
+          print "ERROR: REVIEW entry missing Summary: " hdr
+        }
+        # A handoff and a Review: PASS say what was verified; a Review: FAIL
+        # may carry no Verify (the reviewer verified nothing that passed).
+        if (verifyline=="") {
+          if (rres!="FAIL") print "ERROR: REVIEW entry missing Verify line: " hdr
+        } else {
+          body=verifyline
+          sub(/^- Verify:[ 	]*/,"",body); gsub(/[ 	]+$/,"",body)
+          if (body=="" || body=="pending") {
+            print "ERROR: REVIEW entry has empty or pending Verify: " hdr
+          }
+        }
       }
       if (status=="PAUSE") {
         if (pauseline=="") {
@@ -1574,6 +1986,72 @@ check_agentslog_roadmap_names() {
   fi
 }
 
+# Warns (never fails) about agent names in the hot ledger that are neither an
+# Agent id nor an alias, at most 10 of them plus a count. Silent without a roster.
+check_roster_names() {
+  [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
+  rf="$(mktemp "${TMPDIR:-/tmp}/project-docs-roster.XXXXXX")"
+  roster_rows > "$rf"
+  if [ ! -s "$rf" ]; then rm -f "$rf"; return 0; fi
+  awk -F'\t' '
+    FNR==NR {
+      known[tolower($1)]=1
+      n=split($5,a,",")
+      for (i=1;i<=n;i++) { x=a[i]; gsub(/^[ \t]+|[ \t]+$/,"",x); if (x!="" && x!="—") known[tolower(x)]=1 }
+      next
+    }
+    $0=="## Entries" { in_e=1; next }
+    in_e && /^## \[/ {
+      line=$0
+      sub(/^## \[/,"",line); sub(/\] \| /,"|",line); gsub(/ \| /,"|",line)
+      split(line,f,"|")
+      ag=f[2]
+      if (!(tolower(ag) in known) && !(ag in seen)) { seen[ag]=1; order[++cnt]=ag }
+    }
+    END {
+      for (i=1;i<=cnt && i<=10;i++) print "WARN: unknown agent \"" order[i] "\" in the ledger (not in the Agent identity table)"
+      if (cnt>10) print "WARN: " (cnt-10) " more unknown agent name(s) in the ledger"
+    }
+  ' "$rf" "$DOCS_DIR/Agentslog.md" >&2
+  rm -f "$rf"
+}
+
+# One summary line plus at most the 5 most recent tasks closed within
+# PROJECT_DOCS_MIN_WORK_MINUTES (default 5) of their first claim. Closing a
+# batch afterwards is legitimate: this only says so. Never fails.
+check_instant_closes() {
+  [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
+  awk -v min_s="$(( MIN_WORK_MINUTES * 60 ))" -v min_m="$MIN_WORK_MINUTES" "$AWK_EPOCH"'
+    $0=="## Entries" { in_e=1; next }
+    in_e && /^## \[/ {
+      line=$0
+      sub(/^## \[/,"",line); sub(/\] \| /,"|",line); gsub(/ \| /,"|",line)
+      split(line,f,"|")
+      ts=f[1]; tid=f[3]; st=f[4]
+      if (st=="IN_PROGRESS" && !(tid in first)) first[tid]=ts
+      if (st=="DONE" && (tid in first) && !(tid in counted)) {
+        counted[tid]=1
+        e1=iso_epoch(first[tid]); e2=iso_epoch(ts)
+        if (e1>=0 && e2>=0) {
+          closed++
+          g=e2-e1
+          if (g>=0 && g<min_s) { quick++; qid[quick]=tid; qgap[quick]=g }
+        }
+      }
+    }
+    END {
+      if (quick>0) {
+        print "WARN: " quick " of " closed " closed tasks were closed within " min_m " min of their claim"
+        start=quick-4; if (start<1) start=1
+        for (i=start;i<=quick;i++) {
+          g=qgap[i]; lab=(g<60 ? g "s" : int(g/60) "m")
+          print "WARN: " qid[i] " was claimed and closed " lab " apart; claim before the first edit so the work is visible while it happens"
+        }
+      }
+    }
+  ' "$DOCS_DIR/Agentslog.md" >&2
+}
+
 check_warnings() {
   unknown_count=0
   for f in docs/ProductDescription.md docs/Stack_Tecnologies.md docs/Features.md; do
@@ -1586,6 +2064,8 @@ check_warnings() {
   if [ "$unknown_count" -gt 0 ]; then
     echo "WARN: $unknown_count UNKNOWN field(s) in Operational summaries" >&2
   fi
+  check_roster_names
+  check_instant_closes
   for name in $LINK_TARGETS_DEFAULT; do
     rel="$(link_target_path "$name")"
     full="$PROJECT/$rel"
@@ -1594,13 +2074,22 @@ check_warnings() {
     fi
   done
   if [ -f "$DOCS_DIR/Agentslog.md" ]; then
-    stale_out="$(all_task_states | awk -F'\t' '$2=="IN_PROGRESS"{print $1"\t"$4}')"
+    # A REVIEW whose last entry says Review: FAIL is back with its holder, so
+    # it is reported as IN_PROGRESS; a pending or passed REVIEW as REVIEW.
+    stale_out="$(all_task_states | awk -F'\t' '
+      $2=="IN_PROGRESS" { print $1"\t"$4"\tIN_PROGRESS" }
+      $2=="REVIEW" { print $1"\t"$4"\t"($11=="FAIL" ? "IN_PROGRESS" : "REVIEW") }
+    ')"
     if [ -n "$stale_out" ]; then
-      printf '%s\n' "$stale_out" | while IFS="$TAB" read -r tid ts; do
+      printf '%s\n' "$stale_out" | while IFS="$TAB" read -r tid ts stage; do
         [ -n "$tid" ] || continue
         hrs="$(age_hours "$ts")"
         if [ "$hrs" != "?" ] && [ "$hrs" -ge "$STALE_HOURS" ]; then
-          echo "WARN: $tid has been IN_PROGRESS for ${hrs}h (>= ${STALE_HOURS}h)" >&2
+          if [ "$stage" = "REVIEW" ]; then
+            echo "WARN: $tid has been in REVIEW for ${hrs}h (>= ${STALE_HOURS}h)" >&2
+          else
+            echo "WARN: $tid has been IN_PROGRESS for ${hrs}h (>= ${STALE_HOURS}h)" >&2
+          fi
         fi
       done
     fi
@@ -1736,7 +2225,7 @@ rotate_log() {
   archive_hash="$(file_hash "$archive")"
   [ "$source_hash" = "$archive_hash" ] || die "archive hash verification failed"
 
-  open_summary="$(all_task_states | awk -F'\t' '$2=="IN_PROGRESS" || $2=="PAUSE"')"
+  open_summary="$(open_task_states)"
   archive_name="$(basename "$archive")"
 
   tmp="$DOCS_DIR/.Agentslog.md.tmp.$$"
@@ -1752,8 +2241,11 @@ rotate_log() {
     echo "## [YYYY-MM-DDTHH:mm:ssZ] | agent | TASK-ID | IN_PROGRESS | Name"
     echo "- Summary: what the agent will do or did"
     echo "- Files: paths or component names (optional)"
-    echo "- Verify: command and result, or \"pending\" (required for DONE)"
+    echo "- Verify: command and result, or \"pending\" (required for DONE and REVIEW)"
     echo "- Pause: CATEGORY - detail (required for PAUSE)"
+    echo "- Handoff: reviewer agent or role (optional, REVIEW)"
+    echo "- Review: PASS|FAIL - detail (optional, REVIEW)"
+    echo "- Assign: agent (required for ASSIGNED)"
     echo '```'
     echo
     echo "## Previous segment"
@@ -1763,13 +2255,30 @@ rotate_log() {
     echo
     echo "## Entries"
     if [ -n "$open_summary" ]; then
-      printf '%s\n' "$open_summary" | while IFS="$TAB" read -r tid status agent ts pausecat conflict everdone name; do
+      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review; do
         [ -n "$tid" ] || continue
+        if [ "$status" = "REVIEW" ]; then
+          # The developer who holds the task is not necessarily the agent of the
+          # last entry (a reviewer wrote it), so re-open the holder first and
+          # then the REVIEW entry with its handoff/review lines; otherwise done
+          # by the holder would stop working after a rotation.
+          echo
+          echo "## [$ts] | $holder | $tid | IN_PROGRESS | $name"
+          echo "- Summary: carried forward from docs/history/$archive_name at rotation"
+        fi
         echo
         echo "## [$ts] | $agent | $tid | $status | $name"
         echo "- Summary: carried forward from docs/history/$archive_name at rotation"
         if [ "$status" = "PAUSE" ]; then
           echo "- Pause: $pausecat - see docs/history/$archive_name for detail"
+        fi
+        if [ "$status" = "ASSIGNED" ]; then
+          echo "- Assign: $holder"
+        fi
+        if [ "$status" = "REVIEW" ]; then
+          echo "- Verify: carried forward from docs/history/$archive_name"
+          if [ -n "$handoff" ]; then echo "- Handoff: $handoff"; fi
+          if [ -n "$review" ]; then echo "- Review: $review - carried forward from docs/history/$archive_name"; fi
         fi
       done
     fi
@@ -1788,9 +2297,12 @@ case "$COMMAND" in
   link) cmd_link "$@" ;;
   claim) cmd_claim "$@" ;;
   pause) cmd_pause "$@" ;;
+  handoff) cmd_handoff "$@" ;;
+  review) cmd_review "$@" ;;
+  assign) cmd_assign "$@" ;;
   done) cmd_done "$@" ;;
   status) cmd_status ;;
   *)
-    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|done|status} <project> [args]"
+    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status} <project> [args]"
     ;;
 esac

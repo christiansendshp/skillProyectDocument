@@ -49,10 +49,13 @@ Both launchers also provide:
 |---|---|
 | `link [--create <list>]` | Point other agent files (`CLAUDE.md`, `.cursorrules`, ...) at `AGENTS.md`; run automatically at the end of `init` |
 | `migrate` | Merge a legacy `docs/Agents.md` into root `AGENTS.md`, fix a root case-only filename, add missing `Roadmap.md` sections, convert a per-entry YAML Roadmap back to tables, retrofit a `Name` column onto a pre-Name Roadmap — idempotent |
-| `claim <agent> <task-id> <summary>` | Take a Roadmap task; fails if another agent already owns it |
+| `claim <agent> <task-id> <summary>` | Take a Roadmap task before your first edit; fails if another agent already owns it (the holder may retake a task in `REVIEW`) |
 | `pause <agent> <task-id> <category> <detail>` | Release a task (`LIMITE`\|`ESPERA_RESPUESTA`\|`BLOQUEO`\|`OTRO`) |
-| `done <agent> <task-id> <summary> <files> <verify>` | Close a task, record it in `Features.md`, clear it from the Roadmap |
-| `status` | List every open (`IN_PROGRESS`/`PAUSE`) task, owner, age, reason |
+| `handoff <agent> <task-id> <summary> <verify> [reviewer]` | Code complete and your own verification passed: move the task to `REVIEW` (ledger only, the Roadmap row stays `IN_PROGRESS`) |
+| `review <agent> <task-id> <PASS\|FAIL> <note> [verify]` | Answer a pending handoff; `FAIL` returns the task to its holder, who retakes it with `claim`; reviewing your own handoff warns |
+| `assign <agent> <task-id> <to-agent>` | Hand a task out without starting it (`ASSIGNED`; the row stays `TODO` with the new Owner) |
+| `done <agent> <task-id> <summary> <files> <verify>` | Close a task, record it in `Features.md`, clear it from the Roadmap; only the holder, the reviewer who passed it, or anyone on a stale or forced task |
+| `status` | List every open (`IN_PROGRESS`/`PAUSE`/`REVIEW`/`ASSIGNED`) task with its stage, owner, age, reason |
 | `append-log` | Manual/legacy ledger entry outside the claim lifecycle |
 | `rotate` | Archive an oversized ledger, hash-verified, carrying open tasks forward |
 
@@ -61,11 +64,35 @@ Initialization is idempotent and never overwrites existing content —
 and is left untouched afterward. `context` emits at most 8 KiB, including
 every open task. The hot log rotates after 200 entries or 128 KiB.
 
-`PROJECT_DOCS_STALE_HOURS` (default `24`) overrides how long an unattended
-`IN_PROGRESS` claim is considered abandoned and reclaimable.
+Environment variables (all optional):
+
+| Variable | Effect |
+|---|---|
+| `PROJECT_DOCS_STALE_HOURS` (default `24`) | How long an unattended `IN_PROGRESS` or `REVIEW` entry is considered abandoned and reclaimable |
+| `PROJECT_DOCS_MIN_WORK_MINUTES` (default `5`) | `done` and `check` warn about a task claimed and closed less than this apart; `0` silences it |
+| `PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1` | Reviewing your own handoff becomes an error instead of a warning |
+| `PROJECT_DOCS_FORCE=1` | `done` lets any agent close a task another agent holds |
+
+An optional `## Agent identity` table in `AGENTS.md` lists one stable id per
+agent plus aliases; with it, `claim`, `pause`, `handoff`, `review`, `assign`
+and `done` normalise an alias to the id and warn about unknown names.
 
 ## Changelog
 
+- **Review stage, handoff and agent identity**: the ledger can now say who an
+  agent is, when it develops, when it hands over for review and how the
+  review ended, in words `check` accepts. `REVIEW` is a ledger state (the
+  Roadmap `Status` values and columns do not change; the row stays
+  `IN_PROGRESS`); `handoff` and `review PASS|FAIL` write it, `assign` writes
+  `ASSIGNED`. `done` now checks who is closing (holder, the reviewer who
+  passed it, a stale or forced task, or a never-claimed one) and warns about
+  closing without a passing review and about empty verify markers such as
+  `none` or `n/a`. An optional `## Agent identity` roster normalises aliases
+  to one id. A new warning says when work was claimed and closed minutes
+  apart. Everything is opt-in: a project that never uses `REVIEW`,
+  `ASSIGNED` or the roster behaves as before (verified by running both
+  versions on the same project). Also fixed: `status` and `rotate` printed an
+  empty `Name` because `read` merged empty tab-separated fields.
 - **Name/Description taxonomy**: every Roadmap row now carries a `Name` cell
   (right after `ID`) — short, descriptive, 10 words or fewer — with the rest
   of the detail in `Description` (or the row's own free-text column for

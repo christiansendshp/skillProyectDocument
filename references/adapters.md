@@ -17,9 +17,19 @@ gets a short redirect block pointing at it, installed by `link`.
 | Gemini, Cursor, Windsurf, Cline, Copilot | `GEMINI.md` / `.cursorrules` / `.windsurfrules` / `.clinerules` / `.github/copilot-instructions.md` block pointing at `AGENTS.md` |
 
 Adapters intentionally contain only these operations: `init`, `context`,
-`link`, `migrate`, `claim`, `pause`, `done`, `status`, `append-log`, and
-`rotate`, plus `check`. `SKILL.md` remains the canonical workflow; adapters
+`link`, `migrate`, `claim`, `pause`, `handoff`, `review`, `assign`, `done`,
+`status`, `append-log`, and `rotate`, plus `check`. `SKILL.md` remains the canonical workflow; adapters
 must not inline the full reference material.
+
+## One agent id per runtime
+
+Every runtime must pass the same text as the `<agent>` argument in every
+session, and must not invent one each time: the ledger compares names by exact
+equality, so `claude-sonnet-5` and `claude-sonnet-5-5` are two different
+agents. List the ids (and the aliases a runtime may still use) in the optional
+`## Agent identity` table of the project `AGENTS.md`; the commands then
+normalise an alias to its id and `check` warns about unknown names. Put the
+id in the runtime's own redirect file or settings so it survives a restart.
 
 ## Launchers
 
@@ -38,7 +48,8 @@ PowerShell:
 ```
 
 Use the same launcher for every other command (`link`, `migrate`, `claim`,
-`pause`, `done`, `status`, `append-log`, `rotate`, `check`).
+`pause`, `handoff`, `review`, `assign`, `done`, `status`, `append-log`,
+`rotate`, `check`).
 
 ## Merge, do not overwrite
 

@@ -26,7 +26,9 @@ never misparse an indentation-sensitive block. Keep these exact files:
 - `AGENTS.md` (project root): repository rules, context-loading policy, and
   the task-taking protocol. The single rules source every runtime reads.
 - `docs/Agentslog.md`: append-only ledger and source of truth for task
-  ownership.
+  ownership and stage (`IN_PROGRESS`, `PAUSE`, `REVIEW`, `ASSIGNED`, `DONE`).
+  The Roadmap `Status` values never change for review: the stage lives only
+  in the ledger.
 - `docs/ProductDescription.md`: current functional truth, `BR-xxx` business
   rules, and an explicit `## Out of scope` list.
 - `docs/Stack_Tecnologies.md`: current technical truth, `ADR-xxx` decisions,
@@ -71,8 +73,9 @@ load those folders unless the current task needs them.
 3. Read the complete `AGENTS.md`, the `## Active work` table, every open task
    (`IN_PROGRESS`/`PAUSE`), and the five latest log entries — all included by
    `context`.
-4. `claim <agent> <task-id> <summary>` the task before developing it. It
-   fails if another agent already owns the task.
+4. `claim <agent> <task-id> <summary>` the task before your first edit, so the
+   board can show the work while it happens (documenting afterwards is
+   allowed, it just cannot). It fails if another agent already owns the task.
 5. Develop, reading full Product, Stack, `Roadmap.md`'s `## Plan`, or
    Features beyond their short summaries only when the task changes or
    depends on functional, technical, or verification details.
@@ -99,9 +102,15 @@ for the detailed flow.
    - verified capability -> `Features.md` (via `done`)
 2. If you must stop before finishing, `pause <agent> <task-id> <category>
    <detail>` (category: `LIMITE`, `ESPERA_RESPUESTA`, `BLOQUEO`, or `OTRO`).
-   Otherwise `done <agent> <task-id> <summary> <files> <verify>` — it records
-   the capability and clears the task from the Roadmap. Use `append-log` only
-   for entries outside the claim lifecycle.
+   If the project has a reviewer, `handoff <agent> <task-id> <summary>
+   <verify> [reviewer]` once the code is complete and your own verification
+   passed; the reviewer answers `review <agent> <task-id> PASS|FAIL <note>
+   [verify]` and after FAIL the developer retakes the task with `claim`.
+   Otherwise `done <agent> <task-id> <summary> <files> <verify>` — only after
+   verification, and only by the holder or the reviewer who passed it; it
+   records the capability and clears the task from the Roadmap.
+   `assign <agent> <task-id> <to-agent>` hands a task out without starting
+   it. Use `append-log` only for entries outside the lifecycle.
 3. Run `rotate`. It archives and verifies an oversized ledger before resetting
    the hot log, carrying forward any still-open task.
 4. Run `check`. Do not report completion while it fails.
@@ -109,6 +118,19 @@ for the detailed flow.
 Do not duplicate implementation detail already discoverable in code, tests,
 commits, or issues. Record stable facts, decisions, verification commands,
 task state, and pointers to authoritative artifacts.
+
+## Agent identity
+
+Use one stable id per agent, always the same text, as the `<agent>` argument
+of every command. A project can list them (with aliases) in the optional
+`## Agent identity` table of `AGENTS.md`; claim, pause, handoff, review,
+assign and done then normalise an alias to the id and warn about unknown
+names. Without the table nothing changes. See `references/workflow.md`.
+
+Optional environment variables: `PROJECT_DOCS_STALE_HOURS` (default 24),
+`PROJECT_DOCS_MIN_WORK_MINUTES` (default 5, 0 silences the instant-close
+warning), `PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1` (reviewing your own
+handoff becomes an error) and `PROJECT_DOCS_FORCE=1` (anyone may close).
 
 ## Compatibility
 
