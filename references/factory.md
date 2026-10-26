@@ -45,3 +45,23 @@ tests and for forcing one mode from a script); any other value is ignored.
 `mode <project>` prints which mode applies and where it came from (`env`,
 `AGENTS.md` or `default`); in Factory mode it also prints every effective
 setting, one `Name = value` line each.
+
+## The brain file
+
+In Factory mode `docs/Brain.md` is the seventh contract file: reusable lessons
+and a module map, one row per entry, read by `recall` and never loaded whole.
+`templates/Brain.md` ships three seed rows. Columns: `ID`, `Name`, `Kind`,
+`Trigger`, `Lesson`, `Evidence`, `Status`, `Hits`, `Last used`.
+
+- `ID` is `LRN-xxx` (three digits or more) and is never reused.
+- `Name` has at most 10 words, like a Roadmap Name.
+- `Kind` is `PITFALL`, `PATTERN`, `RECIPE`, `DEFAULT` or `MAP`.
+- `Trigger`, `Lesson` and `Evidence` are never empty; `*` as a `Trigger` means
+  always include the row.
+- `Status` is `CONFIRMED` or `HYPOTHESIS`; `Hits` is a number; `Last used` is
+  `YYYY-MM-DD` or an em dash.
+- A `|` never appears inside a cell, so a row with another column count is an
+  error.
+
+`check` validates all of this only in Factory mode and fails when the table has
+more rows than `Brain max entries`. In classic mode the file is ignored.

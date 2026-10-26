@@ -2190,6 +2190,52 @@ function Write-CheckWarnings {
     }
 }
 
+# Brain.md validation (Factory mode only, F06-E03-T01). One row per lesson; the
+# vertical bar never appears inside a cell, so a row with a different column
+# count is itself an error.
+function Test-BrainRows {
+    $path = Join-Path $DocsDir "Brain.md"
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
+    $max = 80
+    $bm = Get-FactorySetting "Brain max entries"
+    if ($bm -match '^[0-9]+$' -and [int]$bm -gt 0) { $max = [int]$bm }
+    $insec = $false
+    $rows = 0
+    $seen = @{}
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $path)) {
+        if ($line -ceq "## Entries") { $insec = $true; continue }
+        if ($insec -and $line.StartsWith("## ")) { $insec = $false }
+        if (-not ($insec -and $line.StartsWith("|"))) { continue }
+        $c = @(Split-TableCells $line)
+        $id = $c[0]
+        if ($id -ceq "ID" -or $id -match '^-+$' -or $id -eq $EmDash) { continue }
+        $rows++
+        $pre = "ERROR: docs/Brain.md row '$id' "
+        $errs = [System.Collections.Generic.List[string]]::new()
+        if ($c.Count -ne 9) { [Console]::Error.WriteLine("$($pre)has $($c.Count) columns, expected 9"); $script:CheckFail = $true; continue }
+        if ($id -cnotmatch '^LRN-[0-9][0-9][0-9]+$') { $errs.Add("$($pre)has invalid ID format (expected LRN-xxx)") }
+        if ($seen.ContainsKey($id)) { $errs.Add("ERROR: docs/Brain.md duplicate ID: $id") }
+        $seen[$id] = $true
+        if (-not $c[1]) { $errs.Add("$($pre)has an empty Name") }
+        else {
+            $wc = Get-WordCount $c[1]
+            if ($wc -gt 10) { $errs.Add("$($pre)Name is $wc words, over the 10-word limit") }
+        }
+        if ($c[2] -cnotin @("PITFALL", "PATTERN", "RECIPE", "DEFAULT", "MAP")) { $errs.Add("$($pre)has invalid Kind: $($c[2])") }
+        if (-not $c[3]) { $errs.Add("$($pre)has an empty Trigger") }
+        if (-not $c[4]) { $errs.Add("$($pre)has an empty Lesson") }
+        if (-not $c[5]) { $errs.Add("$($pre)has an empty Evidence") }
+        if ($c[6] -cnotin @("CONFIRMED", "HYPOTHESIS")) { $errs.Add("$($pre)has invalid Status: $($c[6])") }
+        if ($c[7] -notmatch '^[0-9]+$') { $errs.Add("$($pre)has invalid Hits: $($c[7])") }
+        if ($c[8] -ne $EmDash -and $c[8] -notmatch '^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$') { $errs.Add("$($pre)has invalid Last used: $($c[8])") }
+        foreach ($e in $errs) { [Console]::Error.WriteLine($e); $script:CheckFail = $true }
+    }
+    if ($rows -gt $max) {
+        [Console]::Error.WriteLine("ERROR: docs/Brain.md has $rows entries, over the Brain max entries limit of $max")
+        $script:CheckFail = $true
+    }
+}
+
 function Invoke-Check {
     $script:CheckFail = $false
     Test-Need "AGENTS.md" @("## Repository rules", "## Startup", "## Close")
@@ -2225,6 +2271,9 @@ function Invoke-Check {
         "## Near term", "## Plan", "## Gaps, Bugs & Technical Debt", "## Out of scope"
     )
     Test-Need "docs/Features.md" @("## Operational summary", "## Verified capabilities")
+    if (Test-FactoryOn) {
+        Test-Need "docs/Brain.md" @("## Operational summary", "<!-- context:end -->", "## Entries", "| ID | Name | Kind | Trigger | Lesson | Evidence | Status | Hits | Last used |")
+    }
 
     if (Test-RoadmapNeedsYamlMigration) {
         [Console]::Error.WriteLine("MIGRATION REQUIRED: docs/Roadmap.md still uses the per-entry YAML format; run 'migrate'")
@@ -2253,6 +2302,7 @@ function Invoke-Check {
     Test-TableStatusEnum "docs/Stack_Tecnologies.md" @("CONFIRMED", "HYPOTHESIS", "UNKNOWN") "epistemic"
     Test-TableStatusEnum "docs/Roadmap.md" @("TODO", "IN_PROGRESS", "PAUSE", "DONE") "workflow"
     Test-TableNameWordLimit "docs/Roadmap.md" 10
+    if (Test-FactoryOn) { Test-BrainRows }
 
     Write-CheckWarnings
 

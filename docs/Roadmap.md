@@ -19,7 +19,7 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E01-T01 | Detect factory mode from the AGENTS.md settings table | Parse the ## Factory table in sh and ps1; env PROJECT_DOCS_MODE overrides | Classic fixture output byte-identical to master scripts; factory fixture detected | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T13:27:31Z | — | — |
+| F06-E03-T01 | Brain template and check validation | templates/Brain.md with seed rows; enums, LRN ids, cap | check fails on each invalid row kind | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T13:55:36Z | F06-E01-T01 | — |
 
 <!-- context:end -->
 
@@ -100,7 +100,6 @@ Spec: docs/features/ia-factory.md (closed decisions D-01 to D-21 are ADR-023 onw
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E03-T01 | Brain template and check validation | templates/Brain.md with seed rows; enums, LRN ids, cap | check fails on each invalid row kind | TODO | — | F06-E01-T01 | — |
 | F06-E03-T02 | Working memory files and checkpoint command | docs/brain/tasks; pause and advance require Now | Smoke cases create, update and require the file | TODO | — | F06-E01-T01 | — |
 | F06-E03-T03 | Recall command with deterministic ranking and budget | Algorithm in section 4.5 | Same bytes in sh and ps1; never above budget; whole rows only | TODO | — | F06-E03-T01, F06-E03-T02, F06-E02-T01 | — |
 | F06-E03-T04 | Learn and retro commands with mandatory lessons | retro rules and done integration per section 4.5 | learned none refused after a FAIL; Hits updated on done | TODO | — | F06-E03-T03 | — |

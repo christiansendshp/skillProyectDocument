@@ -2190,6 +2190,50 @@ check_warnings() {
   fi
 }
 
+# Brain.md validation (Factory mode only, F06-E03-T01). One row per lesson; the
+# vertical bar never appears inside a cell, so a row with a different column
+# count is itself an error. The 047 escapes below are apostrophes.
+check_brain_rows() {
+  path="$DOCS_DIR/Brain.md"
+  [ -f "$path" ] || return 0
+  bm="$(factory_setting "Brain max entries")"
+  case "$bm" in ''|*[!0-9]*) bm=80 ;; esac
+  [ "$bm" -gt 0 ] || bm=80
+  out="$(awk -v max="$bm" '
+    $0=="## Entries" { insec=1; next }
+    insec && /^## / { insec=0 }
+    insec && /^\|/ {
+      line=$0
+      sub(/^\|/,"",line); sub(/\|[ \t]*$/,"",line)
+      n=split(line,c,"|")
+      for (i=1;i<=n;i++) gsub(/^[ \t]+|[ \t]+$/,"",c[i])
+      id=c[1]
+      if (id=="ID" || id ~ /^-+$/ || id=="—") next
+      rows++
+      pre="ERROR: docs/Brain.md row \047" id "\047 "
+      if (n!=9) { print pre "has " n " columns, expected 9"; next }
+      if (id !~ /^LRN-[0-9][0-9][0-9]+$/) print pre "has invalid ID format (expected LRN-xxx)"
+      if (id in seen) print "ERROR: docs/Brain.md duplicate ID: " id
+      seen[id]=1
+      if (c[2]=="") print pre "has an empty Name"
+      else { wc=split(c[2],w,/[ \t]+/); if (wc>10) print pre "Name is " wc " words, over the 10-word limit" }
+      k=c[3]
+      if (k!="PITFALL" && k!="PATTERN" && k!="RECIPE" && k!="DEFAULT" && k!="MAP") print pre "has invalid Kind: " k
+      if (c[4]=="") print pre "has an empty Trigger"
+      if (c[5]=="") print pre "has an empty Lesson"
+      if (c[6]=="") print pre "has an empty Evidence"
+      if (c[7]!="CONFIRMED" && c[7]!="HYPOTHESIS") print pre "has invalid Status: " c[7]
+      if (c[8] !~ /^[0-9]+$/) print pre "has invalid Hits: " c[8]
+      if (c[9]!="—" && c[9] !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) print pre "has invalid Last used: " c[9]
+    }
+    END { if (rows>max) print "ERROR: docs/Brain.md has " rows " entries, over the Brain max entries limit of " max }
+  ' "$path")"
+  if [ -n "$out" ]; then
+    printf '%s\n' "$out" >&2
+    CHECK_FAIL=1
+  fi
+}
+
 check_docs() {
   CHECK_FAIL=0
   need AGENTS.md "## Repository rules" "## Startup" "## Close"
@@ -2222,6 +2266,9 @@ check_docs() {
     "## Active work" "<!-- context:end -->" \
     "## Near term" "## Plan" "## Gaps, Bugs & Technical Debt" "## Out of scope"
   need docs/Features.md "## Operational summary" "## Verified capabilities"
+  if factory_on; then
+    need docs/Brain.md "## Operational summary" "<!-- context:end -->" "## Entries" "| ID | Name | Kind | Trigger | Lesson | Evidence | Status | Hits | Last used |"
+  fi
 
   if roadmap_needs_yaml_migration; then
     echo "MIGRATION REQUIRED: docs/Roadmap.md still uses the per-entry YAML format; run 'migrate'" >&2
@@ -2248,6 +2295,7 @@ check_docs() {
   check_table_status_enum docs/Stack_Tecnologies.md "CONFIRMED HYPOTHESIS UNKNOWN" "epistemic"
   check_table_status_enum docs/Roadmap.md "TODO IN_PROGRESS PAUSE DONE" "workflow"
   check_table_name_wordlimit docs/Roadmap.md 10
+  if factory_on; then check_brain_rows; fi
 
   check_warnings
 

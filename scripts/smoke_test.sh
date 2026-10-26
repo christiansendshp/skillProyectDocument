@@ -801,6 +801,64 @@ run_factory_suite() {
   printf '%s\n' "project_docs rotate: not required" > "$WORK/.golden"
   golden_eq "$WORK/.out" && ok "$label classic rotate is exactly what it was" || bad "$label classic rotate changed"
 
+  echo "== $label: brain template and check validation (F06-E03-T01) =="
+  # A Factory project assembled by hand: classic init, a Factory section, and the
+  # brain template (init does this itself once F06-E01-T02 lands). Extra arguments
+  # are more Factory settings rows.
+  brain_proj() {
+    bn="$1"; shift
+    bp="$WORK/${label}_$bn"
+    mkdir -p "$bp"
+    run_env PROJECT_DOCS_MODE=classic init "$bp" >/dev/null 2>&1
+    seed_factory_section "$bp" "Mode | FACTORY" "$@"
+    cp "$SCRIPT_DIR/../templates/Brain.md" "$bp/docs/Brain.md"
+  }
+  brain_bad() {  # brain_bad <fixture-name> <old text> <new text> <expected message>
+    brain_proj "$1"
+    seed_replace "$bp/docs/Brain.md" "$2" "$3"
+    assert_failure "$label check rejects: $4" run check "$bp"
+    grep -qF -- "$4" "$WORK/.out" && ok "$label check names it: $4" || bad "$label check does not name '$4': $(grep Brain "$WORK/.out" | head -3)"
+  }
+
+  brain_proj br_ok
+  assert_success "$label the brain template passes check in Factory mode" run check "$bp"
+  [ "$(grep -c '^| LRN-' "$bp/docs/Brain.md")" -eq 3 ] && ok "$label the template ships three seed rows" || bad "$label seed rows are not three"
+  grep -q 'DEFAULT | \* |' "$bp/docs/Brain.md" && ok "$label seed DEFAULT rows trigger on *" || bad "$label seed DEFAULT rows missing"
+
+  brain_proj br_missing
+  rm -f "$bp/docs/Brain.md"
+  assert_failure "$label Factory mode requires docs/Brain.md" run check "$bp"
+  grep -q "MISSING: docs/Brain.md" "$WORK/.out" && ok "$label check names the missing Brain.md" || bad "$label missing Brain.md not named: $(cat "$WORK/.out")"
+
+  brain_proj br_classic
+  seed_replace "$bp/AGENTS.md" "| Mode | FACTORY |" "| Mode | CLASSIC |"
+  printf 'not a brain at all\n' > "$bp/docs/Brain.md"
+  assert_success "$label classic mode ignores docs/Brain.md entirely" run check "$bp"
+  rm -f "$bp/docs/Brain.md"
+  assert_success "$label classic mode does not require docs/Brain.md" run check "$bp"
+
+  brain_bad br_id "| LRN-003 |" "| LEARN-3 |" "invalid ID format"
+  brain_bad br_kind "| PATTERN |" "| TIPS |" "invalid Kind: TIPS"
+  brain_bad br_status "| seed | CONFIRMED | 0 |" "| seed | N/A | 0 |" "invalid Status: N/A"
+  brain_bad br_hits "| CONFIRMED | 0 | — |" "| CONFIRMED | many | — |" "invalid Hits: many"
+  brain_bad br_last "| CONFIRMED | 0 | — |" "| CONFIRMED | 0 | yesterday |" "invalid Last used: yesterday"
+  brain_bad br_name "| Reproduce a bug before fixing it |" "| Reproduce a bug before fixing it with one two three four five six |" "over the 10-word limit"
+  brain_bad br_noname "| LRN-003 | Reproduce a bug before fixing it |" "| LRN-003 |  |" "has an empty Name"
+  brain_bad br_notrigger "| PATTERN | bug fix regression |" "| PATTERN |  |" "has an empty Trigger"
+  brain_bad br_nolesson "| bug fix regression | The RED test of a BUG task reproduces the reported failure first |" "| bug fix regression |  |" "has an empty Lesson"
+  brain_bad br_noevid "| seed | CONFIRMED |" "|  | CONFIRMED |" "has an empty Evidence"
+  brain_bad br_dup "| LRN-002 |" "| LRN-001 |" "duplicate ID: LRN-001"
+  brain_bad br_cols "| LRN-003 | Reproduce a bug before fixing it |" "| LRN-003 | Reproduce a bug | before fixing it |" "columns, expected 9"
+  brain_bad br_header "| Lesson | Evidence | Status |" "| Lesson | Proof | Status |" "missing '| ID | Name | Kind | Trigger | Lesson | Evidence | Status | Hits | Last used |'"
+
+  brain_proj br_cap "Brain max entries | 2"
+  assert_failure "$label more rows than Brain max entries fails check" run check "$bp"
+  grep -q "has 3 entries, over the Brain max entries limit of 2" "$WORK/.out" && ok "$label check names the cap" || bad "$label cap message wrong: $(grep Brain "$WORK/.out")"
+
+  brain_proj br_extra
+  printf '%s\n' "| LRN-004 | Run the fast test file first | RECIPE | test unit fast | Run the single spec file before the whole suite | log:F01-E01-T01 | HYPOTHESIS | 0 | — |" "| LRN-005 | Module map for billing | MAP | billing invoice src/billing/ | Billing code lives in src/billing and its tests in tests/billing | tests/billing | CONFIRMED | 2 | 2026-10-20 |" >> "$bp/docs/Brain.md"
+  assert_success "$label valid extra rows of every shape pass check" run check "$bp"
+
 #FACTORY_CASES
 }
 

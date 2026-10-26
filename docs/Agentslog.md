@@ -208,3 +208,22 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 ## [2026-10-26T13:27:31Z] | claude-sonnet-5-5 | F06-E01-T01 | IN_PROGRESS | Detect factory mode from the AGENTS.md settings table
 - Summary: Detect factory mode; mode command; PROJECT_DOCS_MODE override
 - Verify: pending
+
+## [2026-10-26T13:45:56Z] | claude-sonnet-5-5 | F06-E01-T01 | REVIEW | Detect factory mode from the AGENTS.md settings table
+- Summary: mode detection and mode command in sh and ps1 (commit 4797bf9)
+- Verify: smoke 632 passed 0 failed (sh 317 ps1 315, was 578); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-26T13:55:36Z] | claude-sonnet-5-5 | F06-E03-T01 | IN_PROGRESS | Brain template and check validation
+- Summary: Brain template and check validation (sh and ps1)
+- Verify: pending
+
+## [2026-10-26T13:57:57Z] | claude-qa | F06-E01-T01 | REVIEW | Detect factory mode from the AGENTS.md settings table
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: factory smoke sh 27 passed 0 failed exit=0, ps1 27 passed exit=0; mode sh vs ps1 identical; lifecycle diff vs master identical both launchers; check OK exit=0
+- Review: PASS - mode sh+ps1 byte-identical on 3 fixtures and 26 edge cases; additive diff; 7 mutations caught; classic lifecycle identical to master in sh and ps1
+
+## [2026-10-26T13:58:25Z] | claude-sonnet-5-5 | F06-E01-T01 | DONE | Detect factory mode from the AGENTS.md settings table
+- Summary: Mode detection and mode command in sh and ps1
+- Files: scripts/,references/,docs/
+- Verify: smoke 632 pass 0 fail; QA PASS; differential vs master identical

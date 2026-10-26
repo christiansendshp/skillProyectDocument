@@ -2,8 +2,8 @@
 
 ## Operational summary
 
-- Verified capabilities: 26
-- Latest verification: `sh scripts/smoke_test.sh -> 578 passed, 0 failed (sh + PowerShell); check . -> OK; differential run old vs new scripts identical` (2026-10-13)
+- Verified capabilities: 27
+- Latest verification: `smoke 632 pass 0 fail; QA PASS; differential vs master identical` (2026-10-26)
 - Known limitation: the AGENTS.md/Agents.md case collision cannot be tested end to end on Windows or macOS.
 
 <!-- context:end -->
@@ -41,3 +41,4 @@ Use one row per stable capability. Link long specifications or runbooks from
 | F05-E02 | Epic complete | all tasks DONE | log:F05-E02-T03 | 2026-10-13 |
 | F05-E03-T01 | Templates, docs and evals for review, handoff and agent identity; golden regression test; evals 26 to 39 | sh scripts/smoke_test.sh -> 578 passed, 0 failed (sh + PowerShell); check . -> OK; differential run old vs new scripts identical | log:F05-E03-T01 | 2026-10-13 |
 | F05-E03 | Epic complete | all tasks DONE | log:F05-E03-T01 | 2026-10-13 |
+| F06-E01-T01 | Mode detection and mode command in sh and ps1 | smoke 632 pass 0 fail; QA PASS; differential vs master identical | log:F06-E01-T01 | 2026-10-26 |
