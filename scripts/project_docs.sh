@@ -175,10 +175,46 @@ remove_file() {
 # ---------------------------------------------------------------------------
 # init / link
 # ---------------------------------------------------------------------------
+# init_kind [--classic]: factory or classic (ADR-047). A project the skill does
+# not manage yet starts in Factory mode; --classic or PROJECT_DOCS_MODE=classic
+# keep the six-file project. A project it already manages never switches mode
+# on its own: with a Factory section its Mode decides, without one it stays
+# classic (BR-008). migrate --factory is the way to switch an existing one.
+init_kind() {
+  if [ "${1:-}" = "--classic" ]; then echo classic; return 0; fi
+  ik_env="$(printf '%s' "${PROJECT_DOCS_MODE:-}" | tr 'A-Z' 'a-z')"
+  if [ "$ik_env" = "classic" ]; then echo classic; return 0; fi
+  if factory_section_exists; then
+    ik_v="$(factory_setting Mode | tr 'a-z' 'A-Z')"
+    if [ "$ik_v" = "FACTORY" ]; then echo factory; else echo classic; fi
+    return 0
+  fi
+  if [ -f "$PROJECT/AGENTS.md" ] && has_block "$PROJECT/AGENTS.md"; then echo classic; return 0; fi
+  for ik_rel in $CONTRACT_FILES; do
+    [ "$ik_rel" = "AGENTS.md" ] && continue
+    if [ -f "$PROJECT/$ik_rel" ]; then echo classic; return 0; fi
+  done
+  echo factory
+}
+
+# init_docs [dispatch args]: init <project> [--classic].
 init_docs() {
+  if [ "$#" -ge 2 ]; then shift 2; else shift "$#"; fi
+  init_run "$(init_kind "${1:-}")"
+}
+
+init_run() {
   require_templates
   created=0
-  for rel in $CONTRACT_FILES; do
+  init_kind_v="$1"
+  init_files="$CONTRACT_FILES"
+  init_agents_tpl="$TEMPLATES_DIR/AGENTS.md"
+  if [ "$init_kind_v" = "factory" ]; then
+    init_files="$CONTRACT_FILES docs/Brain.md"
+    init_agents_tpl="$TEMPLATES_DIR/AGENTS.factory.md"
+    [ -f "$init_agents_tpl" ] || die "template missing: AGENTS.factory.md"
+  fi
+  for rel in $init_files; do
     target="$PROJECT/$rel"
     base="$(basename "$rel")"
     dir="$(dirname "$target")"
@@ -190,11 +226,11 @@ init_docs() {
         if has_block "$target"; then
           echo "= preserved: $rel"
         else
-          replace_block "$target" "$TEMPLATES_DIR/AGENTS.md" || true
+          replace_block "$target" "$init_agents_tpl" || true
           echo "= merged skill block: $rel"
         fi
       else
-        replace_block "$target" "$TEMPLATES_DIR/AGENTS.md" || true
+        replace_block "$target" "$init_agents_tpl" || true
         echo "+ created: $rel"
         created=$((created + 1))
       fi
@@ -208,8 +244,95 @@ init_docs() {
       fi
     fi
   done
+  if [ "$init_kind_v" = "factory" ]; then
+    mkdir -p "$DOCS_DIR/specs" "$DOCS_DIR/brain/tasks"
+  fi
   echo "project_docs init: $created file(s) created"
   link_docs "$PROJECT" ""
+}
+
+# extract_section FILE HEADING: the heading line and everything up to (not
+# including) the next "## " heading.
+extract_section() {
+  awk -v h="$2" '
+    $0==h { p=1; print; next }
+    p && /^## / { exit }
+    p { print }
+  ' "$1"
+}
+
+# insert_section TARGET SECTION_FILE BEFORE_HEADING: puts the section before the
+# given heading when it exists, else before the managed-block end marker, else
+# at the end of the file. Nothing already in TARGET is changed or removed.
+insert_section() {
+  is_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-section.XXXXXX")"
+  awk -v secfile="$2" -v before="$3" -v endm="$BLOCK_END" '
+    BEGIN { n=0; while ((getline l < secfile) > 0) s[++n]=l; while (n>0 && s[n]=="") n-- }
+    { lines[NR]=$0 }
+    END {
+      pos=0
+      if (before!="") for (i=1;i<=NR;i++) if (lines[i]==before) { pos=i; break }
+      if (!pos) for (i=1;i<=NR;i++) if (lines[i]==endm) { pos=i; break }
+      if (!pos) pos=NR+1
+      for (i=1;i<pos;i++) print lines[i]
+      if (pos>1 && lines[pos-1]!="") print ""
+      for (i=1;i<=n;i++) print s[i]
+      if (pos<=NR) print ""
+      for (i=pos;i<=NR;i++) print lines[i]
+    }
+  ' "$1" > "$is_tmp"
+  mv "$is_tmp" "$1"
+}
+
+# migrate_factory_additions: what migrate --factory adds to an existing project.
+# Idempotent and additive: the Factory section, the default roster when there is
+# none, docs/Brain.md and the docs/specs and docs/brain/tasks folders.
+migrate_factory_additions() {
+  mf_changed=0
+  mf_tpl="$TEMPLATES_DIR/AGENTS.factory.md"
+  [ -f "$mf_tpl" ] || die "template missing: AGENTS.factory.md"
+  mf_agents="$PROJECT/AGENTS.md"
+  mf_sec="$(mktemp "${TMPDIR:-/tmp}/project-docs-sec.XXXXXX")"
+  if ! factory_section_exists; then
+    extract_section "$mf_tpl" "## Factory" > "$mf_sec"
+    insert_section "$mf_agents" "$mf_sec" "## Agent identity"
+    echo "+ added: ## Factory section in AGENTS.md"
+    mf_changed=$((mf_changed + 1))
+  elif [ "$(factory_setting Mode | tr 'a-z' 'A-Z')" != "FACTORY" ]; then
+    echo "= kept: Mode is not FACTORY in AGENTS.md (set it to FACTORY to switch)"
+  fi
+  if ! grep -qx "## Agent identity" "$mf_agents"; then
+    extract_section "$mf_tpl" "## Agent identity" > "$mf_sec"
+    insert_section "$mf_agents" "$mf_sec" ""
+    echo "+ added: ## Agent identity section with the default roster in AGENTS.md"
+    mf_changed=$((mf_changed + 1))
+  elif [ -z "$(roster_rows)" ]; then
+    extract_section "$mf_tpl" "## Agent identity" | awk '/^\|/ && !/^\| Agent id/ && !/^\|---/' > "$mf_sec"
+    mf_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-roster.XXXXXX")"
+    awk -v rowsfile="$mf_sec" '
+      BEGIN { while ((getline l < rowsfile) > 0) r[++n]=l }
+      $0=="## Agent identity" { insec=1; print; next }
+      insec && /^## / { insec=0 }
+      insec && !done && $0=="| — | — | — | — | — |" { for (i=1;i<=n;i++) print r[i]; done=1; next }
+      { print }
+    ' "$mf_agents" > "$mf_tmp"
+    mv "$mf_tmp" "$mf_agents"
+    echo "+ added: default agent roster in AGENTS.md"
+    mf_changed=$((mf_changed + 1))
+  fi
+  rm -f "$mf_sec"
+  if [ ! -f "$DOCS_DIR/Brain.md" ]; then
+    cp "$TEMPLATES_DIR/Brain.md" "$DOCS_DIR/Brain.md"
+    echo "+ created: docs/Brain.md"
+    mf_changed=$((mf_changed + 1))
+  fi
+  for mf_d in "$DOCS_DIR/specs" "$DOCS_DIR/brain/tasks"; do
+    if [ ! -d "$mf_d" ]; then
+      mkdir -p "$mf_d"
+      echo "+ created: ${mf_d#"$PROJECT"/}/"
+      mf_changed=$((mf_changed + 1))
+    fi
+  done
 }
 
 link_target_path() {
@@ -1628,6 +1751,11 @@ roadmap_migrate_yaml_to_table() {
 migrate_docs() {
   require_templates
   changed=0
+  mig_factory=0
+  if [ "$#" -ge 2 ]; then shift 2; else shift "$#"; fi
+  for mig_a in "$@"; do
+    if [ "$mig_a" = "--factory" ]; then mig_factory=1; fi
+  done
   variant="$(find_case_variant "$PROJECT" "AGENTS.md")"
   if [ -n "$variant" ] && [ "$variant" != "AGENTS.md" ]; then
     rename_case "$PROJECT/$variant" "$PROJECT/AGENTS.md"
@@ -1637,7 +1765,7 @@ migrate_docs() {
   # Ensure base files (and a plain AGENTS.md block) exist first; the legacy
   # merge below runs last so its combined content is not clobbered by
   # init's own template-only block write.
-  init_docs
+  init_run classic
   legacy="$(find_case_variant "$DOCS_DIR" "Agents.md")"
   if [ -n "$legacy" ]; then
     legacy_path="$DOCS_DIR/$legacy"
@@ -1666,6 +1794,10 @@ migrate_docs() {
     echo "= converted: docs/Roadmap.md rows now have a Name column (derived from the"
     echo "  first 10 words of the prior Outcome/Description text; review each Name by"
     echo "  hand, including any Near term row that may still exceed 10 words)"
+  fi
+  if [ "$mig_factory" -eq 1 ]; then
+    migrate_factory_additions
+    changed=$((changed + mf_changed))
   fi
   echo "project_docs migrate: $changed change(s)"
 }
@@ -2430,12 +2562,12 @@ rotate_log() {
 }
 
 case "$COMMAND" in
-  init) init_docs ;;
+  init) init_docs "$@" ;;
   check) check_docs ;;
   context) build_context ;;
   append-log) append_log "$@" ;;
   rotate) rotate_log ;;
-  migrate) migrate_docs ;;
+  migrate) migrate_docs "$@" ;;
   link) cmd_link "$@" ;;
   claim) cmd_claim "$@" ;;
   pause) cmd_pause "$@" ;;

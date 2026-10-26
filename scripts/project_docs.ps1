@@ -200,10 +200,42 @@ function Remove-ManagedFile([string]$Path) {
 # ---------------------------------------------------------------------------
 # init / link
 # ---------------------------------------------------------------------------
+# Factory or classic for init (ADR-047). A project the skill does not manage yet
+# starts in Factory mode; --classic or PROJECT_DOCS_MODE=classic keep the
+# six-file project. A project it already manages never switches mode on its own:
+# with a Factory section its Mode decides, without one it stays classic
+# (BR-008). migrate --factory is the way to switch an existing one.
+function Get-InitKind([bool]$ClassicFlag) {
+    if ($ClassicFlag) { return "classic" }
+    if ("$env:PROJECT_DOCS_MODE".ToLowerInvariant() -eq "classic") { return "classic" }
+    if (Test-FactorySectionExists) {
+        if ((Get-FactorySetting "Mode").ToUpperInvariant() -eq "FACTORY") { return "factory" }
+        return "classic"
+    }
+    $agents = Join-Path $Project "AGENTS.md"
+    if ((Test-Path -LiteralPath $agents -PathType Leaf) -and (Test-HasBlock $agents)) { return "classic" }
+    foreach ($rel in $ContractFiles) {
+        if ($rel -eq "AGENTS.md") { continue }
+        if (Test-Path -LiteralPath (Join-Path $Project $rel) -PathType Leaf) { return "classic" }
+    }
+    return "factory"
+}
+
 function Invoke-Init {
+    Invoke-InitRun (Get-InitKind (@($Arguments) -contains "--classic"))
+}
+
+function Invoke-InitRun([string]$Kind) {
     Require-Templates
     $created = 0
-    foreach ($rel in $ContractFiles) {
+    $initFiles = @($ContractFiles)
+    $agentsTpl = Join-Path $TemplatesDir "AGENTS.md"
+    if ($Kind -eq "factory") {
+        $initFiles = @($ContractFiles) + @("docs/Brain.md")
+        $agentsTpl = Join-Path $TemplatesDir "AGENTS.factory.md"
+        if (-not (Test-Path -LiteralPath $agentsTpl -PathType Leaf)) { throw "template missing: AGENTS.factory.md" }
+    }
+    foreach ($rel in $initFiles) {
         $target = Join-Path $Project $rel
         $base = Split-Path -Leaf $rel
         $dir = Split-Path -Parent $target
@@ -214,11 +246,11 @@ function Invoke-Init {
                 if (Test-HasBlock $target) {
                     Write-Output "= preserved: $rel"
                 } else {
-                    Set-Block $target (Join-Path $TemplatesDir "AGENTS.md") | Out-Null
+                    Set-Block $target $agentsTpl | Out-Null
                     Write-Output "= merged skill block: $rel"
                 }
             } else {
-                Set-Block $target (Join-Path $TemplatesDir "AGENTS.md") | Out-Null
+                Set-Block $target $agentsTpl | Out-Null
                 Write-Output "+ created: $rel"
                 $created++
             }
@@ -232,8 +264,107 @@ function Invoke-Init {
             }
         }
     }
+    if ($Kind -eq "factory") {
+        New-Item -ItemType Directory -Path (Join-Path $DocsDir "specs") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path (Join-Path $DocsDir "brain") "tasks") -Force | Out-Null
+    }
     Write-Output "project_docs init: $created file(s) created"
     Invoke-LinkAll $Project ""
+}
+
+# The heading line and everything up to (not including) the next "## " heading.
+function Get-TemplateSection([string]$Path, [string]$Heading) {
+    $out = [System.Collections.Generic.List[string]]::new()
+    $p = $false
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $Path)) {
+        if ($line -ceq $Heading) { $p = $true; $out.Add($line); continue }
+        if ($p -and $line.StartsWith("## ")) { break }
+        if ($p) { $out.Add($line) }
+    }
+    return $out.ToArray()
+}
+
+# Puts the section before the given heading when it exists, else before the
+# managed-block end marker, else at the end of the file. Nothing already in the
+# target is changed or removed.
+function Add-SectionToFile([string]$Target, [string[]]$Section, [string]$BeforeHeading) {
+    $lines = @(Get-ContentUtf8 -LiteralPath $Target)
+    $sec = [System.Collections.Generic.List[string]]::new()
+    $sec.AddRange([string[]]$Section)
+    while ($sec.Count -gt 0 -and $sec[$sec.Count - 1] -eq "") { $sec.RemoveAt($sec.Count - 1) }
+    $pos = -1
+    if ($BeforeHeading) {
+        for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -ceq $BeforeHeading) { $pos = $i; break } }
+    }
+    if ($pos -lt 0) {
+        for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -ceq $BlockEnd) { $pos = $i; break } }
+    }
+    if ($pos -lt 0) { $pos = $lines.Count }
+    $result = [System.Collections.Generic.List[string]]::new()
+    for ($i = 0; $i -lt $pos; $i++) { $result.Add([string]$lines[$i]) }
+    if ($pos -gt 0 -and $lines[$pos - 1] -ne "") { $result.Add("") }
+    $result.AddRange([string[]]$sec.ToArray())
+    if ($pos -lt $lines.Count) { $result.Add("") }
+    for ($i = $pos; $i -lt $lines.Count; $i++) { $result.Add([string]$lines[$i]) }
+    Write-Utf8File $Target (ConvertTo-JoinedLines ([string[]]$result.ToArray()))
+}
+
+# What migrate --factory adds to an existing project. Idempotent and additive:
+# the Factory section, the default roster when there is none, docs/Brain.md and
+# the docs/specs and docs/brain/tasks folders. Leaves the number of changes in
+# $script:FactoryChanges (a return value would swallow the messages).
+function Add-FactoryAdditions {
+    $changes = 0
+    $tpl = Join-Path $TemplatesDir "AGENTS.factory.md"
+    if (-not (Test-Path -LiteralPath $tpl -PathType Leaf)) { throw "template missing: AGENTS.factory.md" }
+    $agents = Join-Path $Project "AGENTS.md"
+    if (-not (Test-FactorySectionExists)) {
+        Add-SectionToFile $agents (Get-TemplateSection $tpl "## Factory") "## Agent identity"
+        Write-Output "+ added: ## Factory section in AGENTS.md"
+        $changes++
+    } elseif ((Get-FactorySetting "Mode").ToUpperInvariant() -ne "FACTORY") {
+        Write-Output "= kept: Mode is not FACTORY in AGENTS.md (set it to FACTORY to switch)"
+    }
+    $hasRoster = $false
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $agents)) { if ($line -ceq "## Agent identity") { $hasRoster = $true; break } }
+    if (-not $hasRoster) {
+        Add-SectionToFile $agents (Get-TemplateSection $tpl "## Agent identity") ""
+        Write-Output "+ added: ## Agent identity section with the default roster in AGENTS.md"
+        $changes++
+    } elseif (@(Get-RosterRows).Count -eq 0) {
+        $rows = @(Get-TemplateSection $tpl "## Agent identity" | Where-Object { $_.StartsWith("|") -and -not $_.StartsWith("| Agent id") -and -not $_.StartsWith("|---") })
+        $lines = @(Get-ContentUtf8 -LiteralPath $agents)
+        $result = [System.Collections.Generic.List[string]]::new()
+        $insec = $false; $done = $false
+        $placeholder = "| $EmDash | $EmDash | $EmDash | $EmDash | $EmDash |"
+        foreach ($line in $lines) {
+            if ($line -ceq "## Agent identity") { $insec = $true; $result.Add([string]$line); continue }
+            if ($insec -and $line.StartsWith("## ")) { $insec = $false }
+            if ($insec -and -not $done -and $line -ceq $placeholder) {
+                foreach ($r in $rows) { $result.Add([string]$r) }
+                $done = $true
+                continue
+            }
+            $result.Add([string]$line)
+        }
+        Write-Utf8File $agents (ConvertTo-JoinedLines ([string[]]$result.ToArray()))
+        Write-Output "+ added: default agent roster in AGENTS.md"
+        $changes++
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $DocsDir "Brain.md") -PathType Leaf)) {
+        Copy-Item -LiteralPath (Join-Path $TemplatesDir "Brain.md") -Destination (Join-Path $DocsDir "Brain.md")
+        Write-Output "+ created: docs/Brain.md"
+        $changes++
+    }
+    foreach ($rel in @("specs", "brain/tasks")) {
+        $d = Join-Path $DocsDir $rel
+        if (-not (Test-Path -LiteralPath $d -PathType Container)) {
+            New-Item -ItemType Directory -Path $d -Force | Out-Null
+            Write-Output "+ created: docs/$rel/"
+            $changes++
+        }
+    }
+    $script:FactoryChanges = $changes
 }
 
 function Get-LinkTargetPath([string]$Name) {
@@ -1702,7 +1833,7 @@ function Invoke-Migrate {
     # Ensure base files (and a plain AGENTS.md block) exist first; the legacy
     # merge below runs last so its combined content is not clobbered by
     # init's own template-only block write.
-    Invoke-Init
+    Invoke-InitRun "classic"
     $legacy = Find-CaseVariant $DocsDir "Agents.md"
     if ($legacy) {
         $legacyPath = Join-Path $DocsDir $legacy
@@ -1729,6 +1860,10 @@ function Invoke-Migrate {
         Write-Output "= converted: docs/Roadmap.md rows now have a Name column (derived from the"
         Write-Output "  first 10 words of the prior Outcome/Description text; review each Name by"
         Write-Output "  hand, including any Near term row that may still exceed 10 words)"
+    }
+    if (@($Arguments) -contains "--factory") {
+        Add-FactoryAdditions
+        $changed += $script:FactoryChanges
     }
     Write-Output "project_docs migrate: $changed change(s)"
 }

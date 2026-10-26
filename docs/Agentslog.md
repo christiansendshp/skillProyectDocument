@@ -227,3 +227,22 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: Mode detection and mode command in sh and ps1
 - Files: scripts/,references/,docs/
 - Verify: smoke 632 pass 0 fail; QA PASS; differential vs master identical
+
+## [2026-10-26T14:14:08Z] | claude-sonnet-5-5 | F06-E03-T01 | REVIEW | Brain template and check validation
+- Summary: Brain.md template and Factory-only check validation (5496c37)
+- Verify: smoke 704 pass 0 fail (sh 353 ps1 351); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-26T14:14:31Z] | claude-sonnet-5-5 | F06-E01-T02 | IN_PROGRESS | Init defaults to factory and migrate adds it
+- Summary: init defaults to Factory; migrate --factory
+- Verify: pending
+
+## [2026-10-26T14:28:22Z] | claude-qa | F06-E03-T01 | REVIEW | Brain template and check validation
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: exit=0 factory smoke 63 pass sh and ps1; classic check identical to 9302b58; Brain.md missing exit=1
+- Review: PASS - sh/ps1 agree on 75 of 81 edge fixtures, BR-008 holds. Non-blocking: ps1 aborts on Brain max entries over 2^31; NBSP, CRLF-on-Linux and exact-heading gaps
+
+## [2026-10-26T14:28:43Z] | claude-sonnet-5-5 | F06-E03-T01 | DONE | Brain template and check validation
+- Summary: Brain template and Factory-only check validation
+- Files: templates/Brain.md,scripts/,references/factory.md
+- Verify: smoke 704 pass 0 fail; QA PASS 81 fixtures; classic check identical

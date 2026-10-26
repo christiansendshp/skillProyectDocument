@@ -65,3 +65,21 @@ and a module map, one row per entry, read by `recall` and never loaded whole.
 
 `check` validates all of this only in Factory mode and fails when the table has
 more rows than `Brain max entries`. In classic mode the file is ignored.
+
+## Starting a project and migrating one
+
+`init <project>` creates a project the skill does not manage yet in Factory
+mode: the six contract files, `docs/Brain.md`, a `## Factory` section and the
+default roster in `AGENTS.md`, and the folders `docs/specs/` and
+`docs/brain/tasks/`. `init <project> --classic` (or `PROJECT_DOCS_MODE=classic`)
+creates the six-file project instead. A project the skill already manages
+never changes mode on its own: `init` leaves it as it is, even with
+`PROJECT_DOCS_MODE=factory`.
+
+`migrate <project> --factory` brings an existing project to Factory mode and is
+idempotent. It adds the `## Factory` section before `## Agent identity`, adds
+the section or fills an empty roster with the default one, and creates
+`docs/Brain.md`, `docs/specs/` and `docs/brain/tasks/` when missing. Nothing
+the project wrote is replaced. If a `Mode` row already says anything other than
+`FACTORY`, the command keeps it and tells you to edit it. `migrate` without the
+flag never adds Factory files.

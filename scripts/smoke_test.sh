@@ -859,6 +859,140 @@ run_factory_suite() {
   printf '%s\n' "| LRN-004 | Run the fast test file first | RECIPE | test unit fast | Run the single spec file before the whole suite | log:F01-E01-T01 | HYPOTHESIS | 0 | — |" "| LRN-005 | Module map for billing | MAP | billing invoice src/billing/ | Billing code lives in src/billing and its tests in tests/billing | tests/billing | CONFIRMED | 2 | 2026-10-20 |" >> "$bp/docs/Brain.md"
   assert_success "$label valid extra rows of every shape pass check" run check "$bp"
 
+  echo "== $label: init defaults to factory, migrate --factory (F06-E01-T02) =="
+  ip_new() { ip="$WORK/${label}_$1"; rm -rf "$ip"; mkdir -p "$ip"; }
+  lines_kept() {  # lines_kept OLD NEW: every line of OLD is still in NEW, in order, nothing removed
+    # (the empty roster placeholder row is the one line migrate --factory replaces)
+    tr -d '\r' < "$1" | grep -v '^| — | — | — | — | — |$' > "$WORK/.old"; tr -d '\r' < "$2" > "$WORK/.new"
+    [ "$(diff "$WORK/.old" "$WORK/.new" | grep -c '^<')" -eq 0 ]
+  }
+
+  # --- init on a brand-new project -------------------------------------------
+  ip_new in_new
+  assert_success "$label init on an empty project" run init "$ip"
+  for f in AGENTS.md docs/Agentslog.md docs/ProductDescription.md docs/Stack_Tecnologies.md docs/Roadmap.md docs/Features.md docs/Brain.md; do
+    [ -f "$ip/$f" ] && ok "$label init creates $f" || bad "$label init did not create $f"
+  done
+  [ -d "$ip/docs/specs" ] && [ -d "$ip/docs/brain/tasks" ] && ok "$label init creates docs/specs and docs/brain/tasks" || bad "$label factory folders missing"
+  ip_new in_count
+  runo init "$ip"
+  grep -q '^project_docs init: 7 file(s) created$' "$WORK/.out" && ok "$label init reports seven files" || bad "$label init count wrong: $(grep 'project_docs init' "$WORK/.out")"
+  grep -q '^+ created: docs/Brain.md$' "$WORK/.out" && ok "$label init names docs/Brain.md" || bad "$label Brain.md not named"
+  grep -q '^## Factory$' "$ip/AGENTS.md" && grep -q '^| Mode | FACTORY |$' "$ip/AGENTS.md" && ok "$label the new AGENTS.md carries the Factory section" || bad "$label Factory section missing"
+  runo mode "$ip"
+  expect_first_line "$label a new project reports FACTORY" "project_docs mode: FACTORY (AGENTS.md)"
+  assert_success "$label a new Factory project passes check" run check "$ip"
+
+  # --- init --classic and the env override -----------------------------------
+  ip_new in_classic
+  runo init "$ip" --classic
+  grep -q '^project_docs init: 6 file(s) created$' "$WORK/.out" && ok "$label init --classic creates six files" || bad "$label classic count wrong: $(grep 'project_docs init' "$WORK/.out")"
+  [ ! -e "$ip/docs/Brain.md" ] && [ ! -e "$ip/docs/specs" ] && [ ! -e "$ip/docs/brain" ] && ok "$label init --classic creates no brain and no folders" || bad "$label classic init created factory files"
+  ! grep -q '^## Factory$' "$ip/AGENTS.md" && ok "$label init --classic writes no Factory section" || bad "$label classic AGENTS.md has a Factory section"
+  runo mode "$ip"
+  expect_first_line "$label a --classic project reports CLASSIC" "project_docs mode: CLASSIC (default)"
+
+  ip_new in_envclassic
+  runo_env PROJECT_DOCS_MODE=classic init "$ip"
+  grep -q '^project_docs init: 6 file(s) created$' "$WORK/.out" && ok "$label PROJECT_DOCS_MODE=classic makes init create six files" || bad "$label env classic ignored"
+
+  ip_new in_envfactory
+  runo_env PROJECT_DOCS_MODE=factory init "$ip"
+  grep -q '^project_docs init: 7 file(s) created$' "$WORK/.out" && ok "$label PROJECT_DOCS_MODE=factory on a new project creates seven files" || bad "$label env factory ignored"
+
+  # --- init never changes the mode of a project the skill already manages ----
+  ip_new in_existing
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  cp "$ip/AGENTS.md" "$WORK/.agents_before"
+  runo init "$ip"
+  grep -q '^project_docs init: 0 file(s) created$' "$WORK/.out" && ok "$label init on a classic project creates nothing" || bad "$label init changed a classic project: $(cat "$WORK/.out")"
+  [ ! -e "$ip/docs/Brain.md" ] && ! grep -q '^## Factory$' "$ip/AGENTS.md" && ok "$label init does not turn a classic project into Factory (BR-008)" || bad "$label classic project got Factory files"
+  cmp -s "$WORK/.agents_before" "$ip/AGENTS.md" && ok "$label init leaves a classic AGENTS.md byte-identical" || bad "$label classic AGENTS.md changed"
+  runo_env PROJECT_DOCS_MODE=factory init "$ip"
+  [ ! -e "$ip/docs/Brain.md" ] && ok "$label PROJECT_DOCS_MODE=factory does not force init on an existing classic project" || bad "$label env factory converted a classic project"
+
+  ip_new in_modeclassic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  seed_factory_section "$ip" "Mode | CLASSIC"
+  runo init "$ip"
+  [ ! -e "$ip/docs/Brain.md" ] && ok "$label a Factory section with Mode CLASSIC keeps init classic" || bad "$label Mode CLASSIC project got a brain"
+
+  ip_new in_twice
+  run init "$ip" >/dev/null 2>&1
+  cp "$ip/AGENTS.md" "$WORK/.agents_before"
+  runo init "$ip"
+  grep -q '^project_docs init: 0 file(s) created$' "$WORK/.out" && ok "$label a second init on a Factory project creates nothing" || bad "$label second init not idempotent: $(cat "$WORK/.out")"
+  cmp -s "$WORK/.agents_before" "$ip/AGENTS.md" && ok "$label a second init leaves AGENTS.md byte-identical" || bad "$label second init changed AGENTS.md"
+
+  ip_new in_handwritten
+  printf '# My rules\n\nUse tabs.\n' > "$ip/AGENTS.md"
+  cp "$ip/AGENTS.md" "$WORK/.agents_before"
+  runo init "$ip"
+  grep -q '^= merged skill block: AGENTS.md$' "$WORK/.out" && ok "$label init merges into a hand-written AGENTS.md" || bad "$label hand-written AGENTS.md not merged: $(cat "$WORK/.out")"
+  lines_kept "$WORK/.agents_before" "$ip/AGENTS.md" && ok "$label the hand-written rules are kept" || bad "$label hand-written rules lost"
+  grep -q '^## Factory$' "$ip/AGENTS.md" && [ -f "$ip/docs/Brain.md" ] && ok "$label a project with only a hand-written AGENTS.md starts in Factory" || bad "$label hand-written project not Factory"
+
+  # --- migrate --factory ------------------------------------------------------
+  ip_new mg_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  cp "$ip/AGENTS.md" "$WORK/.agents_before"
+  runo migrate "$ip"
+  grep -q '^project_docs migrate: 0 change(s)$' "$WORK/.out" && ok "$label migrate without --factory changes nothing on a classic project" || bad "$label plain migrate changed it: $(cat "$WORK/.out")"
+  [ ! -e "$ip/docs/Brain.md" ] && cmp -s "$WORK/.agents_before" "$ip/AGENTS.md" && ok "$label migrate without --factory adds no Factory files (BR-008)" || bad "$label plain migrate added factory files"
+
+  ip_new mg_msgs
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  cp "$ip/AGENTS.md" "$WORK/.agents_before"
+  assert_success "$label migrate --factory on a classic project" run migrate "$ip" --factory
+  grep -q '^+ added: ## Factory section in AGENTS.md$' "$WORK/.out" && ok "$label migrate --factory adds the Factory section" || bad "$label section not added: $(cat "$WORK/.out")"
+  grep -q '^+ added: default agent roster in AGENTS.md$' "$WORK/.out" && ok "$label migrate --factory fills an empty roster" || bad "$label roster not filled: $(cat "$WORK/.out")"
+  grep -q '^+ created: docs/Brain.md$' "$WORK/.out" && ok "$label migrate --factory creates docs/Brain.md" || bad "$label Brain.md not created"
+  grep -q '^+ created: docs/specs/$' "$WORK/.out" && grep -q '^+ created: docs/brain/tasks/$' "$WORK/.out" && ok "$label migrate --factory creates the folders" || bad "$label folders not reported"
+  grep -q '^project_docs migrate: 5 change(s)$' "$WORK/.out" && ok "$label migrate --factory counts five changes" || bad "$label change count wrong: $(grep 'project_docs migrate' "$WORK/.out")"
+  [ -f "$ip/docs/Brain.md" ] && [ -d "$ip/docs/specs" ] && [ -d "$ip/docs/brain/tasks" ] && ok "$label the brain and the folders exist on disk" || bad "$label migrate files missing on disk"
+  lines_kept "$WORK/.agents_before" "$ip/AGENTS.md" && ok "$label migrate --factory removes nothing from AGENTS.md" || bad "$label migrate --factory removed lines"
+  fl="$(grep -n '^## Factory$' "$ip/AGENTS.md" | cut -d: -f1)"; al="$(grep -n '^## Agent identity$' "$ip/AGENTS.md" | cut -d: -f1)"; el="$(grep -n 'project-documentation:end' "$ip/AGENTS.md" | cut -d: -f1)"
+  [ -n "$fl" ] && [ -n "$al" ] && [ "$fl" -lt "$al" ] && [ "$al" -lt "$el" ] && ok "$label the Factory section sits before Agent identity inside the block" || bad "$label section order wrong: factory=$fl identity=$al end=$el"
+  grep -q '^| claude-qa | AI | Claude | QA | — |$' "$ip/AGENTS.md" && ! grep -q '^| — | — | — | — | — |$' "$ip/AGENTS.md" && ok "$label the placeholder roster row is replaced by the defaults" || bad "$label roster not replaced"
+  runo mode "$ip"
+  expect_first_line "$label the migrated project reports FACTORY" "project_docs mode: FACTORY (AGENTS.md)"
+  assert_success "$label a migrated project passes check" run check "$ip"
+
+  cp "$ip/AGENTS.md" "$WORK/.agents_before"; cp "$ip/docs/Brain.md" "$WORK/.brain_before"
+  runo migrate "$ip" --factory
+  grep -q '^project_docs migrate: 0 change(s)$' "$WORK/.out" && ok "$label a second migrate --factory changes nothing" || bad "$label second migrate not idempotent: $(cat "$WORK/.out")"
+  cmp -s "$WORK/.agents_before" "$ip/AGENTS.md" && cmp -s "$WORK/.brain_before" "$ip/docs/Brain.md" && ok "$label a second migrate --factory leaves the files byte-identical" || bad "$label second migrate changed files"
+  [ "$(grep -c '^## Factory$' "$ip/AGENTS.md")" -eq 1 ] && ok "$label the Factory section appears once" || bad "$label Factory section duplicated"
+
+  ip_new mg_roster
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  seed_replace "$ip/AGENTS.md" "| — | — | — | — | — |" "| my-agent | AI | Claude | BOTH | — |"
+  runo migrate "$ip" --factory
+  grep -q '^| my-agent | AI | Claude | BOTH | — |$' "$ip/AGENTS.md" && ! grep -q '^| claude-spec ' "$ip/AGENTS.md" && ok "$label migrate --factory keeps an existing roster" || bad "$label existing roster touched"
+  ! grep -q 'default agent roster' "$WORK/.out" && ok "$label migrate --factory does not announce a roster it did not add" || bad "$label roster announced"
+
+  ip_new mg_brain
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  mkdir -p "$ip/docs" && printf 'my own brain\n' > "$ip/docs/Brain.md"
+  runo migrate "$ip" --factory
+  [ "$(cat "$ip/docs/Brain.md" | tr -d '\r')" = "my own brain" ] && ok "$label migrate --factory never overwrites an existing docs/Brain.md" || bad "$label Brain.md overwritten"
+
+  ip_new mg_modeclassic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  seed_factory_section "$ip" "Mode | CLASSIC"
+  runo migrate "$ip" --factory
+  grep -q '^= kept: Mode is not FACTORY in AGENTS.md (set it to FACTORY to switch)$' "$WORK/.out" && ok "$label migrate --factory says it kept Mode CLASSIC" || bad "$label kept note missing: $(cat "$WORK/.out")"
+  runo mode "$ip"
+  expect_first_line "$label migrate --factory never flips an explicit Mode CLASSIC" "project_docs mode: CLASSIC (AGENTS.md)"
+
+  ip_new mg_noidentity
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  awk '$0=="## Agent identity"{skip=1;next} skip && /^## /{skip=0} skip && /^<!--/{skip=0} !skip' "$ip/AGENTS.md" > "$WORK/.noid" && cp "$WORK/.noid" "$ip/AGENTS.md"
+  ! grep -q '^## Agent identity$' "$ip/AGENTS.md" || bad "$label fixture still has Agent identity"
+  runo migrate "$ip" --factory
+  grep -q '^+ added: ## Agent identity section with the default roster in AGENTS.md$' "$WORK/.out" && ok "$label migrate --factory adds a missing Agent identity section" || bad "$label identity section not added: $(cat "$WORK/.out")"
+  grep -q '^| claude-dev | AI | Claude | DEV | — |$' "$ip/AGENTS.md" && ok "$label the added section carries the default roster" || bad "$label default roster missing"
+
 #FACTORY_CASES
 }
 

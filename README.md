@@ -48,7 +48,8 @@ Both launchers also provide:
 | Command | Purpose |
 |---|---|
 | `link [--create <list>]` | Point other agent files (`CLAUDE.md`, `.cursorrules`, ...) at `AGENTS.md`; run automatically at the end of `init` |
-| `migrate` | Merge a legacy `docs/Agents.md` into root `AGENTS.md`, fix a root case-only filename, add missing `Roadmap.md` sections, convert a per-entry YAML Roadmap back to tables, retrofit a `Name` column onto a pre-Name Roadmap — idempotent |
+| `init [--classic]` | Create the contract files. A project the skill does not manage yet starts in Factory mode (seven files plus `docs/specs/` and `docs/brain/tasks/`); `--classic` creates the six-file project; an existing project keeps its mode |
+| `migrate [--factory]` | Merge a legacy `docs/Agents.md` into root `AGENTS.md`, fix a root case-only filename, add missing `Roadmap.md` sections, convert a per-entry YAML Roadmap back to tables, retrofit a `Name` column onto a pre-Name Roadmap — idempotent; with `--factory` also add the Factory section, the default roster, `docs/Brain.md` and the Factory folders without replacing anything |
 | `claim <agent> <task-id> <summary>` | Take a Roadmap task before your first edit; fails if another agent already owns it (the holder may retake a task in `REVIEW`) |
 | `pause <agent> <task-id> <category> <detail>` | Release a task (`LIMITE`\|`ESPERA_RESPUESTA`\|`BLOQUEO`\|`OTRO`) |
 | `handoff <agent> <task-id> <summary> <verify> [reviewer]` | Code complete and your own verification passed: move the task to `REVIEW` (ledger only, the Roadmap row stays `IN_PROGRESS`) |
