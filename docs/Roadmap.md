@@ -20,6 +20,7 @@ stable for positional edits.
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
 | F06-E01-T02 | Init defaults to factory and migrate adds it | init creates seven files plus folders; init --classic creates six; migrate --factory idempotent | Smoke cases pass in sh and ps1 | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T14:14:31Z | F06-E01-T01, F06-E03-T01 | — |
+| F06-E01-T03 | Compact factory rules and autonomy policy in template | Section 4.1 text; decisions section points to it in factory | Fresh factory project context at or below 6912 bytes | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T14:41:13Z | F06-E01-T02 | — |
 
 <!-- context:end -->
 
@@ -80,7 +81,6 @@ Spec: docs/features/ia-factory.md (closed decisions D-01 to D-21 are ADR-023 onw
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E01-T03 | Compact factory rules and autonomy policy in template | Section 4.1 text; decisions section points to it in factory | Fresh factory project context at or below 6912 bytes | TODO | — | F06-E01-T02 | — |
 | F06-E01-T04 | Add next command for autonomous task selection | Order and skips per section 4.3 | Smoke cases for every role return the expected ID | TODO | — | F06-E02-T02, F06-E02-T03 | — |
 | F06-E01-T05 | Enforce WIP and fix attempt limits in claim | D-13 and D-14 | Smoke cases refuse the claim with a clear message | TODO | — | F06-E02-T02 | — |
 

@@ -320,6 +320,24 @@ migrate_factory_additions() {
     echo "+ added: default agent roster in AGENTS.md"
     mf_changed=$((mf_changed + 1))
   fi
+  # The classic block tells agents to escalate to a human; in Factory mode the
+  # autonomy policy replaces that. Add the pointer after the bullet, never edit it.
+  mf_ptr='- In Factory mode the autonomy policy in `## Factory` replaces asking a human.'
+  if ! tr -d '\r' < "$mf_agents" | grep -qxF -- "$mf_ptr"; then
+    mf_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-pointer.XXXXXX")"
+    awk -v ptr="$mf_ptr" '
+      { print }
+      f && /record the outcome either way\./ { print ptr; f=0 }
+      /^- Escalate to the human when a choice affects product behavior, cost,/ { f=1 }
+    ' "$mf_agents" > "$mf_tmp"
+    if cmp -s "$mf_agents" "$mf_tmp"; then
+      rm -f "$mf_tmp"
+    else
+      mv "$mf_tmp" "$mf_agents"
+      echo "+ added: Factory pointer in Technical and product decisions"
+      mf_changed=$((mf_changed + 1))
+    fi
+  fi
   rm -f "$mf_sec"
   if [ ! -f "$DOCS_DIR/Brain.md" ]; then
     cp "$TEMPLATES_DIR/Brain.md" "$DOCS_DIR/Brain.md"

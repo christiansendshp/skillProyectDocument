@@ -948,7 +948,7 @@ run_factory_suite() {
   grep -q '^+ added: default agent roster in AGENTS.md$' "$WORK/.out" && ok "$label migrate --factory fills an empty roster" || bad "$label roster not filled: $(cat "$WORK/.out")"
   grep -q '^+ created: docs/Brain.md$' "$WORK/.out" && ok "$label migrate --factory creates docs/Brain.md" || bad "$label Brain.md not created"
   grep -q '^+ created: docs/specs/$' "$WORK/.out" && grep -q '^+ created: docs/brain/tasks/$' "$WORK/.out" && ok "$label migrate --factory creates the folders" || bad "$label folders not reported"
-  grep -q '^project_docs migrate: 5 change(s)$' "$WORK/.out" && ok "$label migrate --factory counts five changes" || bad "$label change count wrong: $(grep 'project_docs migrate' "$WORK/.out")"
+  grep -q '^project_docs migrate: 6 change(s)$' "$WORK/.out" && ok "$label migrate --factory counts six changes" || bad "$label change count wrong: $(grep 'project_docs migrate' "$WORK/.out")"
   [ -f "$ip/docs/Brain.md" ] && [ -d "$ip/docs/specs" ] && [ -d "$ip/docs/brain/tasks" ] && ok "$label the brain and the folders exist on disk" || bad "$label migrate files missing on disk"
   lines_kept "$WORK/.agents_before" "$ip/AGENTS.md" && ok "$label migrate --factory removes nothing from AGENTS.md" || bad "$label migrate --factory removed lines"
   fl="$(grep -n '^## Factory$' "$ip/AGENTS.md" | cut -d: -f1)"; al="$(grep -n '^## Agent identity$' "$ip/AGENTS.md" | cut -d: -f1)"; el="$(grep -n 'project-documentation:end' "$ip/AGENTS.md" | cut -d: -f1)"
@@ -992,6 +992,49 @@ run_factory_suite() {
   runo migrate "$ip" --factory
   grep -q '^+ added: ## Agent identity section with the default roster in AGENTS.md$' "$WORK/.out" && ok "$label migrate --factory adds a missing Agent identity section" || bad "$label identity section not added: $(cat "$WORK/.out")"
   grep -q '^| claude-dev | AI | Claude | DEV | — |$' "$ip/AGENTS.md" && ok "$label the added section carries the default roster" || bad "$label default roster missing"
+
+  echo "== $label: compact factory rules and the decisions pointer (F06-E01-T03) =="
+  ptr='- In Factory mode the autonomy policy in `## Factory` replaces asking a human.'
+
+  ip_new rl_new
+  run init "$ip" >/dev/null 2>&1
+  runo context "$ip"
+  cbytes="$(tr -d '\r' < "$WORK/.out" | wc -c | tr -d ' ')"
+  [ "$cbytes" -le 6912 ] && ok "$label a fresh Factory project context is $cbytes bytes, at most 6912" || bad "$label fresh Factory context is $cbytes bytes, over 6912"
+  fbytes="$(awk '$0=="## Factory"{p=1} p&&/^## /&&$0!="## Factory"{exit} p' "$ip/AGENTS.md" | tr -d '\r' | wc -c | tr -d ' ')"
+  [ "$fbytes" -le 1536 ] && ok "$label the Factory section is $fbytes bytes, at most 1.5 KiB" || bad "$label the Factory section is $fbytes bytes"
+  for phrase in 'Never ask which task to take: run `next <agent>`' 'Lane: FAST' 'Phases: SPEC -> RED -> GREEN -> REVIEW -> DONE' 'GREEN never edits the tests recorded at RED' 'Record product guesses as HYPOTHESIS' 'RED-LINE' 'then `recall <task>`' '`checkpoint` before pausing'; do
+    grep -qF -- "$phrase" "$ip/AGENTS.md" && ok "$label the Factory rules say: $phrase" || bad "$label the Factory rules lack: $phrase"
+  done
+  grep -qF -- "$ptr" "$ip/AGENTS.md" && ok "$label the decisions section points to ## Factory" || bad "$label the decisions pointer is missing"
+  ! grep -q 'Escalate to the human' "$ip/AGENTS.md" && ok "$label the Factory AGENTS.md does not tell agents to escalate to a human" || bad "$label the Factory AGENTS.md still escalates to a human"
+  runo mode "$ip"
+  awk -F'|' '$0=="## Factory"{p=1;next} p&&/^## /{exit} p&&/^\|/ { n=$2; v=$3; gsub(/^ +| +$/,"",n); gsub(/^ +| +$/,"",v); if (n=="Setting"||n ~ /^-+$/) next; if (v=="—") v=""; print (v=="" ? n " =" : n " = " v) }' "$ip/AGENTS.md" | tr -d '\r' > "$WORK/.expected"
+  [ "$(wc -l < "$WORK/.expected" | tr -d ' ')" -eq 10 ] && ok "$label the template settings table has ten rows" || bad "$label settings table rows: $(cat "$WORK/.expected")"
+  tr -d '\r' < "$WORK/.out" > "$WORK/.modeout"
+  missing=0
+  while IFS= read -r line; do grep -qxF -- "$line" "$WORK/.modeout" || { missing=1; bad "$label template setting not equal to the code default: $line"; }; done < "$WORK/.expected"
+  [ "$missing" -eq 0 ] && ok "$label every template setting equals the default the scripts use"
+
+  ip_new rl_mig
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  grep -q 'Escalate to the human' "$ip/AGENTS.md" && ok "$label the classic block still escalates to a human" || bad "$label classic block changed"
+  runo migrate "$ip" --factory
+  grep -q '^+ added: Factory pointer in Technical and product decisions$' "$WORK/.out" && ok "$label migrate --factory announces the decisions pointer" || bad "$label pointer not announced: $(cat "$WORK/.out")"
+  grep -q 'Escalate to the human' "$ip/AGENTS.md" && ok "$label migrate --factory keeps the classic bullet" || bad "$label classic bullet removed"
+  [ "$(grep -cF -- "$ptr" "$ip/AGENTS.md")" -eq 1 ] && ok "$label the pointer is added once" || bad "$label pointer count wrong"
+  eline="$(grep -n 'record the outcome either way\.' "$ip/AGENTS.md" | head -1 | cut -d: -f1)"
+  nextline="$(sed -n "$((eline + 1))p" "$ip/AGENTS.md" | tr -d '\r')"
+  [ "$nextline" = "$ptr" ] && ok "$label the pointer sits right after the escalate bullet" || bad "$label pointer misplaced: next line is [$nextline]"
+  assert_success "$label a migrated project with the pointer passes check" run check "$ip"
+  runo migrate "$ip" --factory
+  grep -q '^project_docs migrate: 0 change(s)$' "$WORK/.out" && [ "$(grep -cF -- "$ptr" "$ip/AGENTS.md")" -eq 1 ] && ok "$label a second migrate --factory adds no second pointer" || bad "$label pointer not idempotent: $(cat "$WORK/.out")"
+
+  ip_new rl_nobullet
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  seed_replace "$ip/AGENTS.md" "- Escalate to the human when a choice affects product behavior, cost," "- Ask the lead when a choice affects product behavior, cost,"
+  runo migrate "$ip" --factory
+  ! grep -q 'Factory pointer' "$WORK/.out" && ! grep -qF -- "$ptr" "$ip/AGENTS.md" && ok "$label no pointer is added when the project reworded the escalate bullet" || bad "$label pointer added to a reworded block"
 
 #FACTORY_CASES
 }

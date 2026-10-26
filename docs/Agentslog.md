@@ -246,3 +246,12 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: Brain template and Factory-only check validation
 - Files: templates/Brain.md,scripts/,references/factory.md
 - Verify: smoke 704 pass 0 fail; QA PASS 81 fixtures; classic check identical
+
+## [2026-10-26T14:40:20Z] | claude-sonnet-5-5 | F06-E01-T02 | REVIEW | Init defaults to factory and migrate adds it
+- Summary: init Factory default, --classic, migrate --factory
+- Verify: smoke 812 pass 0 fail (sh 407 ps1 405); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-26T14:41:13Z] | claude-sonnet-5-5 | F06-E01-T03 | IN_PROGRESS | Compact factory rules and autonomy policy in template
+- Summary: Factory rules pointer in migrated decisions section
+- Verify: pending

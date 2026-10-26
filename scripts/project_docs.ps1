@@ -351,6 +351,24 @@ function Add-FactoryAdditions {
         Write-Output "+ added: default agent roster in AGENTS.md"
         $changes++
     }
+    # The classic block tells agents to escalate to a human; in Factory mode the
+    # autonomy policy replaces that. Add the pointer after the bullet, never edit it.
+    $ptr = '- In Factory mode the autonomy policy in `## Factory` replaces asking a human.'
+    $lines = @(Get-ContentUtf8 -LiteralPath $agents)
+    if (-not ($lines -ccontains $ptr)) {
+        $result = [System.Collections.Generic.List[string]]::new()
+        $f = $false; $inserted = $false
+        foreach ($line in $lines) {
+            $result.Add([string]$line)
+            if ($f -and $line.Contains("record the outcome either way.")) { $result.Add($ptr); $f = $false; $inserted = $true }
+            if ($line.StartsWith("- Escalate to the human when a choice affects product behavior, cost,", [System.StringComparison]::Ordinal)) { $f = $true }
+        }
+        if ($inserted) {
+            Write-Utf8File $agents (ConvertTo-JoinedLines ([string[]]$result.ToArray()))
+            Write-Output "+ added: Factory pointer in Technical and product decisions"
+            $changes++
+        }
+    }
     if (-not (Test-Path -LiteralPath (Join-Path $DocsDir "Brain.md") -PathType Leaf)) {
         Copy-Item -LiteralPath (Join-Path $TemplatesDir "Brain.md") -Destination (Join-Path $DocsDir "Brain.md")
         Write-Output "+ created: docs/Brain.md"

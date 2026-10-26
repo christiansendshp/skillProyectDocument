@@ -83,3 +83,13 @@ the section or fills an empty roster with the default one, and creates
 the project wrote is replaced. If a `Mode` row already says anything other than
 `FACTORY`, the command keeps it and tells you to edit it. `migrate` without the
 flag never adds Factory files.
+
+The classic block tells agents to escalate product and cost choices to a human.
+In Factory mode `## Factory` replaces that, so a new Factory project's block
+has a pointer bullet instead, and `migrate --factory` adds the same bullet right
+after the classic one (it never edits or removes it, and skips a block whose
+bullet was reworded).
+
+The `## Factory` section of `templates/AGENTS.factory.md` stays under 1.5 KiB
+and a fresh Factory project's `context` stays at or below 6912 bytes, which
+leaves room for the active work of a real project.
