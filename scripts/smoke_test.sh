@@ -49,6 +49,10 @@ assert_not_exists_pattern() {
 run_suite() {
   label="$1"
   run() { "$RUNNER" "$@"; }
+  # The cases below measure the classic (pre-factory) behavior. init now creates
+  # a Factory project by default, so this suite pins the mode explicitly; the
+  # factory behavior is covered by run_factory_suite.
+  PROJECT_DOCS_MODE=classic; export PROJECT_DOCS_MODE
 
   proj="$WORK/${label}_proj"
   mkdir -p "$proj"
@@ -684,6 +688,122 @@ run_suite() {
   golden_eq "$WORK/.out" && ok "$label regression: rotate output is exactly what it was" || bad "$label regression: rotate output changed: $(cat "$WORK/.out")"
 }
 
+# ---------------------------------------------------------------------------
+# Factory suite (F06). Runs with PROJECT_DOCS_MODE unset, so mode comes from the
+# project itself; a case that needs the classic mode says so with run_env.
+# ---------------------------------------------------------------------------
+# Appends a "## Factory" settings table to a project AGENTS.md; each argument is
+# one row body such as "Mode | FACTORY".
+seed_factory_section() {
+  fsp="$1"; shift
+  { printf '\n## Factory\n\n| Setting | Value |\n|---|---|\n'; for fsr in "$@"; do printf '| %s |\n' "$fsr"; done; } >> "$fsp/AGENTS.md"
+}
+
+run_factory_suite() {
+  label="$1"
+  run() { "$RUNNER" "$@"; }
+  unset PROJECT_DOCS_MODE
+  FMARK="factory-suite-start"
+  # runo / runo_env run a command and leave its stdout+stderr in $WORK/.out.
+  runo() { run "$@" >"$WORK/.out" 2>&1; return 0; }
+  runo_env() { ( export "$1"; shift; run "$@" ) >"$WORK/.out" 2>&1; return 0; }
+  echo "== $label: factory mode detection (F06-E01-T01) =="
+  mode_proj() {
+    mp="$WORK/${label}_$1"
+    mkdir -p "$mp"
+    run_env PROJECT_DOCS_MODE=classic init "$mp" >/dev/null 2>&1
+  }
+  expect_first_line() {  # expect_first_line "<description>" "<expected first line>"
+    head -n 1 "$WORK/.out" | tr -d '\r' > "$WORK/.line1"
+    printf '%s\n' "$2" > "$WORK/.golden"
+    cmp -s "$WORK/.golden" "$WORK/.line1" && ok "$1" || bad "$1: got [$(cat "$WORK/.line1")]"
+  }
+
+  mode_proj md_classic
+  assert_success "$label mode runs on a project without a Factory section" run mode "$mp"
+  expect_first_line "$label no Factory section means CLASSIC" "project_docs mode: CLASSIC (default)"
+  [ "$(wc -l < "$WORK/.out" | tr -d ' ')" -eq 1 ] && ok "$label classic mode prints one line only" || bad "$label classic mode printed extra lines: $(cat "$WORK/.out")"
+
+  mode_proj md_factory
+  seed_factory_section "$mp" "Mode | FACTORY"
+  assert_success "$label mode runs on a Factory project" run mode "$mp"
+  expect_first_line "$label Mode FACTORY is detected from AGENTS.md" "project_docs mode: FACTORY (AGENTS.md)"
+  printf '%s\n' "project_docs mode: FACTORY (AGENTS.md)" "Mode = FACTORY" "Require TDD = YES" "Independent review = YES" \
+    "WIP per agent = 1" "Max fix attempts = 3" "Fast lane max files = 5" "Fast lane max lines = 150" \
+    "Fast lane protected paths = prisma/ migrations/ auth/ rls/ security/" "Preferred reviewer =" "Fallback reviewer =" \
+    "Recall budget bytes = 4096" "Brain max entries = 80" > "$WORK/.golden"
+  golden_eq "$WORK/.out" && ok "$label every missing setting takes its default (D-03)" || bad "$label default settings differ: $(cat "$WORK/.out")"
+
+  mode_proj md_override
+  seed_factory_section "$mp" "Mode | factory" "WIP per agent | 2" "Preferred reviewer | gemini-qa" "Fast lane protected paths | db/ infra/"
+  runo mode "$mp"
+  expect_first_line "$label the Mode value is case-insensitive" "project_docs mode: FACTORY (AGENTS.md)"
+  grep -q '^WIP per agent = 2$' "$WORK/.out" && ok "$label a setting row overrides its default" || bad "$label WIP override missing: $(cat "$WORK/.out")"
+  grep -q '^Preferred reviewer = gemini-qa$' "$WORK/.out" && ok "$label a reviewer id is read" || bad "$label reviewer missing: $(cat "$WORK/.out")"
+  grep -q '^Fast lane protected paths = db/ infra/$' "$WORK/.out" && ok "$label a list setting keeps its spaces" || bad "$label protected paths wrong: $(cat "$WORK/.out")"
+  grep -q '^Max fix attempts = 3$' "$WORK/.out" && ok "$label settings not overridden keep their default" || bad "$label default lost"
+
+  mode_proj md_dash
+  seed_factory_section "$mp" "Mode | FACTORY" "Preferred reviewer | —" "WIP per agent | —"
+  runo mode "$mp"
+  grep -q '^Preferred reviewer =$' "$WORK/.out" && ok "$label an em dash value means empty" || bad "$label dash value not empty: $(cat "$WORK/.out")"
+  grep -q '^WIP per agent = 1$' "$WORK/.out" && ok "$label an empty numeric setting falls back to its default" || bad "$label empty WIP did not fall back: $(cat "$WORK/.out")"
+
+  mode_proj md_nomode
+  seed_factory_section "$mp" "WIP per agent | 3"
+  runo mode "$mp"
+  expect_first_line "$label a Factory section without a Mode row defaults to FACTORY" "project_docs mode: FACTORY (AGENTS.md)"
+
+  mode_proj md_classicrow
+  seed_factory_section "$mp" "Mode | CLASSIC" "WIP per agent | 3"
+  runo mode "$mp"
+  expect_first_line "$label Mode CLASSIC keeps the classic behavior" "project_docs mode: CLASSIC (AGENTS.md)"
+  [ "$(wc -l < "$WORK/.out" | tr -d ' ')" -eq 1 ] && ok "$label Mode CLASSIC prints no settings" || bad "$label classic printed settings"
+
+  mode_proj md_garbage
+  seed_factory_section "$mp" "Mode | banana"
+  runo mode "$mp"
+  expect_first_line "$label an unknown Mode value is treated as CLASSIC (conservative)" "project_docs mode: CLASSIC (AGENTS.md)"
+
+  mode_proj md_env
+  assert_success "$label env factory on a classic project" run_env PROJECT_DOCS_MODE=factory mode "$mp"
+  expect_first_line "$label PROJECT_DOCS_MODE=factory forces FACTORY" "project_docs mode: FACTORY (env)"
+  grep -q '^Max fix attempts = 3$' "$WORK/.out" && ok "$label forced FACTORY uses the default settings" || bad "$label forced FACTORY settings missing"
+  mode_proj md_env2
+  seed_factory_section "$mp" "Mode | FACTORY"
+  runo_env PROJECT_DOCS_MODE=classic mode "$mp"
+  expect_first_line "$label PROJECT_DOCS_MODE=classic forces CLASSIC" "project_docs mode: CLASSIC (env)"
+  runo_env PROJECT_DOCS_MODE=banana mode "$mp"
+  expect_first_line "$label an invalid PROJECT_DOCS_MODE is ignored" "project_docs mode: FACTORY (AGENTS.md)"
+  runo_env PROJECT_DOCS_MODE=FACTORY mode "$mp"
+  expect_first_line "$label PROJECT_DOCS_MODE is case-insensitive" "project_docs mode: FACTORY (env)"
+
+  echo "== $label: a classic fixture behaves as before, with no environment at all (BR-008) =="
+  rg="$WORK/${label}_f_regress"
+  mkdir -p "$rg"
+  run_env PROJECT_DOCS_MODE=classic init "$rg" >/dev/null 2>&1
+  seed_active_row "$rg" SMOKE-RG1 "Regress task one"
+  seed_active_row "$rg" SMOKE-RG2 "Regress task two"
+  run claim "$rg" agentA SMOKE-RG1 "working on one" >/dev/null 2>&1
+  run claim "$rg" agentB SMOKE-RG2 "working on two" >/dev/null 2>&1
+  run pause "$rg" agentB SMOKE-RG2 LIMITE "context limit" >/dev/null 2>&1
+  runo status "$rg"
+  printf '%s\n' "SMOKE-RG1 | Regress task one | agentA | IN_PROGRESS | 0h | -" "SMOKE-RG2 | Regress task two | agentB | PAUSE | 0h | LIMITE" > "$WORK/.golden"
+  golden_eq "$WORK/.out" && ok "$label classic status is exactly what it was" || bad "$label classic status changed: $(cat "$WORK/.out")"
+  runo check "$rg"
+  printf '%s\n' "WARN: 10 UNKNOWN field(s) in Operational summaries" "project_docs check: OK" > "$WORK/.golden"
+  golden_eq "$WORK/.out" sorted && ok "$label classic check is exactly what it was" || bad "$label classic check changed: $(cat "$WORK/.out")"
+  runo context "$rg"
+  awk '/^## Open tasks/{p=1;next} /^## Latest agent entries/{p=0} p && NF' "$WORK/.out" > "$WORK/.open"
+  printf '%s\n' "SMOKE-RG1 | agentA | IN_PROGRESS | 0h | -" "SMOKE-RG2 | agentB | PAUSE | 0h | LIMITE" > "$WORK/.golden"
+  golden_eq "$WORK/.open" && ok "$label classic context Open tasks is exactly what it was" || bad "$label classic Open tasks changed"
+  runo rotate "$rg"
+  printf '%s\n' "project_docs rotate: not required" > "$WORK/.golden"
+  golden_eq "$WORK/.out" && ok "$label classic rotate is exactly what it was" || bad "$label classic rotate changed"
+
+#FACTORY_CASES
+}
+
 file_hash() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
   elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
@@ -916,10 +1036,19 @@ severity: high
 EOF
 }
 
-echo "### sh: $SH_BIN ###"
+# SMOKE_LAUNCHERS (default "sh ps1") picks the launchers to run; SMOKE_ONLY=factory
+# skips the pre-factory suite. Two snapshots can run in parallel, one per launcher.
+SMOKE_LAUNCHERS="${SMOKE_LAUNCHERS:-sh ps1}"
+SMOKE_ONLY="${SMOKE_ONLY:-}"
+want_launcher() { case " $SMOKE_LAUNCHERS " in *" $1 "*) return 0 ;; esac; return 1; }
+
 RUNNER="sh_runner"
 sh_runner() { sh "$SH_BIN" "$@"; }
-run_suite sh
+if want_launcher sh; then
+  echo "### sh: $SH_BIN ###"
+  [ "$SMOKE_ONLY" = "factory" ] || run_suite sh
+  run_factory_suite sh
+fi
 
 PWSH=""
 if command -v pwsh >/dev/null 2>&1; then PWSH="pwsh"
@@ -933,7 +1062,9 @@ to_native_path() {
   if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi
 }
 
-if [ -n "$PWSH" ]; then
+if ! want_launcher ps1; then
+  echo "### ps1: not selected (SMOKE_LAUNCHERS=$SMOKE_LAUNCHERS) ###"
+elif [ -n "$PWSH" ]; then
   PS1_BIN_NATIVE="$(to_native_path "$PS1_BIN")"
   echo "### ps1 ($PWSH): $PS1_BIN_NATIVE ###"
   RUNNER="ps1_runner"
@@ -947,7 +1078,8 @@ if [ -n "$PWSH" ]; then
     done
     "$PWSH" -NoProfile -NonInteractive -Command "$ps_cmd"
   }
-  run_suite ps1
+  [ "$SMOKE_ONLY" = "factory" ] || run_suite ps1
+  run_factory_suite ps1
 else
   echo "### ps1: skipped (no pwsh or powershell.exe on PATH) ###"
 fi

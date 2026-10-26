@@ -485,6 +485,100 @@ gap_label() {
   if [ "$1" -lt 60 ]; then printf '%ss' "$1"; else printf '%sm' "$(( $1 / 60 ))"; fi
 }
 
+# ---------------------------------------------------------------------------
+# Factory mode (F06, ADR-023). The optional "## Factory" section of the project
+# AGENTS.md holds a "Setting | Value" table the scripts read. Without the
+# section, or with Mode CLASSIC, nothing in this block changes any behavior
+# (BR-008). PROJECT_DOCS_MODE=classic or factory overrides the file (tests).
+# A missing row, or a value of just an em dash, takes its default (ADR-025).
+# ---------------------------------------------------------------------------
+factory_setting_names() {
+  printf '%s\n' "Mode" "Require TDD" "Independent review" "WIP per agent" "Max fix attempts" \
+    "Fast lane max files" "Fast lane max lines" "Fast lane protected paths" \
+    "Preferred reviewer" "Fallback reviewer" "Recall budget bytes" "Brain max entries"
+}
+
+factory_default() {
+  case "$1" in
+    "Mode") printf 'FACTORY' ;;
+    "Require TDD") printf 'YES' ;;
+    "Independent review") printf 'YES' ;;
+    "WIP per agent") printf '1' ;;
+    "Max fix attempts") printf '3' ;;
+    "Fast lane max files") printf '5' ;;
+    "Fast lane max lines") printf '150' ;;
+    "Fast lane protected paths") printf 'prisma/ migrations/ auth/ rls/ security/' ;;
+    "Recall budget bytes") printf '4096' ;;
+    "Brain max entries") printf '80' ;;
+    *) printf '' ;;
+  esac
+}
+
+# factory_section_exists: true when AGENTS.md has a "## Factory" heading.
+factory_section_exists() {
+  [ -f "$PROJECT/AGENTS.md" ] || return 1
+  awk '$0=="## Factory" { f=1 } END { exit (f ? 0 : 1) }' "$PROJECT/AGENTS.md"
+}
+
+# factory_raw_value NAME: the trimmed value cell of the row, or empty.
+factory_raw_value() {
+  [ -f "$PROJECT/AGENTS.md" ] || return 0
+  awk -v want="$1" '
+    $0=="## Factory" { insec=1; next }
+    insec && /^## / { insec=0 }
+    insec && /^\|/ {
+      line=$0
+      sub(/^\|/,"",line); sub(/\|[ \t]*$/,"",line)
+      n=split(line,c,"|")
+      for (i=1;i<=n;i++) gsub(/^[ \t]+|[ \t]+$/,"",c[i])
+      if (c[1]==want) { v=c[2]; if (v=="—") v=""; print v; exit }
+    }
+  ' "$PROJECT/AGENTS.md"
+}
+
+# factory_setting NAME: the effective value (the row, else the default).
+factory_setting() {
+  fs_v="$(factory_raw_value "$1")"
+  if [ -z "$fs_v" ]; then fs_v="$(factory_default "$1")"; fi
+  printf '%s' "$fs_v"
+}
+
+# factory_resolve_mode: sets FACTORY_MODE (FACTORY or CLASSIC) and
+# FACTORY_MODE_SOURCE (env, AGENTS.md or default). An unknown Mode value is
+# CLASSIC: the conservative reading (ADR-045).
+factory_resolve_mode() {
+  fm_env="$(printf '%s' "${PROJECT_DOCS_MODE:-}" | tr 'A-Z' 'a-z')"
+  case "$fm_env" in
+    factory) FACTORY_MODE=FACTORY; FACTORY_MODE_SOURCE=env; return 0 ;;
+    classic) FACTORY_MODE=CLASSIC; FACTORY_MODE_SOURCE=env; return 0 ;;
+  esac
+  if factory_section_exists; then
+    fm_v="$(factory_setting Mode | tr 'a-z' 'A-Z')"
+    if [ "$fm_v" = "FACTORY" ]; then FACTORY_MODE=FACTORY; else FACTORY_MODE=CLASSIC; fi
+    FACTORY_MODE_SOURCE="AGENTS.md"
+  else
+    FACTORY_MODE=CLASSIC; FACTORY_MODE_SOURCE=default
+  fi
+}
+
+# factory_on: true in Factory mode (resolved once per process).
+factory_on() {
+  [ -n "${FACTORY_MODE:-}" ] || factory_resolve_mode
+  [ "$FACTORY_MODE" = "FACTORY" ]
+}
+
+# mode: which mode applies, and in Factory mode the effective settings.
+cmd_mode() {
+  factory_resolve_mode
+  echo "project_docs mode: $FACTORY_MODE ($FACTORY_MODE_SOURCE)"
+  if [ "$FACTORY_MODE" = "FACTORY" ]; then
+    factory_setting_names | while IFS= read -r fm_n; do
+      if [ "$fm_n" = "Mode" ]; then fm_val="$FACTORY_MODE"; else fm_val="$(factory_setting "$fm_n")"; fi
+      if [ -z "$fm_val" ]; then echo "$fm_n ="; else echo "$fm_n = $fm_val"; fi
+    done
+  fi
+}
+
 is_stale() {
   task="$1"
   if state="$(task_state "$task")"; then
@@ -2299,10 +2393,11 @@ case "$COMMAND" in
   pause) cmd_pause "$@" ;;
   handoff) cmd_handoff "$@" ;;
   review) cmd_review "$@" ;;
+  mode) cmd_mode ;;
   assign) cmd_assign "$@" ;;
   done) cmd_done "$@" ;;
   status) cmd_status ;;
   *)
-    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status} <project> [args]"
+    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode} <project> [args]"
     ;;
 esac

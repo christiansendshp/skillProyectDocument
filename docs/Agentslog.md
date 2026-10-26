@@ -204,3 +204,7 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: Templates, docs and evals for review, handoff and agent identity; golden regression test; evals 26 to 39
 - Files: templates/,docs/,references/,scripts/smoke_test.sh,evals/evals.json
 - Verify: sh scripts/smoke_test.sh -> 578 passed, 0 failed (sh + PowerShell); check . -> OK; differential run old vs new scripts identical
+
+## [2026-10-26T13:27:31Z] | claude-sonnet-5-5 | F06-E01-T01 | IN_PROGRESS | Detect factory mode from the AGENTS.md settings table
+- Summary: Detect factory mode; mode command; PROJECT_DOCS_MODE override
+- Verify: pending

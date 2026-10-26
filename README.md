@@ -56,6 +56,7 @@ Both launchers also provide:
 | `assign <agent> <task-id> <to-agent>` | Hand a task out without starting it (`ASSIGNED`; the row stays `TODO` with the new Owner) |
 | `done <agent> <task-id> <summary> <files> <verify>` | Close a task, record it in `Features.md`, clear it from the Roadmap; only the holder, the reviewer who passed it, or anyone on a stale or forced task |
 | `status` | List every open (`IN_PROGRESS`/`PAUSE`/`REVIEW`/`ASSIGNED`) task with its stage, owner, age, reason |
+| `mode` | Print whether Factory or Classic mode applies (and why); in Factory mode, the effective settings. See `references/factory.md` |
 | `append-log` | Manual/legacy ledger entry outside the claim lifecycle |
 | `rotate` | Archive an oversized ledger, hash-verified, carrying open tasks forward |
 

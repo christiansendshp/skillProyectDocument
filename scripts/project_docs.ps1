@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "assign", "done", "status", "help")]
+    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "assign", "done", "status", "mode", "help")]
     [string]$Command = "help",
 
     [Parameter(Position = 1)]
@@ -545,6 +545,106 @@ function Get-FirstClaimTs([string]$Task) {
         }
     }
     return ""
+}
+
+# ---------------------------------------------------------------------------
+# Factory mode (F06, ADR-023). The optional "## Factory" section of the project
+# AGENTS.md holds a "Setting | Value" table the scripts read. Without the
+# section, or with Mode CLASSIC, nothing in this block changes any behavior
+# (BR-008). PROJECT_DOCS_MODE=classic or factory overrides the file (tests).
+# A missing row, or a value of just an em dash, takes its default (ADR-025).
+# ---------------------------------------------------------------------------
+$script:FactoryMode = $null
+$script:FactoryModeSource = $null
+
+function Get-FactorySettingNames {
+    return @("Mode", "Require TDD", "Independent review", "WIP per agent", "Max fix attempts",
+        "Fast lane max files", "Fast lane max lines", "Fast lane protected paths",
+        "Preferred reviewer", "Fallback reviewer", "Recall budget bytes", "Brain max entries")
+}
+
+function Get-FactoryDefault([string]$Name) {
+    switch -CaseSensitive ($Name) {
+        "Mode" { return "FACTORY" }
+        "Require TDD" { return "YES" }
+        "Independent review" { return "YES" }
+        "WIP per agent" { return "1" }
+        "Max fix attempts" { return "3" }
+        "Fast lane max files" { return "5" }
+        "Fast lane max lines" { return "150" }
+        "Fast lane protected paths" { return "prisma/ migrations/ auth/ rls/ security/" }
+        "Recall budget bytes" { return "4096" }
+        "Brain max entries" { return "80" }
+        default { return "" }
+    }
+}
+
+# True when AGENTS.md has a "## Factory" heading.
+function Test-FactorySectionExists {
+    $path = Join-Path $Project "AGENTS.md"
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $path)) { if ($line -ceq "## Factory") { return $true } }
+    return $false
+}
+
+# The trimmed value cell of the row, or empty.
+function Get-FactoryRawValue([string]$Name) {
+    $path = Join-Path $Project "AGENTS.md"
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return "" }
+    $insec = $false
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $path)) {
+        if ($line -ceq "## Factory") { $insec = $true; continue }
+        if ($insec -and $line.StartsWith("## ")) { $insec = $false }
+        if ($insec -and $line.StartsWith("|")) {
+            $c = @(Split-TableCells $line)
+            if ($c.Count -ge 2 -and $c[0] -ceq $Name) {
+                if ($c[1] -eq $EmDash) { return "" }
+                return $c[1]
+            }
+        }
+    }
+    return ""
+}
+
+# The effective value (the row, else the default).
+function Get-FactorySetting([string]$Name) {
+    $v = Get-FactoryRawValue $Name
+    if (-not $v) { $v = Get-FactoryDefault $Name }
+    return $v
+}
+
+# Sets FactoryMode (FACTORY or CLASSIC) and FactoryModeSource (env, AGENTS.md or
+# default). An unknown Mode value is CLASSIC: the conservative reading.
+function Resolve-FactoryMode {
+    $envv = "$env:PROJECT_DOCS_MODE".ToLowerInvariant()
+    if ($envv -eq "factory") { $script:FactoryMode = "FACTORY"; $script:FactoryModeSource = "env"; return }
+    if ($envv -eq "classic") { $script:FactoryMode = "CLASSIC"; $script:FactoryModeSource = "env"; return }
+    if (Test-FactorySectionExists) {
+        $m = (Get-FactorySetting "Mode").ToUpperInvariant()
+        $script:FactoryMode = $(if ($m -eq "FACTORY") { "FACTORY" } else { "CLASSIC" })
+        $script:FactoryModeSource = "AGENTS.md"
+    } else {
+        $script:FactoryMode = "CLASSIC"
+        $script:FactoryModeSource = "default"
+    }
+}
+
+# True in Factory mode (resolved once per process).
+function Test-FactoryOn {
+    if (-not $script:FactoryMode) { Resolve-FactoryMode }
+    return ($script:FactoryMode -eq "FACTORY")
+}
+
+# mode: which mode applies, and in Factory mode the effective settings.
+function Invoke-Mode {
+    Resolve-FactoryMode
+    Write-Output "project_docs mode: $($script:FactoryMode) ($($script:FactoryModeSource))"
+    if ($script:FactoryMode -eq "FACTORY") {
+        foreach ($n in @(Get-FactorySettingNames)) {
+            $val = $(if ($n -ceq "Mode") { $script:FactoryMode } else { Get-FactorySetting $n })
+            if (-not $val) { Write-Output "$n =" } else { Write-Output "$n = $val" }
+        }
+    }
 }
 
 function Get-TaskState([string]$Task) {
@@ -2272,10 +2372,11 @@ switch ($Command) {
     "pause" { Invoke-Pause }
     "handoff" { Invoke-Handoff }
     "review" { Invoke-Review }
+    "mode" { Invoke-Mode }
     "assign" { Invoke-Assign }
     "done" { Invoke-Done }
     "status" { Invoke-Status }
     default {
-        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status} <project> [args]"
+        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode} <project> [args]"
     }
 }

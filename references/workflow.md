@@ -299,6 +299,13 @@ REVIEW (reviewer)  "- Review: FAIL - detail"  --> back with the developer
   non-whitespace separator, because a tab is whitespace for `read` and merges
   empty fields.
 
+## Factory mode
+
+An optional mode, off unless the project `AGENTS.md` has a `## Factory` section
+with `Mode` `FACTORY`; without it every command above behaves exactly as
+described. `mode` prints which mode applies. The rest (phases, spec, brain,
+fast lane, dispatcher) is in `references/factory.md`.
+
 ## Rotation
 
 The hot ledger rotates after 200 entries or 128 KiB (`run 'rotate'`, or
