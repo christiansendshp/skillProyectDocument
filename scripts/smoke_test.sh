@@ -699,6 +699,17 @@ seed_factory_section() {
   { printf '\n## Factory\n\n| Setting | Value |\n|---|---|\n'; for fsr in "$@"; do printf '| %s |\n' "$fsr"; done; } >> "$fsp/AGENTS.md"
 }
 
+# Replaces the empty roster placeholder row with two agents, one of them QA: the
+# least a Factory project needs to pass check (F06-E02-T03).
+seed_min_roster() {
+  smr="$1/AGENTS.md"
+  awk '
+    $0 == "| — | — | — | — | — |" && !done { print "| agent-dev | AI | Claude | BOTH | — |"; print "| agent-qa | AI | Claude | QA | — |"; done = 1; next }
+    { print }
+  ' "$smr" > "$smr.tmp"
+  mv "$smr.tmp" "$smr"
+}
+
 run_factory_suite() {
   label="$1"
   run() { "$RUNNER" "$@"; }
@@ -811,6 +822,7 @@ run_factory_suite() {
     mkdir -p "$bp"
     run_env PROJECT_DOCS_MODE=classic init "$bp" >/dev/null 2>&1
     seed_factory_section "$bp" "Mode | FACTORY" "$@"
+    seed_min_roster "$bp"
     cp "$SCRIPT_DIR/../templates/Brain.md" "$bp/docs/Brain.md"
   }
   brain_bad() {  # brain_bad <fixture-name> <old text> <new text> <expected message>
@@ -1205,6 +1217,101 @@ SPEC
   mkspec "$sp" F09-E01-T01
   sedi '/^## Tests$/d' "$sp/docs/specs/F09-E01-T01.md"
   run_env PROJECT_DOCS_MODE=classic check "$sp" >/dev/null 2>&1 && ok "$label classic mode ignores docs/specs entirely" || bad "$label classic mode checked a spec"
+
+  echo "== $label: phase roles in the roster and claim (F06-E02-T03) =="
+  cl_proj() { cl="$WORK/${label}_cl_$1"; rm -rf "$cl"; mkdir -p "$cl"; run init "$cl" >/dev/null 2>&1; seed_plan_row "$cl" F09-E01-T01 "Role gated task"; }
+  drop_rows() {  # drop_rows <file> <grep pattern>: removes the matching lines
+    grep -v -- "$2" "$1" > "$1.tmp"; mv "$1.tmp" "$1"
+  }
+  ledger_entries() { grep -c '^## \[' "$cl/docs/Agentslog.md" | tr -d ' '; }
+
+  cl_proj c_spec
+  assert_success "$label a SPEC agent claims a task with no phase yet" run claim "$cl" claude-spec F09-E01-T01 "write the spec"
+  [ "$(grep -c '^- Phase: SPEC$' "$cl/docs/Agentslog.md")" -eq 1 ] && ok "$label the claim records the phase it starts in" || bad "$label no Phase line after the claim"
+
+  cl_proj c_dev
+  before="$(ledger_entries)"
+  assert_failure "$label a DEV agent cannot claim a task in the SPEC phase" run claim "$cl" claude-dev F09-E01-T01 "too early"
+  grep -q "claim failed: claude-dev has role DEV, but phase SPEC of F09-E01-T01 needs SPEC (or BOTH)" "$WORK/.out" && ok "$label the refusal names the role and the phase" || bad "$label refusal text wrong: $(cat "$WORK/.out")"
+  [ "$(ledger_entries)" = "$before" ] && ok "$label a refused claim writes nothing to the ledger" || bad "$label refused claim wrote an entry"
+  assert_failure "$label a QA agent cannot claim a task in the SPEC phase" run claim "$cl" claude-qa F09-E01-T01 "wrong role"
+  assert_failure "$label a QA agent of another model cannot claim it either" run claim "$cl" gemini-qa F09-E01-T01 "wrong role"
+  assert_failure "$label an agent that is not in the roster cannot claim in Factory mode" run claim "$cl" someone-new F09-E01-T01 "unknown"
+  grep -q "someone-new is not in the Agent identity table; Factory mode needs a role for each agent" "$WORK/.out" && ok "$label the refusal for an unknown agent says why" || bad "$label unknown agent text wrong: $(cat "$WORK/.out")"
+
+  cl_proj c_both
+  seed_replace "$cl/AGENTS.md" "| claude-spec | AI | Claude | SPEC |" "| claude-spec | AI | Claude | BOTH |"
+  assert_success "$label a BOTH agent claims a SPEC phase task" run claim "$cl" claude-spec F09-E01-T01 "both roles"
+  seed_entry "$cl" "$(now_ts)" claude-test F09-E01-T01 ASSIGNED "Role gated task" '- Assign: claude-dev\n- Phase: GREEN\n'
+  assert_success "$label a BOTH agent also claims a GREEN phase task" run claim "$cl" claude-spec F09-E01-T01 "green too"
+  grep -c '^- Phase: GREEN$' "$cl/docs/Agentslog.md" | grep -q '^2$' && ok "$label the claim keeps the phase the task is in" || bad "$label GREEN phase lost: $(grep '^- Phase' "$cl/docs/Agentslog.md" | tr '\n' ' ')"
+
+  cl_proj c_green
+  seed_replace "$cl/AGENTS.md" "| claude-dev | AI | Claude | DEV | — |" "| claude-dev | AI | Claude | DEVELOPER | dev-bot |"
+  seed_entry "$cl" "$(now_ts)" claude-test F09-E01-T01 ASSIGNED "Role gated task" '- Assign: claude-test\n- Phase: GREEN\n'
+  assert_failure "$label a SPEC agent cannot claim a GREEN phase task" run claim "$cl" claude-spec F09-E01-T01 "wrong phase"
+  grep -q "claim failed: claude-spec has role SPEC, but phase GREEN of F09-E01-T01 needs DEV (or BOTH)" "$WORK/.out" && ok "$label a GREEN phase task needs the DEV role" || bad "$label GREEN refusal wrong: $(cat "$WORK/.out")"
+  assert_failure "$label a TEST agent cannot claim a GREEN phase task" run claim "$cl" claude-test F09-E01-T01 "wrong phase"
+  assert_success "$label a DEVELOPER role counts as DEV, claimed through an alias" run claim "$cl" dev-bot F09-E01-T01 "make it green"
+  ! grep -q 'is assigned to' "$WORK/.out" && ok "$label no assignment warning when the role matches, even for another agent id" || bad "$label assignment warning in Factory mode: $(cat "$WORK/.out")"
+  grep -q '^## \[.*\] | claude-dev | F09-E01-T01 | IN_PROGRESS' "$cl/docs/Agentslog.md" && ok "$label the alias is written as the roster id" || bad "$label alias not resolved"
+
+  cl_proj c_red
+  seed_entry "$cl" "$(now_ts)" claude-spec F09-E01-T01 ASSIGNED "Role gated task" '- Assign: claude-test\n- Phase: RED\n'
+  assert_failure "$label a DEV agent cannot claim a RED phase task" run claim "$cl" claude-dev F09-E01-T01 "wrong phase"
+  grep -q "needs TEST (or BOTH)" "$WORK/.out" && ok "$label a RED phase task needs the TEST role" || bad "$label RED refusal wrong: $(cat "$WORK/.out")"
+  assert_success "$label a TEST agent claims a RED phase task" run claim "$cl" claude-test F09-E01-T01 "write the failing tests"
+
+  # classic mode: roles and the phase line do not exist
+  ip_new cl_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  seed_plan_row "$ip" F09-E01-T01 "Role gated task"
+  assert_success "$label classic mode lets any agent claim, roster or not" run claim "$ip" someone-new F09-E01-T01 "classic"
+  ! grep -q '^- Phase:' "$ip/docs/Agentslog.md" && ok "$label classic mode writes no Phase line" || bad "$label classic claim wrote a Phase line"
+  ip_new cl_classic_roster
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  seed_plan_row "$ip" F09-E01-T01 "Role gated task"
+  seed_replace "$ip/AGENTS.md" "| — | — | — | — | — |" "| a-qa | AI | Claude | QA | — |"
+  assert_success "$label classic mode ignores the role of the claiming agent" run claim "$ip" a-qa F09-E01-T01 "qa claims"
+
+  # check: the roster rules of Factory mode
+  ro_proj() { ro="$WORK/${label}_ro_$1"; rm -rf "$ro"; mkdir -p "$ro"; run init "$ro" >/dev/null 2>&1; }
+  ro_proj ok
+  assert_success "$label the default roster passes check in Factory mode" run check "$ro"
+  ro_proj none
+  drop_rows "$ro/AGENTS.md" '^| claude-\|^| gemini-'
+  assert_failure "$label a Factory project without agents fails check" run check "$ro"
+  grep -q "ERROR: Agent identity needs at least 2 agents in Factory mode (found 0)" "$WORK/.out" && grep -q "ERROR: Agent identity needs an agent with role QA (or BOTH) in Factory mode" "$WORK/.out" && ok "$label both roster errors are named" || bad "$label empty roster errors wrong: $(grep Agent "$WORK/.out")"
+  ro_proj one
+  drop_rows "$ro/AGENTS.md" '^| claude-spec\|^| claude-test\|^| claude-dev\|^| gemini-'
+  assert_failure "$label a Factory project with one agent fails check" run check "$ro"
+  grep -q "(found 1)" "$WORK/.out" && ! grep -q "role QA" "$WORK/.out" && ok "$label one agent is counted and its QA role is accepted" || bad "$label one agent text wrong: $(grep Agent "$WORK/.out")"
+  ro_proj noqa
+  drop_rows "$ro/AGENTS.md" '^| claude-qa\|^| gemini-qa'
+  assert_failure "$label a Factory roster with no QA fails check" run check "$ro"
+  grep -q "ERROR: Agent identity needs an agent with role QA (or BOTH) in Factory mode" "$WORK/.out" && ! grep -q "at least 2" "$WORK/.out" && ok "$label the missing QA role is named" || bad "$label no QA text wrong: $(grep Agent "$WORK/.out")"
+  ro_proj badrole
+  seed_replace "$ro/AGENTS.md" "| claude-test | AI | Claude | TEST |" "| claude-test | AI | Claude | TESTER |"
+  assert_failure "$label an unknown role fails check" run check "$ro"
+  grep -q "ERROR: Agent identity row 'claude-test' has invalid Role: TESTER" "$WORK/.out" && ok "$label the invalid role is named" || bad "$label invalid role text wrong: $(grep Agent "$WORK/.out")"
+  ro_proj lower
+  seed_replace "$ro/AGENTS.md" "| claude-dev | AI | Claude | DEV |" "| claude-dev | AI | Claude | dev |"
+  assert_failure "$label a lowercase role fails check" run check "$ro"
+  grep -q "has invalid Role: dev" "$WORK/.out" && ok "$label roles are case-sensitive" || bad "$label lowercase role text wrong: $(grep Agent "$WORK/.out")"
+  ro_proj legal
+  seed_replace "$ro/AGENTS.md" "| claude-dev | AI | Claude | DEV |" "| claude-dev | AI | Claude | DEVELOPER |"
+  seed_replace "$ro/AGENTS.md" "| claude-test | AI | Claude | TEST |" "| claude-test | AI | Claude | OPS |"
+  seed_replace "$ro/AGENTS.md" "| gemini-qa | AI | Gemini | QA |" "| gemini-qa | AI | Gemini | BOTH |"
+  assert_success "$label DEVELOPER, OPS and BOTH are valid roles" run check "$ro"
+  ro_proj twoboth
+  drop_rows "$ro/AGENTS.md" '^| claude-spec\|^| claude-test\|^| claude-dev\|^| gemini-'
+  seed_replace "$ro/AGENTS.md" "| claude-qa | AI | Claude | QA |" "| claude-qa | AI | Claude | BOTH |"
+  printf '%s\n' "| claude-b | AI | Claude | BOTH | — |" > "$WORK/.row"
+  awk -v rowfile="$WORK/.row" 'BEGIN { getline r < rowfile } { print } /^\| claude-qa \|/ { print r }' "$ro/AGENTS.md" > "$ro/AGENTS.md.tmp" && mv "$ro/AGENTS.md.tmp" "$ro/AGENTS.md"
+  assert_success "$label two BOTH agents are enough for Factory mode" run check "$ro"
+  ro_proj classic_bad
+  drop_rows "$ro/AGENTS.md" '^| claude-\|^| gemini-'
+  run_env PROJECT_DOCS_MODE=classic check "$ro" >/dev/null 2>&1 && ok "$label classic mode ignores the roster rules" || bad "$label classic mode applied the roster rules"
 
 #FACTORY_CASES
 }

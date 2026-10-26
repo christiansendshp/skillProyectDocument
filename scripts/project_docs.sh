@@ -542,6 +542,12 @@ all_task_states() {
       last_handoff[cur]=line
       next
     }
+    in_entries && cur!="" && /^- Phase:/ {
+      line=$0
+      sub(/^- Phase:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
+      last_phase[cur]=line
+      next
+    }
     in_entries && cur!="" && /^- Review:/ {
       line=$0
       sub(/^- Review:[ \t]*/,"",line)
@@ -554,7 +560,7 @@ all_task_states() {
     END {
       for (i=1;i<=cnt;i++) {
         t=order[i]
-        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t], (t in hold ? hold[t] : last_agent[t]), last_handoff[t], last_review[t]
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t], (t in hold ? hold[t] : last_agent[t]), last_handoff[t], last_review[t], last_phase[t]
       }
     }
   ' "$DOCS_DIR/Agentslog.md"
@@ -602,6 +608,36 @@ roster_rows() {
       printf "%s\t%s\t%s\t%s\t%s\n", id, c[2], c[3], c[4], c[5]
     }
   ' "$PROJECT/AGENTS.md"
+}
+
+# role_norm ROLE: DEVELOPER is the legacy name of DEV (D-05).
+role_norm() {
+  if [ "$1" = "DEVELOPER" ]; then printf 'DEV'; else printf '%s' "$1"; fi
+}
+
+# phase_role PHASE: the roster role that works in a phase (D-05).
+phase_role() {
+  case "$1" in
+    SPEC) printf 'SPEC' ;;
+    RED) printf 'TEST' ;;
+    GREEN) printf 'DEV' ;;
+    REVIEW) printf 'QA' ;;
+    *) printf '' ;;
+  esac
+}
+
+# require_phase_role AGENT PHASE TASK: Factory mode only. The agent must be in the
+# roster with the role of the phase, or BOTH.
+require_phase_role() {
+  rp_role="$(roster_role "$1")"
+  if [ -z "$rp_role" ]; then
+    die "claim failed: $1 is not in the Agent identity table; Factory mode needs a role for each agent"
+  fi
+  rp_norm="$(role_norm "$rp_role")"
+  rp_need="$(phase_role "$2")"
+  if [ "$rp_norm" != "BOTH" ] && [ "$rp_norm" != "$rp_need" ]; then
+    die "claim failed: $1 has role $rp_role, but phase $2 of $3 needs $rp_need (or BOTH)"
+  fi
 }
 
 canonical_agent() {
@@ -794,7 +830,7 @@ stage_label() {
 open_tasks_line() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
   open_task_states | tr '\t' '\037' |
-  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review; do
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase rest; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -1126,10 +1162,16 @@ cmd_claim() {
       # An assignment is a request, not a lock: another agent may still take
       # the task, but is told it was assigned to someone else.
       holder="$(printf '%s' "$state" | cut -f9)"
-      if [ -n "$holder" ] && [ "$holder" != "$agent" ]; then
+      if [ -n "$holder" ] && [ "$holder" != "$agent" ] && ! factory_on; then
         echo "WARN: $task is assigned to $holder, not $agent" >&2
       fi
     fi
+  fi
+  claim_phase=""
+  if factory_on; then
+    claim_phase="$(printf '%s' "${state:-}" | cut -f12)"
+    [ -n "$claim_phase" ] || claim_phase="SPEC"
+    require_phase_role "$agent" "$claim_phase" "$task"
   fi
   name="$(require_valid_name "$task")"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
@@ -1138,6 +1180,7 @@ cmd_claim() {
     echo "## [$timestamp] | $agent | $task | IN_PROGRESS | $name"
     echo "- Summary: $summary"
     echo "- Verify: pending"
+    if factory_on; then echo "- Phase: $claim_phase"; fi
   } >> "$DOCS_DIR/Agentslog.md"
   roadmap_claim_row "$task" "$agent" "$timestamp"
   echo "project_docs claim: $task claimed by $agent"
@@ -1374,7 +1417,7 @@ cmd_done() {
 cmd_status() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
   open_task_states | tr '\t' '\037' |
-  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review; do
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase rest; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -2499,6 +2542,27 @@ check_specs() {
   done
 }
 
+# Roster rules of Factory mode (F06-E02-T03): valid roles, at least two agents and
+# one that can review. The 047 escapes below are apostrophes.
+check_factory_roster() {
+  cr_out="$(roster_rows | awk -F'\t' '
+    NF == 0 { next }
+    {
+      n++; r=$4
+      if (r != "SPEC" && r != "TEST" && r != "DEV" && r != "QA" && r != "OPS" && r != "BOTH" && r != "DEVELOPER") print "ERROR: Agent identity row \047" $1 "\047 has invalid Role: " r
+      if (r == "QA" || r == "BOTH") qa=1
+    }
+    END {
+      if (n < 2) print "ERROR: Agent identity needs at least 2 agents in Factory mode (found " n + 0 ")"
+      if (!qa) print "ERROR: Agent identity needs an agent with role QA (or BOTH) in Factory mode"
+    }
+  ')"
+  if [ -n "$cr_out" ]; then
+    printf '%s\n' "$cr_out" >&2
+    CHECK_FAIL=1
+  fi
+}
+
 check_docs() {
   CHECK_FAIL=0
   need AGENTS.md "## Repository rules" "## Startup" "## Close"
@@ -2560,7 +2624,7 @@ check_docs() {
   check_table_status_enum docs/Stack_Tecnologies.md "CONFIRMED HYPOTHESIS UNKNOWN" "epistemic"
   check_table_status_enum docs/Roadmap.md "TODO IN_PROGRESS PAUSE DONE" "workflow"
   check_table_name_wordlimit docs/Roadmap.md 10
-  if factory_on; then check_brain_rows; check_specs; fi
+  if factory_on; then check_brain_rows; check_specs; check_factory_roster; fi
 
   check_warnings
 
@@ -2662,7 +2726,7 @@ rotate_log() {
     echo
     echo "## Entries"
     if [ -n "$open_summary" ]; then
-      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review; do
+      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase rest; do
         [ -n "$tid" ] || continue
         if [ "$status" = "REVIEW" ]; then
           # The developer who holds the task is not necessarily the agent of the

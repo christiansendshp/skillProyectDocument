@@ -303,3 +303,12 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: Cap parsing, CRLF, roster rerun and flags hardened
 - Files: scripts/,references/factory.md
 - Verify: smoke 902 pass 0 fail; QA PASS factory 162 each; BR-008 identical
+
+## [2026-10-26T17:58:48Z] | claude-sonnet-5-5 | F06-E02-T01 | REVIEW | Spec template and check rules for scenarios
+- Summary: Spec template and Factory-only spec validation
+- Verify: smoke 1026 pass 0 fail (sh 514 ps1 512); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-26T18:00:29Z] | claude-sonnet-5-5 | F06-E02-T03 | IN_PROGRESS | Phase roles in the roster and claim
+- Summary: Phase roles in the roster and claim
+- Verify: pending

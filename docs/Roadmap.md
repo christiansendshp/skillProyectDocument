@@ -20,6 +20,7 @@ stable for positional edits.
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
 | F06-E02-T01 | Spec template and check rules for scenarios | templates/Spec.md and check per section 4.4 | Invalid specs fail check; valid spec passes | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T17:02:56Z | F06-E01-T01 | — |
+| F06-E02-T03 | Phase roles in the roster and claim | D-05 roles; DEVELOPER alias of DEV | Role mismatch refused in factory and ignored in classic | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T18:00:29Z | F06-E01-T01 | — |
 
 <!-- context:end -->
 
@@ -88,7 +89,6 @@ Spec: docs/features/ia-factory.md (closed decisions D-01 to D-21 are ADR-023 onw
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
 | F06-E02-T02 | Phase lines and advance command with gates | Section 4.3 table; writes ASSIGNED with Phase | Every gate has a passing and a failing smoke case | TODO | — | F06-E02-T01, F06-E02-T03, F06-E03-T02 | — |
-| F06-E02-T03 | Phase roles in the roster and claim | D-05 roles; DEVELOPER alias of DEV | Role mismatch refused in factory and ignored in classic | TODO | — | F06-E01-T01 | — |
 | F06-E02-T04 | Exit markers and immutable tests from RED sha | D-06 and D-07 including the no-git warning | Changing a recorded test after RED makes handoff fail | TODO | — | F06-E02-T02 | — |
 | F06-E02-T05 | Turn review warnings into errors in factory | Self-review, close without PASS, empty verify | Same cases warn in classic and fail in factory | TODO | — | F06-E01-T01 | — |
 | F06-E02-T06 | Fast lane with size limits and promotion to SPEC | Section 4.3.1; Lane and Base lines; BUG rows need a test file | Every fast lane limit has a passing and a failing smoke case | TODO | — | F06-E02-T04, F06-E02-T05 | — |

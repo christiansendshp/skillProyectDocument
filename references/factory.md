@@ -124,3 +124,23 @@ section, a bad table, an unknown level or a test entry that names a missing
 scenario is an error. Fields still `UNKNOWN` are one warning per spec, since a
 draft is normal during SPEC; the phase gates later in this document turn them
 into errors. In classic mode `docs/specs/` is ignored.
+
+## Roles and the phase of a task
+
+The `## Agent identity` table gives each agent one role: `SPEC`, `TEST`, `DEV`,
+`QA`, `OPS` or `BOTH` (any phase; `DEVELOPER` is the old name of `DEV`). A task
+moves through the phases `SPEC`, `RED`, `GREEN`, `REVIEW`, `DONE`, and each
+phase belongs to one role: SPEC to `SPEC`, RED to `TEST`, GREEN to `DEV`,
+REVIEW to `QA`. A task's phase is the last `- Phase:` line of its ledger
+entries; with none, it is `SPEC`.
+
+In Factory mode:
+
+- `claim` records `- Phase: <phase>` and refuses an agent whose role does not
+  match the phase (or that is not in the table), with a message naming the role
+  the phase needs. A task assigned to another agent id can be claimed without a
+  warning when the role matches.
+- `check` fails when the roster has fewer than two agents, none with the role
+  `QA` (or `BOTH`), or a role outside the list above (roles are upper case).
+
+In classic mode none of this applies: `claim` ignores roles and writes no phase.

@@ -509,7 +509,7 @@ function Get-TaskStates {
     $inEntries = $false
     $order = [System.Collections.Generic.List[string]]::new()
     $lastStatus = @{}; $lastAgent = @{}; $lastTs = @{}; $lastPause = @{}; $everDone = @{}; $conflict = @{}; $lastName = @{}
-    $hold = @{}; $lastHandoff = @{}; $lastReview = @{}
+    $hold = @{}; $lastHandoff = @{}; $lastReview = @{}; $lastPhase = @{}
     $cur = $null
     foreach ($line in $lines) {
         if ($line -eq "## Entries") { $inEntries = $true; continue }
@@ -552,6 +552,10 @@ function Get-TaskStates {
             $lastHandoff[$cur] = $Matches[1]
             continue
         }
+        if ($cur -and $line -match '^- Phase:\s*(.*?)\s*$') {
+            $lastPhase[$cur] = $Matches[1]
+            continue
+        }
         if ($cur -and $line -match '^- Review:\s*(.*)$') {
             $rbody = $Matches[1]
             $rdash = $rbody.IndexOf(" - ")
@@ -579,6 +583,7 @@ function Get-TaskStates {
             Holder = $(if ($hold.ContainsKey($t)) { $hold[$t] } else { $lastAgent[$t] })
             Handoff = $(if ($lastHandoff.ContainsKey($t)) { $lastHandoff[$t] } else { "" })
             Review = $(if ($lastReview.ContainsKey($t)) { $lastReview[$t] } else { "" })
+            Phase = $(if ($lastPhase.ContainsKey($t)) { $lastPhase[$t] } else { "" })
         })
     }
     return $result
@@ -674,6 +679,37 @@ function Get-CanonicalAgent([string]$Raw) {
     }
     [Console]::Error.WriteLine("WARN: unknown agent `"$Raw`" (not in the Agent identity table)")
     return $Raw
+}
+
+# DEVELOPER is the legacy name of DEV (D-05).
+function Get-RoleNorm([string]$Role) {
+    if ($Role -ceq "DEVELOPER") { return "DEV" }
+    return $Role
+}
+
+# The roster role that works in a phase (D-05).
+function Get-PhaseRole([string]$Phase) {
+    switch -CaseSensitive ($Phase) {
+        "SPEC" { return "SPEC" }
+        "RED" { return "TEST" }
+        "GREEN" { return "DEV" }
+        "REVIEW" { return "QA" }
+        default { return "" }
+    }
+}
+
+# Factory mode only. The agent must be in the roster with the role of the phase,
+# or BOTH.
+function Assert-PhaseRole([string]$Agent, [string]$Phase, [string]$Task) {
+    $role = Get-RosterRole $Agent
+    if (-not $role) {
+        throw "claim failed: $Agent is not in the Agent identity table; Factory mode needs a role for each agent"
+    }
+    $norm = Get-RoleNorm $role
+    $need = Get-PhaseRole $Phase
+    if ($norm -cne "BOTH" -and $norm -cne $need) {
+        throw "claim failed: $Agent has role $role, but phase $Phase of $Task needs $need (or BOTH)"
+    }
 }
 
 # Get-RosterRole ID: the Role (DEVELOPER, QA or BOTH) of a roster id, or "".
@@ -1212,19 +1248,27 @@ function Invoke-Claim {
             } elseif ($state.Status -eq "ASSIGNED") {
                 # An assignment is a request, not a lock: another agent may still
                 # take the task, but is told it was assigned to someone else.
-                if ($state.Holder -and $state.Holder -cne $agent) {
+                if ($state.Holder -and $state.Holder -cne $agent -and -not (Test-FactoryOn)) {
                     [Console]::Error.WriteLine("WARN: $task is assigned to $($state.Holder), not $agent")
                 }
             }
         }
+        $claimPhase = ""
+        if (Test-FactoryOn) {
+            $claimPhase = "SPEC"
+            if ($state -and $state.Phase) { $claimPhase = $state.Phase }
+            Assert-PhaseRole $agent $claimPhase $task
+        }
         $name = Assert-ValidName $task "claim"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
-        $entry = (@(
+        $claimLines = @(
             "",
             "## [$timestamp] | $agent | $task | IN_PROGRESS | $name",
             "- Summary: $summary",
             "- Verify: pending"
-        ) -join "`n") + "`n"
+        )
+        if (Test-FactoryOn) { $claimLines += "- Phase: $claimPhase" }
+        $entry = ($claimLines -join "`n") + "`n"
         [System.IO.File]::AppendAllText($log, $entry, $Utf8)
         Invoke-RoadmapClaimRow $task $agent $timestamp
         Write-Output "project_docs claim: $task claimed by $agent"
@@ -2510,6 +2554,28 @@ function Test-Specs {
     }
 }
 
+# Roster rules of Factory mode (F06-E02-T03): valid roles, at least two agents and
+# one that can review.
+function Test-FactoryRoster {
+    $rows = @(Get-RosterRows)
+    $qa = $false
+    foreach ($r in $rows) {
+        if ($r.Role -cnotin @("SPEC", "TEST", "DEV", "QA", "OPS", "BOTH", "DEVELOPER")) {
+            [Console]::Error.WriteLine("ERROR: Agent identity row '$($r.Id)' has invalid Role: $($r.Role)")
+            $script:CheckFail = $true
+        }
+        if ($r.Role -ceq "QA" -or $r.Role -ceq "BOTH") { $qa = $true }
+    }
+    if ($rows.Count -lt 2) {
+        [Console]::Error.WriteLine("ERROR: Agent identity needs at least 2 agents in Factory mode (found $($rows.Count))")
+        $script:CheckFail = $true
+    }
+    if (-not $qa) {
+        [Console]::Error.WriteLine("ERROR: Agent identity needs an agent with role QA (or BOTH) in Factory mode")
+        $script:CheckFail = $true
+    }
+}
+
 function Invoke-Check {
     $script:CheckFail = $false
     Test-Need "AGENTS.md" @("## Repository rules", "## Startup", "## Close")
@@ -2576,7 +2642,7 @@ function Invoke-Check {
     Test-TableStatusEnum "docs/Stack_Tecnologies.md" @("CONFIRMED", "HYPOTHESIS", "UNKNOWN") "epistemic"
     Test-TableStatusEnum "docs/Roadmap.md" @("TODO", "IN_PROGRESS", "PAUSE", "DONE") "workflow"
     Test-TableNameWordLimit "docs/Roadmap.md" 10
-    if (Test-FactoryOn) { Test-BrainRows; Test-Specs }
+    if (Test-FactoryOn) { Test-BrainRows; Test-Specs; Test-FactoryRoster }
 
     Write-CheckWarnings
 
