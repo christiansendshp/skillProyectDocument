@@ -81,6 +81,7 @@ Kind: HUMAN or AI. Role: DEVELOPER, QA or BOTH. No rows, no checks.
 | Agent id | Kind | Model | Role | Aliases |
 |---|---|---|---|---|
 | claude-sonnet-5-5 | AI | Claude Sonnet 5.5 | BOTH | claude, claude-sonnet-5 |
+| claude-qa | AI | Claude Sonnet 5.5 | QA | — |
 | rollup | AI | project_docs script | DEVELOPER | — |
 
 ## Project conventions

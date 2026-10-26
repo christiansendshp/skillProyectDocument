@@ -71,6 +71,66 @@ Spec: the handoff prompt in the PM Hub repo (docs/prompts/skill-review-handoff-a
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
 
+### F06 — IA Factory mode
+
+Spec: docs/features/ia-factory.md (closed decisions D-01 to D-21 are ADR-023 onward).
+
+#### F06-E01 — Factory mode and autonomy policy
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+| F06-E01-T01 | Detect factory mode from the AGENTS.md settings table | Parse the ## Factory table in sh and ps1; env PROJECT_DOCS_MODE overrides | Classic fixture output byte-identical to master scripts; factory fixture detected | TODO | — | — | — |
+| F06-E01-T02 | Init defaults to factory and migrate adds it | init creates seven files plus folders; init --classic creates six; migrate --factory idempotent | Smoke cases pass in sh and ps1 | TODO | — | F06-E01-T01, F06-E03-T01 | — |
+| F06-E01-T03 | Compact factory rules and autonomy policy in template | Section 4.1 text; decisions section points to it in factory | Fresh factory project context at or below 6912 bytes | TODO | — | F06-E01-T02 | — |
+| F06-E01-T04 | Add next command for autonomous task selection | Order and skips per section 4.3 | Smoke cases for every role return the expected ID | TODO | — | F06-E02-T02, F06-E02-T03 | — |
+| F06-E01-T05 | Enforce WIP and fix attempt limits in claim | D-13 and D-14 | Smoke cases refuse the claim with a clear message | TODO | — | F06-E02-T02 | — |
+
+#### F06-E02 — Spec and TDD production line
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+| F06-E02-T01 | Spec template and check rules for scenarios | templates/Spec.md and check per section 4.4 | Invalid specs fail check; valid spec passes | TODO | — | F06-E01-T01 | — |
+| F06-E02-T02 | Phase lines and advance command with gates | Section 4.3 table; writes ASSIGNED with Phase | Every gate has a passing and a failing smoke case | TODO | — | F06-E02-T01, F06-E02-T03, F06-E03-T02 | — |
+| F06-E02-T03 | Phase roles in the roster and claim | D-05 roles; DEVELOPER alias of DEV | Role mismatch refused in factory and ignored in classic | TODO | — | F06-E01-T01 | — |
+| F06-E02-T04 | Exit markers and immutable tests from RED sha | D-06 and D-07 including the no-git warning | Changing a recorded test after RED makes handoff fail | TODO | — | F06-E02-T02 | — |
+| F06-E02-T05 | Turn review warnings into errors in factory | Self-review, close without PASS, empty verify | Same cases warn in classic and fail in factory | TODO | — | F06-E01-T01 | — |
+| F06-E02-T06 | Fast lane with size limits and promotion to SPEC | Section 4.3.1; Lane and Base lines; BUG rows need a test file | Every fast lane limit has a passing and a failing smoke case | TODO | — | F06-E02-T04, F06-E02-T05 | — |
+
+#### F06-E03 — Brain and context economy
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+| F06-E03-T01 | Brain template and check validation | templates/Brain.md with seed rows; enums, LRN ids, cap | check fails on each invalid row kind | TODO | — | F06-E01-T01 | — |
+| F06-E03-T02 | Working memory files and checkpoint command | docs/brain/tasks; pause and advance require Now | Smoke cases create, update and require the file | TODO | — | F06-E01-T01 | — |
+| F06-E03-T03 | Recall command with deterministic ranking and budget | Algorithm in section 4.5 | Same bytes in sh and ps1; never above budget; whole rows only | TODO | — | F06-E03-T01, F06-E03-T02, F06-E02-T01 | — |
+| F06-E03-T04 | Learn and retro commands with mandatory lessons | retro rules and done integration per section 4.5 | learned none refused after a FAIL; Hits updated on done | TODO | — | F06-E03-T03 | — |
+| F06-E03-T05 | Brain garbage collection in rotate and promotion warning | Archive to 75 percent of cap with SHA-256 check | Over-cap fixture ends under cap; archive verified | TODO | — | F06-E03-T01 | — |
+
+#### F06-E04 — Digest and status
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+| F06-E04-T01 | Digest command for asynchronous human review | Contents per section 4.7, at most 4 KiB | Fixture with every item kind lists them all | TODO | — | F06-E03-T04, F06-E04-T03 | — |
+| F06-E04-T02 | Show phase in status output | Factory only, phase and lane | Classic status unchanged byte for byte | TODO | — | F06-E02-T02 | — |
+| F06-E04-T03 | Cross-model marker, default reviewers and audits | Section 4.8; handoff default reviewer by lane; AUDIT entries | Same-model review marked; audit never reopens a task | TODO | — | F06-E02-T05, F06-E02-T06 | — |
+
+#### F06-E06 — CLI dispatcher
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+| F06-E06-T01 | Dispatch config templates and gitignore block | templates/dispatch.md and dispatch-prompt.md; init and migrate add them | Idempotent on a second run; gitignore block not duplicated | TODO | — | F06-E01-T02 | — |
+| F06-E06-T02 | Dispatcher loop in PowerShell with limit detection | Section 4.9 steps 1 to 6 | All dispatcher smoke cases pass through ps1 | TODO | — | F06-E06-T01, F06-E01-T04, F06-E04-T03 | — |
+| F06-E06-T03 | Dispatcher loop in sh with identical behavior | Same as the PowerShell loop | Same logs and ledger results as ps1 on the same script | TODO | — | F06-E06-T02 | — |
+| F06-E06-T04 | Fake CLIs and dispatcher smoke tests | scripts/tests fake_cli in sh and ps1 driven by a script file | Cases 18 to 25 of section 7 pass | TODO | — | F06-E06-T03 | — |
+
+#### F06-E05 — Docs, evals and dogfooding
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+| F06-E05-T01 | Document factory mode across skill and references | Files in section 5 | Every new command documented in SKILL, README and workflow | TODO | — | F06-E06-T04 | — |
+| F06-E05-T02 | Add factory evals and adjust six-file evals | Section 7 list | evals.json valid; each new eval maps to a smoke case | TODO | — | F06-E05-T01 | — |
+| F06-E05-T03 | Dogfood a full factory lifecycle end to end | Section 8 | Section 9 checklist fully met | TODO | — | F06-E05-T02 | — |
+
 ## Gaps, Bugs & Technical Debt
 
 Errors, defects, or significant technical debt found by any agent. Same

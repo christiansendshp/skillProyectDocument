@@ -28,6 +28,12 @@
 | BR-005 | `done` refuses an empty verify, and `check` fails while any rule above is violated | CONFIRMED | evals/evals.json #11 |
 | BR-006 | The review stage of a task is recorded only in the Agentslog (state REVIEW with optional Handoff and Review lines); the Roadmap Status values and columns never change for it | CONFIRMED | ADR-021; smoke tests, Change 1 and 2 |
 | BR-007 | A project that never uses REVIEW, ASSIGNED or the Agent identity table behaves exactly as before: same check, status, context and rotate output; every new check beyond a refusal only warns | CONFIRMED | differential run against the previous scripts; evals/evals.json #38 |
+| BR-008 | Without a Factory section in AGENTS.md, or with Mode CLASSIC, the scripts behave exactly as before; this restates BR-007 to include Factory mode | CONFIRMED | docs/features/ia-factory.md; differential run against master |
+| BR-009 | In Factory mode no task reaches DONE without a valid spec, RED evidence (exit not zero), GREEN evidence (exit=0), tests unchanged since RED and a review PASS by another agent | CONFIRMED | docs/features/ia-factory.md |
+| BR-010 | recall never exceeds Recall budget bytes and never cuts a row | CONFIRMED | docs/features/ia-factory.md |
+| BR-011 | The brain never exceeds Brain max entries after rotate | CONFIRMED | docs/features/ia-factory.md |
+| BR-012 | A FAST task never reaches DONE when its diff exceeded the lane limits or touched a protected path | CONFIRMED | docs/features/ia-factory.md |
+| BR-013 | An agent quota limit never blocks a task: either the covering agent takes it or it stays in PAUSE LIMITE and is retakeable when the cooldown ends | CONFIRMED | docs/features/ia-factory.md |
 
 ## Main flows
 
@@ -53,4 +59,6 @@
 
 - YAML or JSON inside any of the six canonical files.
 - A server, database, or hosted service.
+- External memory (MCP servers, vector databases) and embeddings: the brain is Markdown retrieved by keywords.
+- Running agent CLIs in parallel: the dispatcher runs one CLI at a time.
 - Cross-machine locking: `claim` locks one working copy only, so other machines rely on committing the claim.
