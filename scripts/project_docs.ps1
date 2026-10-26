@@ -2418,6 +2418,98 @@ function Test-BrainRows {
     }
 }
 
+# Spec validation (Factory mode only, F06-E02-T01). A spec is docs/specs/<TASK-ID>.md
+# (templates/Spec.md). Structure problems are errors; fields still UNKNOWN are
+# one warning per spec, because a draft spec is normal during the SPEC phase.
+function Get-SpecReport([string]$Path) {
+    $id = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+    $msgs = [System.Collections.Generic.List[string]]::new()
+    $pre = "ERROR: docs/specs/$id.md "
+    $sec = ""; $seen = @{}; $scid = @{}
+    $unk = 0; $marker = $false; $hasGoal = $false; $hasRules = $false; $hasTags = $false
+    $hdr = $false; $rows = 0
+    $tests = [System.Collections.Generic.List[string]]::new()
+    $lines = @(Get-ContentUtf8 -LiteralPath $Path)
+    for ($ln = 0; $ln -lt $lines.Count; $ln++) {
+        $line = [string]$lines[$ln]
+        if ($ln -eq 0) {
+            $t = "# Spec $id"
+            if (-not $line.StartsWith($t, [System.StringComparison]::Ordinal) -or ($line.Length -gt $t.Length -and $line[$t.Length] -ne ' ')) {
+                $msgs.Add("$($pre)title must start with '$t'")
+            }
+        }
+        if ($line.Contains("UNKNOWN")) { $unk++ }
+        if ($line.StartsWith("## ")) { $sec = $line; $seen[$sec] = $true; continue }
+        if ($line -ceq "<!-- context:end -->") { if ($sec -ceq "## Summary") { $marker = $true }; continue }
+        if ($sec -ceq "## Summary") {
+            if ($line.StartsWith("- Goal:")) { $hasGoal = $true; if (-not $line.Substring(7).Trim()) { $msgs.Add("$($pre)has an empty Goal") }; continue }
+            if ($line.StartsWith("- Rules:")) { $hasRules = $true; if (-not $line.Substring(8).Trim()) { $msgs.Add("$($pre)has empty Rules") }; continue }
+            if ($line.StartsWith("- Tags:")) { $hasTags = $true; if (-not $line.Substring(7).Trim()) { $msgs.Add("$($pre)has empty Tags") }; continue }
+        }
+        if ($sec -ceq "## Scenarios" -and $line.StartsWith("|")) {
+            $c = @(Split-TableCells $line)
+            if ($c[0] -ceq "ID") {
+                $hdr = $true
+                if ($c.Count -ne 6 -or $c[1] -cne "Given" -or $c[2] -cne "When" -or $c[3] -cne "Then" -or $c[4] -cne "Level" -or $c[5] -cne "Justification") { $msgs.Add("$($pre)has an invalid Scenarios header") }
+                continue
+            }
+            if ($c[0] -match '^-+$') { continue }
+            $rows++
+            $sid = $c[0]
+            if ($c.Count -ne 6) { $msgs.Add("$($pre)scenario row '$sid' has $($c.Count) columns, expected 6"); continue }
+            if ($sid -cnotmatch '^S[0-9][0-9]+$') { $msgs.Add("$($pre)scenario ID '$sid' is not S01 style") }
+            if ($scid.ContainsKey($sid)) { $msgs.Add("$($pre)duplicate scenario ID: $sid") }
+            $scid[$sid] = $true
+            if (-not $c[1]) { $msgs.Add("$($pre)scenario '$sid' has an empty Given") }
+            if (-not $c[2]) { $msgs.Add("$($pre)scenario '$sid' has an empty When") }
+            if (-not $c[3]) { $msgs.Add("$($pre)scenario '$sid' has an empty Then") }
+            $lv = $c[4]
+            if ($lv -cnotin @("UNIT", "INTEGRATION", "CONTRACT", "E2E", "NONE")) { $msgs.Add("$($pre)scenario '$sid' has invalid Level: $lv") }
+            elseif ($lv -ceq "NONE" -and (-not $c[5] -or $c[5] -eq $EmDash)) { $msgs.Add("$($pre)scenario '$sid' has Level NONE without a Justification") }
+            continue
+        }
+        if ($sec -ceq "## Tests" -and $line.StartsWith("- ")) { $tests.Add($line) }
+    }
+    foreach ($req in @("## Summary", "## Scenarios", "## Tests", "## Out of scope")) {
+        if (-not $seen.ContainsKey($req)) { $msgs.Add("$($pre)is missing section '$req'") }
+    }
+    if ($seen.ContainsKey("## Summary")) {
+        if (-not $hasGoal) { $msgs.Add("$($pre)Summary is missing '- Goal:'") }
+        if (-not $hasRules) { $msgs.Add("$($pre)Summary is missing '- Rules:'") }
+        if (-not $hasTags) { $msgs.Add("$($pre)Summary is missing '- Tags:'") }
+        if (-not $marker) { $msgs.Add("$($pre)has no '<!-- context:end -->' marker inside ## Summary") }
+    }
+    if ($seen.ContainsKey("## Scenarios")) {
+        if (-not $hdr) { $msgs.Add("$($pre)is missing the Scenarios header row") }
+        if ($rows -eq 0) { $msgs.Add("$($pre)has no scenarios") }
+    }
+    foreach ($e in $tests) {
+        if ($e -cnotmatch '^- [^ ]+ \(S[0-9][0-9]+(, S[0-9][0-9]+)*\)$') { $msgs.Add("$($pre)Tests entry '$($e.Substring(2))' is not '- path (S01, S02)'"); continue }
+        $p = $e.Substring(2)
+        $path = $p.Substring(0, $p.IndexOf(' '))
+        $r = $p.Substring($p.IndexOf('(') + 1)
+        $r = $r.Substring(0, $r.Length - 1)
+        foreach ($ref in ($r -split ', ')) {
+            if (-not $scid.ContainsKey($ref)) { $msgs.Add("$($pre)Tests entry '$path' refers to unknown scenario $ref") }
+        }
+    }
+    if ($unk -gt 0) { $msgs.Add("WARN: docs/specs/$id.md has $unk UNKNOWN field(s)") }
+    return $msgs.ToArray()
+}
+
+function Test-Specs {
+    $dir = Join-Path $DocsDir "specs"
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return }
+    [string[]]$names = @(Get-ChildItem -LiteralPath $dir -Filter "*.md" -File | ForEach-Object { $_.Name })
+    [System.Array]::Sort($names, [System.StringComparer]::Ordinal)
+    foreach ($name in $names) {
+        foreach ($m in @(Get-SpecReport (Join-Path $dir $name))) {
+            [Console]::Error.WriteLine($m)
+            if ($m.StartsWith("ERROR:")) { $script:CheckFail = $true }
+        }
+    }
+}
+
 function Invoke-Check {
     $script:CheckFail = $false
     Test-Need "AGENTS.md" @("## Repository rules", "## Startup", "## Close")
@@ -2484,7 +2576,7 @@ function Invoke-Check {
     Test-TableStatusEnum "docs/Stack_Tecnologies.md" @("CONFIRMED", "HYPOTHESIS", "UNKNOWN") "epistemic"
     Test-TableStatusEnum "docs/Roadmap.md" @("TODO", "IN_PROGRESS", "PAUSE", "DONE") "workflow"
     Test-TableNameWordLimit "docs/Roadmap.md" 10
-    if (Test-FactoryOn) { Test-BrainRows }
+    if (Test-FactoryOn) { Test-BrainRows; Test-Specs }
 
     Write-CheckWarnings
 

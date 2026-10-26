@@ -1105,6 +1105,107 @@ run_factory_suite() {
   runo init "$ip" --CLASSIC
   grep -q '^project_docs init: 7 file(s) created$' "$WORK/.out" && ok "$label the flags are case-sensitive, so --CLASSIC does not make init classic" || bad "$label --CLASSIC was honored: $(cat "$WORK/.out")"
 
+  echo "== $label: spec template and check rules (F06-E02-T01) =="
+  sedi() { sed "$1" "$2" > "$2.tmp" && mv "$2.tmp" "$2"; }  # no sed -i: it differs across the shells this runs under
+  mkspec() {  # mkspec <project> <TASK-ID>: writes a valid, fully filled spec
+    cat > "$1/docs/specs/$2.md" <<SPEC
+# Spec $2 — Export the invoice list
+
+## Summary
+
+- Goal: Let a user export the invoice list as CSV
+- Rules: BR-020
+- Tags: invoice export csv src/billing/
+<!-- context:end -->
+
+## Scenarios
+
+| ID | Given | When | Then | Level | Justification |
+|---|---|---|---|---|---|
+| S01 | Three invoices exist | The user asks for a CSV | One line per invoice is returned | UNIT | — |
+| S02 | No invoices exist | The user asks for a CSV | Only the header line is returned | UNIT | — |
+| S03 | The README mentions export | A maintainer reads it | The command is documented | NONE | Docs only, reviewed by the QA agent |
+
+## Tests
+
+- tests/billing/export.spec.sh (S01, S02)
+
+## Out of scope
+
+- Excel export
+SPEC
+  }
+  spec_bad() {  # spec_bad <fixture-name> <sed expression> <expected message>
+    sp_proj "$1"
+    mkspec "$sp" F09-E01-T01
+    sedi "$2" "$sp/docs/specs/F09-E01-T01.md"
+    assert_failure "$label check rejects: $3" run check "$sp"
+    grep -qF -- "$3" "$WORK/.out" && ok "$label check names it: $3" || bad "$label check does not name '$3': $(grep specs "$WORK/.out" | head -3)"
+  }
+  sp_proj() { sp="$WORK/${label}_sp_$1"; rm -rf "$sp"; mkdir -p "$sp"; run init "$sp" >/dev/null 2>&1; }
+
+  sp_proj sp_ok
+  mkspec "$sp" F09-E01-T01
+  assert_success "$label a valid spec passes check" run check "$sp"
+  ! grep -q 'docs/specs/.*UNKNOWN' "$WORK/.out" && ok "$label a fully filled spec raises no UNKNOWN warning" || bad "$label valid spec warned: $(grep 'docs/specs' "$WORK/.out")"
+
+  sp_proj sp_tpl
+  sed -e 's/{TASK}/F09-E01-T02/' -e 's/{NAME}/Draft spec from the template/' "$SCRIPT_DIR/../templates/Spec.md" > "$sp/docs/specs/F09-E01-T02.md"
+  assert_success "$label a spec made from the template is structurally valid" run check "$sp"
+  grep -q '^WARN: docs/specs/F09-E01-T02.md has 4 UNKNOWN field(s)$' "$WORK/.out" && ok "$label the template draft warns about its four UNKNOWN fields" || bad "$label template warning wrong: $(grep -i 'specs\|UNKNOWN' "$WORK/.out" | head -3)"
+
+  sp_proj sp_none
+  assert_success "$label an empty docs/specs folder passes check" run check "$sp"
+
+  spec_bad sp_title 's/^# Spec F09-E01-T01 — .*/# Spec F09-E01-T99 — Wrong id/' "title must start with '# Spec F09-E01-T01'"
+  spec_bad sp_nosummary '/^## Summary$/d' "is missing section '## Summary'"
+  spec_bad sp_noscen '/^## Scenarios$/d' "is missing section '## Scenarios'"
+  spec_bad sp_notests '/^## Tests$/d' "is missing section '## Tests'"
+  spec_bad sp_noscope '/^## Out of scope$/d' "is missing section '## Out of scope'"
+  spec_bad sp_nogoal '/^- Goal:/d' "Summary is missing '- Goal:'"
+  spec_bad sp_emptygoal 's/^- Goal:.*/- Goal:/' "has an empty Goal"
+  spec_bad sp_norules '/^- Rules:/d' "Summary is missing '- Rules:'"
+  spec_bad sp_emptyrules 's/^- Rules:.*/- Rules:/' "has empty Rules"
+  spec_bad sp_notags '/^- Tags:/d' "Summary is missing '- Tags:'"
+  spec_bad sp_emptytags 's/^- Tags:.*/- Tags:/' "has empty Tags"
+  spec_bad sp_nomarker '/<!-- context:end -->/d' "has no '<!-- context:end -->' marker inside ## Summary"
+  spec_bad sp_header 's/| Then | Level |/| Result | Level |/' "has an invalid Scenarios header"
+  spec_bad sp_nohdr '/^| ID | Given/d' "is missing the Scenarios header row"
+  spec_bad sp_norows '/^| S0[0-9] /d' "has no scenarios"
+  spec_bad sp_cols 's/^| S02 | No invoices exist | The user asks for a CSV | /| S02 | /' "scenario row 'S02' has 4 columns, expected 6"
+  spec_bad sp_sid 's/^| S02 |/| T2 |/' "scenario ID 'T2' is not S01 style"
+  spec_bad sp_dup 's/^| S02 |/| S01 |/' "duplicate scenario ID: S01"
+  spec_bad sp_given 's/^| S01 | Three invoices exist |/| S01 |  |/' "scenario 'S01' has an empty Given"
+  spec_bad sp_when 's/| The user asks for a CSV | One line/|  | One line/' "scenario 'S01' has an empty When"
+  spec_bad sp_then 's/| One line per invoice is returned |/|  |/' "scenario 'S01' has an empty Then"
+  spec_bad sp_level 's/| One line per invoice is returned | UNIT |/| One line per invoice is returned | UNITTEST |/' "scenario 'S01' has invalid Level: UNITTEST"
+  spec_bad sp_none 's/| Docs only, reviewed by the QA agent |/| — |/' "scenario 'S03' has Level NONE without a Justification"
+  spec_bad sp_none2 's/| Docs only, reviewed by the QA agent |/|  |/' "scenario 'S03' has Level NONE without a Justification"
+  spec_bad sp_testfmt 's#^- tests/billing/export.spec.sh (S01, S02)#- tests/billing/export.spec.sh#' "Tests entry 'tests/billing/export.spec.sh' is not '- path (S01, S02)'"
+  spec_bad sp_testref 's#(S01, S02)#(S01, S09)#' "Tests entry 'tests/billing/export.spec.sh' refers to unknown scenario S09"
+
+  sp_proj sp_empty_tests
+  mkspec "$sp" F09-E01-T01
+  sedi '/^- tests\/billing/d' "$sp/docs/specs/F09-E01-T01.md"
+  assert_success "$label an empty Tests section is fine before RED" run check "$sp"
+
+  sp_proj sp_crlf
+  mkspec "$sp" F09-E01-T01
+  sedi 's/$/\r/' "$sp/docs/specs/F09-E01-T01.md"
+  assert_success "$label a spec with CRLF line endings passes check" run check "$sp"
+
+  sp_proj sp_two
+  mkspec "$sp" F09-E01-T01
+  mkspec "$sp" F09-E01-T02
+  sedi '/^- Goal:/d' "$sp/docs/specs/F09-E01-T02.md"
+  assert_failure "$label one bad spec among several fails check" run check "$sp"
+  grep -q "docs/specs/F09-E01-T02.md Summary is missing" "$WORK/.out" && ! grep -q "docs/specs/F09-E01-T01.md" "$WORK/.out" && ok "$label only the bad spec is named" || bad "$label wrong specs named: $(grep specs "$WORK/.out")"
+
+  sp_proj sp_classic
+  mkspec "$sp" F09-E01-T01
+  sedi '/^## Tests$/d' "$sp/docs/specs/F09-E01-T01.md"
+  run_env PROJECT_DOCS_MODE=classic check "$sp" >/dev/null 2>&1 && ok "$label classic mode ignores docs/specs entirely" || bad "$label classic mode checked a spec"
+
 #FACTORY_CASES
 }
 

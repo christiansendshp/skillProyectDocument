@@ -284,3 +284,22 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: Decisions pointer via migrate; fresh Factory context 6750 B
 - Files: scripts/,references/factory.md
 - Verify: smoke 856 pass 0 fail; QA PASS factory smoke 139 each; context 6750 B
+
+## [2026-10-26T17:02:37Z] | claude-sonnet-5-5 | F06-DEBT-01 | REVIEW | Harden Brain cap parsing and CRLF handling in migrate
+- Summary: Cap parsing, CRLF, roster rerun, flags hardened
+- Verify: smoke 902 pass 0 fail (sh 452 ps1 450); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-26T17:02:56Z] | claude-sonnet-5-5 | F06-E02-T01 | IN_PROGRESS | Spec template and check rules for scenarios
+- Summary: Spec template and check rules for scenarios
+- Verify: pending
+
+## [2026-10-26T17:16:36Z] | claude-qa | F06-DEBT-01 | REVIEW | Harden Brain cap parsing and CRLF handling in migrate
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: smoke factory sh 162/0 + ps1 162/0 exit=0; BR-008 diff 3 scenarios identical; Linux busybox CRLF ok
+- Review: PASS - PASS: smoke 162/162 sh+ps1; CRLF, header-only/dash/padded roster, flags fixed and sh==ps1; BR-008 identical. Residual: roster not filled when separator is '  ---  ' (silent)
+
+## [2026-10-26T17:18:05Z] | claude-sonnet-5-5 | F06-DEBT-01 | DONE | Harden Brain cap parsing and CRLF handling in migrate
+- Summary: Cap parsing, CRLF, roster rerun and flags hardened
+- Files: scripts/,references/factory.md
+- Verify: smoke 902 pass 0 fail; QA PASS factory 162 each; BR-008 identical

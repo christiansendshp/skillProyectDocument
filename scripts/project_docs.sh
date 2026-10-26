@@ -2418,6 +2418,87 @@ check_brain_rows() {
   fi
 }
 
+# Spec validation (Factory mode only, F06-E02-T01). A spec is docs/specs/<TASK-ID>.md
+# (templates/Spec.md). Structure problems are errors; fields still UNKNOWN are
+# one warning per spec, because a draft spec is normal during the SPEC phase.
+# The 047 escapes below are apostrophes.
+spec_report() {
+  tr -d '\r' < "$1" | awk -v id="$(basename "$1" .md)" '
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    function err(m) { n++; msg[n] = "ERROR: docs/specs/" id ".md " m }
+    NR==1 {
+      t = "# Spec " id
+      if (index($0, t) != 1 || (length($0) > length(t) && substr($0, length(t) + 1, 1) != " ")) err("title must start with \047" t "\047")
+    }
+    /UNKNOWN/ { unk++ }
+    /^## / { sec=$0; seen[sec]=1; next }
+    $0 == "<!-- context:end -->" { if (sec == "## Summary") marker=1; next }
+    sec == "## Summary" && /^- Goal:/ { hasGoal=1; if (trim(substr($0, 8)) == "") err("has an empty Goal"); next }
+    sec == "## Summary" && /^- Rules:/ { hasRules=1; if (trim(substr($0, 9)) == "") err("has empty Rules"); next }
+    sec == "## Summary" && /^- Tags:/ { hasTags=1; if (trim(substr($0, 8)) == "") err("has empty Tags"); next }
+    sec == "## Scenarios" && /^\|/ {
+      line=$0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line)
+      cn=split(line, c, "|")
+      for (i=1; i<=cn; i++) c[i]=trim(c[i])
+      if (c[1] == "ID") {
+        hdr=1
+        if (cn != 6 || c[2] != "Given" || c[3] != "When" || c[4] != "Then" || c[5] != "Level" || c[6] != "Justification") err("has an invalid Scenarios header")
+        next
+      }
+      if (c[1] ~ /^-+$/) next
+      rows++
+      sid=c[1]
+      if (cn != 6) { err("scenario row \047" sid "\047 has " cn " columns, expected 6"); next }
+      if (sid !~ /^S[0-9][0-9]+$/) err("scenario ID \047" sid "\047 is not S01 style")
+      if (sid in scid) err("duplicate scenario ID: " sid)
+      scid[sid]=1
+      if (c[2] == "") err("scenario \047" sid "\047 has an empty Given")
+      if (c[3] == "") err("scenario \047" sid "\047 has an empty When")
+      if (c[4] == "") err("scenario \047" sid "\047 has an empty Then")
+      lv=c[5]
+      if (lv != "UNIT" && lv != "INTEGRATION" && lv != "CONTRACT" && lv != "E2E" && lv != "NONE") err("scenario \047" sid "\047 has invalid Level: " lv)
+      else if (lv == "NONE" && (c[6] == "" || c[6] == "—")) err("scenario \047" sid "\047 has Level NONE without a Justification")
+      next
+    }
+    sec == "## Tests" && /^- / { tn++; tl[tn]=$0; next }
+    END {
+      split("## Summary|## Scenarios|## Tests|## Out of scope", req, "|")
+      for (i=1; i<=4; i++) if (!(req[i] in seen)) err("is missing section \047" req[i] "\047")
+      if ("## Summary" in seen) {
+        if (!hasGoal) err("Summary is missing \047- Goal:\047")
+        if (!hasRules) err("Summary is missing \047- Rules:\047")
+        if (!hasTags) err("Summary is missing \047- Tags:\047")
+        if (!marker) err("has no \047<!-- context:end -->\047 marker inside ## Summary")
+      }
+      if ("## Scenarios" in seen) {
+        if (!hdr) err("is missing the Scenarios header row")
+        if (rows == 0) err("has no scenarios")
+      }
+      for (i=1; i<=tn; i++) {
+        e=tl[i]
+        if (e !~ /^- [^ ]+ \(S[0-9][0-9]+(, S[0-9][0-9]+)*\)$/) { err("Tests entry \047" substr(e, 3) "\047 is not \047- path (S01, S02)\047"); continue }
+        p=substr(e, 3); path=p; sub(/ .*/, "", path)
+        r=p; sub(/^[^(]*\(/, "", r); sub(/\)$/, "", r)
+        k=split(r, refs, ", ")
+        for (j=1; j<=k; j++) if (!(refs[j] in scid)) err("Tests entry \047" path "\047 refers to unknown scenario " refs[j])
+      }
+      for (i=1; i<=n; i++) print msg[i]
+      if (unk > 0) print "WARN: docs/specs/" id ".md has " unk " UNKNOWN field(s)"
+    }
+  '
+}
+
+check_specs() {
+  [ -d "$DOCS_DIR/specs" ] || return 0
+  for cs_f in "$DOCS_DIR"/specs/*.md; do
+    [ -f "$cs_f" ] || continue
+    cs_out="$(spec_report "$cs_f")"
+    [ -n "$cs_out" ] || continue
+    printf '%s\n' "$cs_out" >&2
+    if printf '%s\n' "$cs_out" | grep -q '^ERROR:'; then CHECK_FAIL=1; fi
+  done
+}
+
 check_docs() {
   CHECK_FAIL=0
   need AGENTS.md "## Repository rules" "## Startup" "## Close"
@@ -2479,7 +2560,7 @@ check_docs() {
   check_table_status_enum docs/Stack_Tecnologies.md "CONFIRMED HYPOTHESIS UNKNOWN" "epistemic"
   check_table_status_enum docs/Roadmap.md "TODO IN_PROGRESS PAUSE DONE" "workflow"
   check_table_name_wordlimit docs/Roadmap.md 10
-  if factory_on; then check_brain_rows; fi
+  if factory_on; then check_brain_rows; check_specs; fi
 
   check_warnings
 

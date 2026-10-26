@@ -19,6 +19,7 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
+| F06-E02-T01 | Spec template and check rules for scenarios | templates/Spec.md and check per section 4.4 | Invalid specs fail check; valid spec passes | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T17:02:56Z | F06-E01-T01 | — |
 
 <!-- context:end -->
 
@@ -86,7 +87,6 @@ Spec: docs/features/ia-factory.md (closed decisions D-01 to D-21 are ADR-023 onw
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E02-T01 | Spec template and check rules for scenarios | templates/Spec.md and check per section 4.4 | Invalid specs fail check; valid spec passes | TODO | — | F06-E01-T01 | — |
 | F06-E02-T02 | Phase lines and advance command with gates | Section 4.3 table; writes ASSIGNED with Phase | Every gate has a passing and a failing smoke case | TODO | — | F06-E02-T01, F06-E02-T03, F06-E03-T02 | — |
 | F06-E02-T03 | Phase roles in the roster and claim | D-05 roles; DEVELOPER alias of DEV | Role mismatch refused in factory and ignored in classic | TODO | — | F06-E01-T01 | — |
 | F06-E02-T04 | Exit markers and immutable tests from RED sha | D-06 and D-07 including the no-git warning | Changing a recorded test after RED makes handoff fail | TODO | — | F06-E02-T02 | — |
@@ -141,7 +141,6 @@ task. ID prefix marks the kind: `Fxx-GAP-xx` (missing capability),
 | F05-DEBT-01 | Age rounds differently in sh and PowerShell | Low | F05 | status and the stale checks compute age in whole hours: sh truncates toward zero and PowerShell floors, so an entry timestamped in the future shows 0h in sh and -1h in PowerShell. Only visible with a wrong clock or a hand-written future timestamp | TODO | — | — | — |
 | F05-DEBT-02 | The em dash verify marker is untested in PowerShell | Low | F05 | The smoke test passes arguments to PowerShell through a command string, which mangles a non-ASCII argument, so the em dash verify marker is only exercised through the sh launcher; the PowerShell comparison itself is covered by the other markers | TODO | — | — | — |
 | F05-DEBT-03 | A rotation can fake an instant close | Low | F05 | rotate re-opens a task that was in REVIEW as an IN_PROGRESS entry stamped with the time of its last entry, so a done within 5 minutes of that last entry looks like a task claimed and closed minutes apart. Rare; fix by ignoring carried-forward IN_PROGRESS entries when measuring | TODO | — | — | — |
-| F06-DEBT-01 | Harden Brain cap parsing and CRLF handling in migrate | Low | F06 | QA found edge cases in F06-E03-T01 and F06-E01-T02: Brain max entries above 2^31 aborts ps1 and prints a stray test error in sh, a leading zero prints 010 in sh and 10 in ps1; a CRLF Brain.md or AGENTS.md on Linux sh skips row validation or misplaces inserted sections; migrate --factory announces the roster fill again when the section has a header but no placeholder row | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T16:09:15Z | — | — |
 
 ## Out of scope
 

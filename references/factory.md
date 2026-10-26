@@ -101,3 +101,26 @@ bullet was reworded).
 The `## Factory` section of `templates/AGENTS.factory.md` stays under 1.5 KiB
 and a fresh Factory project's `context` stays at or below 6912 bytes, which
 leaves room for the active work of a real project.
+
+## Specs
+
+Work that goes through the SPEC phase has an executable spec in
+`docs/specs/<TASK-ID>.md`, made from `templates/Spec.md` (replace `{TASK}` and
+`{NAME}`; every unfilled field says `UNKNOWN`). Sections, in this order:
+
+- `## Summary` with `- Goal:`, `- Rules:` (`BR-xxx` ids or an em dash) and
+  `- Tags:` (words and path prefixes `recall` matches), then the
+  `<!-- context:end -->` marker.
+- `## Scenarios`, a table `ID | Given | When | Then | Level | Justification`.
+  IDs are `S01`, `S02`, ... (unique). `Level` is `UNIT`, `INTEGRATION`,
+  `CONTRACT`, `E2E` or `NONE`; each scenario has one level (one behavior, one
+  level). `NONE` needs a `Justification` (docs, config, infra).
+- `## Tests`, one line per test file: `- path/to/file.spec (S01, S02)`. It may
+  be empty until the RED phase; every scenario id it names must exist.
+- `## Out of scope`.
+
+In Factory mode `check` validates every file in `docs/specs/`: a missing
+section, a bad table, an unknown level or a test entry that names a missing
+scenario is an error. Fields still `UNKNOWN` are one warning per spec, since a
+draft is normal during SPEC; the phase gates later in this document turn them
+into errors. In classic mode `docs/specs/` is ignored.
