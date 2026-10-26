@@ -552,7 +552,7 @@ function Get-TaskStates {
             $lastHandoff[$cur] = $Matches[1]
             continue
         }
-        if ($cur -and $line -match '^- Phase:\s*(.*?)\s*$') {
+        if ($cur -and $line -cmatch '^- Phase:\s*(.*?)\s*$') {
             $lastPhase[$cur] = $Matches[1]
             continue
         }
@@ -707,6 +707,9 @@ function Assert-PhaseRole([string]$Agent, [string]$Phase, [string]$Task) {
     }
     $norm = Get-RoleNorm $role
     $need = Get-PhaseRole $Phase
+    if (-not $need) {
+        throw "claim failed: $Task is in phase $Phase, which has no role (use SPEC, RED, GREEN or REVIEW)"
+    }
     if ($norm -cne "BOTH" -and $norm -cne $need) {
         throw "claim failed: $Agent has role $role, but phase $Phase of $Task needs $need (or BOTH)"
     }
@@ -2906,10 +2909,12 @@ function Invoke-Rotate {
             $lines.Add("")
             $lines.Add("## [$($s.Ts)] | $($s.Holder) | $($s.Task) | IN_PROGRESS | $($s.Name)")
             $lines.Add("- Summary: carried forward from docs/history/$name at rotation")
+            if ($s.Phase) { $lines.Add("- Phase: $($s.Phase)") }
         }
         $lines.Add("")
         $lines.Add("## [$($s.Ts)] | $($s.Agent) | $($s.Task) | $($s.Status) | $($s.Name)")
         $lines.Add("- Summary: carried forward from docs/history/$name at rotation")
+        if ($s.Status -ne "REVIEW" -and $s.Phase) { $lines.Add("- Phase: $($s.Phase)") }
         if ($s.Status -eq "PAUSE") {
             $lines.Add("- Pause: $($s.PauseCat) - see docs/history/$name for detail")
         }

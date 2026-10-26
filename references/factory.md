@@ -143,6 +143,9 @@ In Factory mode:
 - `check` fails when the roster has fewer than two agents, none with the role
   `QA` (or `BOTH`), or a role outside the list above (roles are upper case).
 
+A task whose phase is none of those four is refused whoever asks. `rotate` carries
+the phase of every open task into the new ledger segment.
+
 In classic mode none of this applies: `claim` ignores roles and writes no phase.
 
 ## Working memory and checkpoint

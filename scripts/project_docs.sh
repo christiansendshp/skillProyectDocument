@@ -635,6 +635,9 @@ require_phase_role() {
   fi
   rp_norm="$(role_norm "$rp_role")"
   rp_need="$(phase_role "$2")"
+  if [ -z "$rp_need" ]; then
+    die "claim failed: $3 is in phase $2, which has no role (use SPEC, RED, GREEN or REVIEW)"
+  fi
   if [ "$rp_norm" != "BOTH" ] && [ "$rp_norm" != "$rp_need" ]; then
     die "claim failed: $1 has role $rp_role, but phase $2 of $3 needs $rp_need (or BOTH)"
   fi
@@ -2875,10 +2878,12 @@ rotate_log() {
           echo
           echo "## [$ts] | $holder | $tid | IN_PROGRESS | $name"
           echo "- Summary: carried forward from docs/history/$archive_name at rotation"
+          if [ -n "$phase" ]; then echo "- Phase: $phase"; fi
         fi
         echo
         echo "## [$ts] | $agent | $tid | $status | $name"
         echo "- Summary: carried forward from docs/history/$archive_name at rotation"
+        if [ "$status" != "REVIEW" ] && [ -n "$phase" ]; then echo "- Phase: $phase"; fi
         if [ "$status" = "PAUSE" ]; then
           echo "- Pause: $pausecat - see docs/history/$archive_name for detail"
         fi

@@ -321,3 +321,26 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 ## [2026-10-26T18:56:16Z] | claude-sonnet-5-5 | F06-E03-T02 | IN_PROGRESS | Working memory files and checkpoint command
 - Summary: Working memory files and checkpoint command
 - Verify: pending
+
+## [2026-10-26T19:46:26Z] | claude-sonnet-5-5 | F06-E03-T02 | REVIEW | Working memory files and checkpoint command
+- Summary: checkpoint command, working memory, pause gate
+- Verify: smoke 1214 pass 0 fail (sh 608 ps1 606); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-26T19:47:57Z] | claude-sonnet-5-5 | F06-E02-T02 | IN_PROGRESS | Phase lines and advance command with gates
+- Summary: Phase lines and advance command with gates
+- Verify: pending
+
+## [2026-10-26T20:04:31Z] | claude-qa | F06-E02-T03 | REVIEW | Phase roles in the roster and claim
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: sh factory smoke 262/0; sh vs ps1 claim/check scenarios same text; rotate repro (205 fillers) loses Phase in sh and ps1
+- Review: FAIL - rotate drops '- Phase:' (sh rotate_log, ps1 Invoke-Rotate): a RED/GREEN task reverts to SPEC after rotation and claim refuses its role. Carry '- Phase:' forward in both; add smoke case
+
+## [2026-10-26T20:08:56Z] | claude-sonnet-5-5 | F06-E02-T03 | IN_PROGRESS | Phase roles in the roster and claim
+- Summary: Retake after QA FAIL: rotate must carry the phase
+- Verify: pending
+
+## [2026-10-26T20:38:20Z] | claude-qa | F06-E02-T01 | REVIEW | Spec template and check rules for scenarios
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: smoke 224/0 sh+ps1; 24 spec fixtures sh==ps1 but 4 cases; Linux==MSYS; classic+no-specs check identical to 9302b58
+- Review: FAIL - FAIL: Tests path with '(' (app/(auth)/x.ts (S01)) falsely errors in sh+ps1: take refs after LAST '('. BOM spec: ps1 OK, sh title error: strip BOM. NBSP cell, ' ' row, .draft.md also differ

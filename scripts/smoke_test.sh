@@ -1417,6 +1417,32 @@ SPEC
   printf 'garbage\n' > "$wmf"
   run_env PROJECT_DOCS_MODE=classic check "$wm" >/dev/null 2>&1 && ok "$label classic mode ignores docs/brain/tasks" || bad "$label classic mode checked a working memory"
 
+  echo "== $label: the phase survives rotate and odd phase lines (F06-E02-T03 retake) =="
+  ph_proj() { ph="$WORK/${label}_ph_$1"; rm -rf "$ph"; mkdir -p "$ph"; run init "$ph" >/dev/null 2>&1; seed_plan_row "$ph" F09-E01-T01 "Phase task"; seed_plan_row "$ph" F09-E01-T02 "Review phase task"; }
+
+  ph_proj rot
+  seed_entry "$ph" "$(now_ts)" claude-test F09-E01-T01 ASSIGNED "Phase task" '- Assign: claude-dev\n- Phase: GREEN\n'
+  seed_entry "$ph" "$(now_ts)" claude-dev F09-E01-T02 IN_PROGRESS "Review phase task" '- Summary: working\n- Verify: pending\n- Phase: GREEN\n'
+  seed_entry "$ph" "$(now_ts)" claude-dev F09-E01-T02 REVIEW "Review phase task" '- Summary: ready\n- Verify: exit=0\n- Handoff: claude-qa\n'
+  seed_fill "$ph" F09-FILL-01 205
+  assert_success "$label rotate runs on a Factory ledger with open phases" run rotate "$ph"
+  grep -q '^project_docs rotate: archived ' "$WORK/.out" && ok "$label the ledger was rotated" || bad "$label rotate did not archive: $(cat "$WORK/.out")"
+  [ "$(grep -c '^- Phase: GREEN$' "$ph/docs/Agentslog.md")" -ge 2 ] && ok "$label rotate carries the phase of every open task" || bad "$label phase lost in rotate: $(grep '^- Phase' "$ph/docs/Agentslog.md" | tr '\n' ' ')"
+  assert_failure "$label after rotate the SPEC agent still cannot take a GREEN task" run claim "$ph" claude-spec F09-E01-T01 "wrong phase"
+  grep -q 'phase GREEN of F09-E01-T01 needs DEV' "$WORK/.out" && ok "$label the refusal still knows the phase" || bad "$label phase unknown after rotate: $(cat "$WORK/.out")"
+  assert_failure "$label after rotate the QA agent cannot work a GREEN task" run claim "$ph" claude-qa F09-E01-T01 "not their phase"
+  assert_success "$label after rotate the DEV agent takes the GREEN task" run claim "$ph" claude-dev F09-E01-T01 "make it pass"
+  assert_success "$label after rotate the holder of a task in REVIEW takes it back" run claim "$ph" claude-dev F09-E01-T02 "after review"
+
+  ph_proj odd
+  seed_replace "$ph/AGENTS.md" "| claude-spec | AI | Claude | SPEC |" "| claude-spec | AI | Claude | BOTH |"
+  seed_entry "$ph" "$(now_ts)" claude-test F09-E01-T01 ASSIGNED "Phase task" '- Assign: claude-spec\n- Phase: FOO\n'
+  assert_failure "$label a task in a phase nobody works is refused, even for a BOTH agent" run claim "$ph" claude-spec F09-E01-T01 "odd phase"
+  grep -q 'claim failed: F09-E01-T01 is in phase FOO, which has no role (use SPEC, RED, GREEN or REVIEW)' "$WORK/.out" && ok "$label the refusal names the unknown phase" || bad "$label unknown phase text wrong: $(cat "$WORK/.out")"
+  seed_entry "$ph" "$(now_ts)" claude-test F09-E01-T02 ASSIGNED "Review phase task" '- Assign: claude-dev\n- phase: GREEN\n'
+  assert_failure "$label a lower case phase line is not a phase line" run claim "$ph" claude-dev F09-E01-T02 "lower case"
+  grep -q 'phase SPEC of F09-E01-T02 needs SPEC' "$WORK/.out" && ok "$label the task is still in SPEC for both launchers" || bad "$label lower case phase read: $(cat "$WORK/.out")"
+
 #FACTORY_CASES
 }
 
