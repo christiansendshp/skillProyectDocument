@@ -122,8 +122,9 @@ Work that goes through the SPEC phase has an executable spec in
 In Factory mode `check` validates every file in `docs/specs/`: a missing
 section, a bad table, an unknown level or a test entry that names a missing
 scenario is an error. Fields still `UNKNOWN` are one warning per spec, since a
-draft is normal during SPEC; the phase gates later in this document turn them
-into errors. In classic mode `docs/specs/` is ignored.
+draft is normal during SPEC; `advance` refuses to leave SPEC while any is left.
+Only `docs/specs/*.md` files (lower case extension, no leading dot) are specs.
+In classic mode `docs/specs/` is ignored.
 
 ## Roles and the phase of a task
 
@@ -161,3 +162,27 @@ compaction, reads this file (through `recall`) instead of the whole history.
 In Factory mode `pause` refuses a task that has no `## Now`. `check` validates
 the files. A `|` in `step` or `next` becomes `/`, like in the PowerShell
 launcher. The command exists only in Factory mode.
+
+## Moving a task between phases: advance
+
+`advance <project> <agent> <task-id> <next-phase> <verify> [to-agent]` is how a
+task changes phase. Only the agent that holds the task (status `IN_PROGRESS`)
+can run it, the task needs a working memory (`checkpoint`), and it writes an
+`ASSIGNED` entry with `- Phase: <next-phase>` and `- Assign: <agent>`. The Roadmap row
+stays `IN_PROGRESS` and only its owner changes. `to-agent` must have the role of
+the new phase (or `BOTH`); without it the first roster agent with that role is
+used. The next agent runs `claim`.
+
+| From | To | What the script checks |
+|---|---|---|
+| SPEC | RED | `docs/specs/<TASK-ID>.md` exists, passes the spec rules and has no `UNKNOWN` left; the last review of the spec was `PASS` from an agent other than the one advancing (`Independent review` `NO` drops this) |
+| RED | GREEN | the verify has `exit=N` with N not 0; the spec lists test files; they exist and, with git, are committed and unchanged; the entry records `- Red: <sha>` and `- Tests: <paths>` |
+| RED or GREEN | SPEC | nothing extra: a wrong test or spec goes back to the spec |
+| GREEN | RED | nothing extra: the tests were wrong |
+
+SPEC to GREEN (no RED) is only allowed when `Require TDD` is `NO`. GREEN to REVIEW is
+`handoff` and REVIEW to DONE is `done`. A spec review is the normal `handoff` to a
+reviewer and `review PASS`; the author then retakes the task with `claim`.
+Without git the RED to GREEN gate cannot check that the tests are committed: it
+warns and records no `Red` sha. `rotate` carries the phase and the spec reviewer
+(`- Spec-pass:`) of every open task. The command exists only in Factory mode.

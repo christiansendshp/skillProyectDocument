@@ -19,9 +19,8 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E02-T01 | Spec template and check rules for scenarios | templates/Spec.md and check per section 4.4 | Invalid specs fail check; valid spec passes | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T17:02:56Z | F06-E01-T01 | — |
-| F06-E02-T03 | Phase roles in the roster and claim | D-05 roles; DEVELOPER alias of DEV | Role mismatch refused in factory and ignored in classic | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T20:08:56Z | F06-E01-T01 | — |
-| F06-E03-T02 | Working memory files and checkpoint command | docs/brain/tasks; pause and advance require Now | Smoke cases create, update and require the file | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T18:56:16Z | F06-E01-T01 | — |
+| F06-E02-T01 | Spec template and check rules for scenarios | templates/Spec.md and check per section 4.4 | Invalid specs fail check; valid spec passes | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T21:29:55Z | F06-E01-T01 | — |
+| F06-E03-T02 | Working memory files and checkpoint command | docs/brain/tasks; pause and advance require Now | Smoke cases create, update and require the file | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T21:29:57Z | F06-E01-T01 | — |
 | F06-E02-T02 | Phase lines and advance command with gates | Section 4.3 table; writes ASSIGNED with Phase | Every gate has a passing and a failing smoke case | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T19:47:57Z | F06-E02-T01, F06-E02-T03, F06-E03-T02 | — |
 
 <!-- context:end -->

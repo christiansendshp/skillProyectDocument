@@ -542,9 +542,16 @@ all_task_states() {
       last_handoff[cur]=line
       next
     }
+    in_entries && cur!="" && /^- Spec-pass:/ {
+      line=$0
+      sub(/^- Spec-pass:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
+      spec_pass[cur]=line
+      next
+    }
     in_entries && cur!="" && /^- Phase:/ {
       line=$0
       sub(/^- Phase:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
+      if (line == "SPEC" && last_phase[cur] != "" && last_phase[cur] != "SPEC") spec_pass[cur]=""
       last_phase[cur]=line
       next
     }
@@ -555,12 +562,14 @@ all_task_states() {
       if (dash>0) p=substr(line,1,dash-1); else p=line
       gsub(/[ \t]+$/,"",p)
       last_review[cur]=p
+      ph=last_phase[cur]; if (ph == "") ph="SPEC"
+      if (ph == "SPEC") { if (p ~ /^PASS/) spec_pass[cur]=last_agent[cur]; else spec_pass[cur]="" }
       next
     }
     END {
       for (i=1;i<=cnt;i++) {
         t=order[i]
-        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t], (t in hold ? hold[t] : last_agent[t]), last_handoff[t], last_review[t], last_phase[t]
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t], (t in hold ? hold[t] : last_agent[t]), last_handoff[t], last_review[t], last_phase[t], spec_pass[t]
       }
     }
   ' "$DOCS_DIR/Agentslog.md"
@@ -626,20 +635,21 @@ phase_role() {
   esac
 }
 
-# require_phase_role AGENT PHASE TASK: Factory mode only. The agent must be in the
-# roster with the role of the phase, or BOTH.
+# require_phase_role AGENT PHASE TASK [VERB]: Factory mode only. The agent must be
+# in the roster with the role of the phase, or BOTH.
 require_phase_role() {
+  rp_verb="${4:-claim}"
   rp_role="$(roster_role "$1")"
   if [ -z "$rp_role" ]; then
-    die "claim failed: $1 is not in the Agent identity table; Factory mode needs a role for each agent"
+    die "$rp_verb failed: $1 is not in the Agent identity table; Factory mode needs a role for each agent"
   fi
   rp_norm="$(role_norm "$rp_role")"
   rp_need="$(phase_role "$2")"
   if [ -z "$rp_need" ]; then
-    die "claim failed: $3 is in phase $2, which has no role (use SPEC, RED, GREEN or REVIEW)"
+    die "$rp_verb failed: $3 is in phase $2, which has no role (use SPEC, RED, GREEN or REVIEW)"
   fi
   if [ "$rp_norm" != "BOTH" ] && [ "$rp_norm" != "$rp_need" ]; then
-    die "claim failed: $1 has role $rp_role, but phase $2 of $3 needs $rp_need (or BOTH)"
+    die "$rp_verb failed: $1 has role $rp_role, but phase $2 of $3 needs $rp_need (or BOTH)"
   fi
 }
 
@@ -833,7 +843,7 @@ stage_label() {
 open_tasks_line() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
   open_task_states | tr '\t' '\037' |
-  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase rest; do
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass rest; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -1193,8 +1203,14 @@ cmd_claim() {
 # a run of CR/LF becomes one space, a bar becomes a slash, the ends are trimmed.
 # This is what the PowerShell launcher does; clean_field (classic) differs, and
 # stays as it is (BR-008).
+# clean_stream: stdin to stdout without carriage returns and without a leading
+# UTF-8 byte order mark, which is how the PowerShell launcher reads a file.
+clean_stream() {
+  tr -d '\r' | awk -v bom="$(printf '\357\273\277')" 'NR == 1 && index($0, bom) == 1 { $0 = substr($0, length(bom) + 1) } { print }'
+}
+
 clean_field_text() {
-  printf '%s' "$1" | tr -s '\r\n' ' ' | tr '|' '/' | awk '{ gsub(/^[ \t]+|[ \t]+$/, ""); print }'
+  printf '%s' "$1" | tr '\r\n' '\001\001' | awk '{ gsub(/\001+/, " "); gsub(/\|/, "/"); gsub(/^[ \t]+|[ \t]+$/, ""); print }'
 }
 
 # Commands that exist only in Factory mode refuse to run in classic mode.
@@ -1229,8 +1245,8 @@ cmd_checkpoint() {
   shift 2
   require_factory checkpoint
   [ "$#" -ge 4 ] || die "checkpoint requires: agent task-id step next"
-  agent="$(canonical_agent "$(clean_field "$1")")"
-  task="$(clean_field "$2")"
+  agent="$(canonical_agent "$(clean_field_text "$1")")"
+  task="$(clean_field_text "$2")"
   step="$(clean_field_text "$3")"
   nxt="$(clean_field_text "$4")"
   [ -n "$step" ] || die "checkpoint requires a non-empty step"
@@ -1247,7 +1263,7 @@ cmd_checkpoint() {
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   attempts="$(task_attempts "$task")"
   wm_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-memory.XXXXXX")"
-  if ! tr -d '\r' < "$wm" | WM_STEP="$step" WM_NEXT="$nxt" awk -v att="$attempts" -v ts="$timestamp" -v agent="$agent" '
+  if ! clean_stream < "$wm" | WM_STEP="$step" WM_NEXT="$nxt" awk -v att="$attempts" -v ts="$timestamp" -v agent="$agent" '
     function flush_trail() {
       if (intrail && !added) {
         print "- " ts " " agent ": " ENVIRON["WM_STEP"]
@@ -1421,6 +1437,172 @@ cmd_review() {
 # "- Assign:" line) and sets the Roadmap Owner to <to-agent>@<timestamp>. The
 # row stays TODO and no work starts: the assignee still has to claim. A task
 # somebody is already working on (IN_PROGRESS, PAUSE, REVIEW) cannot be assigned.
+# git_ready: true when git is installed and the project is inside a work tree.
+git_ready() {
+  command -v git >/dev/null 2>&1 && [ "$(git -C "$PROJECT" rev-parse --is-inside-work-tree 2>/dev/null)" = "true" ]
+}
+
+# verify_exit TEXT: the number after the first exit= marker of a verify string.
+verify_exit() {
+  printf '%s' "$1" | awk '{ if (match($0, /exit=[0-9]+/)) { print substr($0, RSTART + 5, RLENGTH - 5); exit } }'
+}
+
+# exit_is_zero DIGITS: true when the digits spell zero (leading zeros ignored).
+exit_is_zero() {
+  ez_v="$1"
+  while [ "${ez_v#0}" != "$ez_v" ]; do ez_v="${ez_v#0}"; done
+  [ -z "$ez_v" ]
+}
+
+# factory_yes NAME: true unless the setting says NO (any case).
+factory_yes() {
+  fy_v="$(factory_setting "$1" | tr 'a-z' 'A-Z')"
+  [ "$fy_v" != "NO" ]
+}
+
+# spec_unknown_count FILE: how many lines of a spec still say UNKNOWN.
+spec_unknown_count() {
+  tr -d '\r' < "$1" | awk '/UNKNOWN/ { n++ } END { print n + 0 }'
+}
+
+# spec_tests FILE: the test paths of the ## Tests section of a spec, one per line.
+spec_tests() {
+  tr -d '\r' < "$1" | awk '
+    /^## / { sec=$0; next }
+    sec == "## Tests" && /^- / { p=substr($0, 3); sub(/ .*/, "", p); print p }
+  '
+}
+
+# default_assignee PHASE: the first roster id whose role is the one of the phase,
+# else the first BOTH.
+default_assignee() {
+  da_need="$(phase_role "$1")"
+  roster_rows | awk -F'\t' -v need="$da_need" '
+    {
+      r=$4; if (r == "DEVELOPER") r="DEV"
+      if (ex == "" && r == need) ex=$1
+      if (bo == "" && r == "BOTH") bo=$1
+    }
+    END { if (ex != "") print ex; else print bo }
+  '
+}
+
+# Gate SPEC to RED: a valid spec without UNKNOWN and a review PASS from another agent.
+advance_gate_spec() {
+  ag_spec="$DOCS_DIR/specs/$1.md"
+  [ -f "$ag_spec" ] || die "advance failed: docs/specs/$1.md does not exist (the SPEC phase produces it)"
+  ag_out="$(spec_report "$ag_spec")"
+  if printf '%s\n' "$ag_out" | grep -q '^ERROR:'; then
+    printf '%s\n' "$ag_out" | grep '^ERROR:' >&2
+    die "advance failed: docs/specs/$1.md has errors (see above)"
+  fi
+  ag_unk="$(spec_unknown_count "$ag_spec")"
+  [ "$ag_unk" -eq 0 ] || die "advance failed: docs/specs/$1.md still has $ag_unk UNKNOWN field(s)"
+  if factory_yes "Independent review"; then
+    ag_by="$(printf '%s' "$state" | cut -f13)"
+    [ -n "$ag_by" ] || die "advance failed: the spec of $1 has no Review: PASS yet (hand it off to a reviewer first)"
+    [ "$ag_by" != "$2" ] || die "advance failed: the Review: PASS of the spec of $1 comes from $2 itself; another agent must review it"
+  fi
+}
+
+# Gate RED to GREEN: failing tests (exit not 0), listed in the spec, existing and
+# committed. Leaves ADV_RED_SHA and ADV_TESTS for the ledger entry.
+advance_gate_red() {
+  ar_n="$(verify_exit "$2")"
+  [ -n "$ar_n" ] || die "advance failed: the verify of RED needs exit=N with N not 0 (the tests must fail first)"
+  if exit_is_zero "$ar_n"; then
+    die "advance failed: RED needs failing tests, but the verify says exit=0"
+  fi
+  ar_spec="$DOCS_DIR/specs/$1.md"
+  [ -f "$ar_spec" ] || die "advance failed: docs/specs/$1.md does not exist"
+  ar_tests="$(spec_tests "$ar_spec")"
+  [ -n "$ar_tests" ] || die "advance failed: docs/specs/$1.md ## Tests lists no test file"
+  ADV_RED_SHA=""
+  ar_git=0
+  if git_ready; then ar_git=1; fi
+  ar_list=""
+  while IFS= read -r ar_p; do
+    [ -n "$ar_p" ] || continue
+    [ -f "$PROJECT/$ar_p" ] || die "advance failed: test file '$ar_p' does not exist"
+    if [ "$ar_git" -eq 1 ]; then
+      if ! git -C "$PROJECT" ls-files --error-unmatch -- "$ar_p" >/dev/null 2>&1 || [ -n "$(git -C "$PROJECT" status --porcelain -- "$ar_p" 2>/dev/null)" ]; then
+        die "advance failed: test file '$ar_p' is not committed (commit the failing tests before GREEN)"
+      fi
+    fi
+    if [ -z "$ar_list" ]; then ar_list="$ar_p"; else ar_list="$ar_list $ar_p"; fi
+  done <<EOF
+$ar_tests
+EOF
+  ADV_TESTS="$ar_list"
+  if [ "$ar_git" -eq 1 ]; then
+    ADV_RED_SHA="$(git -C "$PROJECT" rev-parse HEAD 2>/dev/null)" || die "advance failed: the repository has no commit yet (commit the failing tests before GREEN)"
+  else
+    echo "WARN: git is not available here, so the tests cannot be checked as committed and no Red sha is recorded" >&2
+  fi
+}
+
+# advance <project> <agent> <task-id> <next-phase> <verify> [to-agent]: moves the
+# task to its next phase, checking the gate of the phase it leaves, and assigns it.
+cmd_advance() {
+  shift 2
+  require_factory advance
+  [ "$#" -ge 4 ] || die "advance requires: agent task-id next-phase verify [to-agent]"
+  agent="$(canonical_agent "$(clean_field_text "$1")")"
+  task="$(clean_field_text "$2")"
+  next_phase="$(clean_field_text "$3")"
+  verify="$(clean_field_text "$4")"
+  to_arg=""
+  if [ "$#" -ge 5 ]; then to_arg="$(canonical_agent "$(clean_field_text "$5")")"; fi
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  [ -n "$verify" ] || die "advance requires a non-empty verify"
+  roadmap_has_id "$task" || die "advance failed: $task not found in docs/Roadmap.md"
+  with_lock
+  state="$(task_state "$task")" || die "advance failed: $task has no IN_PROGRESS entry to advance"
+  status="$(printf '%s' "$state" | cut -f2)"
+  owner="$(printf '%s' "$state" | cut -f3)"
+  cur_phase="$(printf '%s' "$state" | cut -f12)"
+  [ -n "$cur_phase" ] || cur_phase="SPEC"
+  [ "$status" = "IN_PROGRESS" ] || die "advance failed: $task is not IN_PROGRESS (current: $status)"
+  [ "$owner" = "$agent" ] || die "advance failed: $task is owned by $owner, not $agent"
+  allowed=0
+  case "$cur_phase:$next_phase" in
+    SPEC:RED|RED:GREEN|RED:SPEC|GREEN:SPEC|GREEN:RED) allowed=1 ;;
+    SPEC:GREEN) if ! factory_yes "Require TDD"; then allowed=1; fi ;;
+  esac
+  if [ "$allowed" -ne 1 ]; then
+    die "advance failed: $task cannot move from $cur_phase to $next_phase (allowed: SPEC to RED, RED to GREEN, back to SPEC or RED; GREEN to REVIEW is handoff)"
+  fi
+  has_working_now "$task" || die "advance failed: $task has no working memory yet (## Now); run checkpoint first"
+  if [ -n "$to_arg" ]; then
+    to_agent="$to_arg"
+    require_phase_role "$to_agent" "$next_phase" "$task" advance
+  else
+    to_agent="$(default_assignee "$next_phase")"
+    [ -n "$to_agent" ] || die "advance failed: no agent in the Agent identity table has the role $(phase_role "$next_phase") for phase $next_phase; pass to-agent"
+  fi
+  ADV_RED_SHA=""
+  ADV_TESTS=""
+  if [ "$cur_phase" = "SPEC" ]; then
+    advance_gate_spec "$task" "$agent"
+  elif [ "$cur_phase:$next_phase" = "RED:GREEN" ] && factory_yes "Require TDD"; then
+    advance_gate_red "$task" "$verify"
+  fi
+  name="$(require_valid_name "$task" advance)"
+  timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  {
+    echo
+    echo "## [$timestamp] | $agent | $task | ASSIGNED | $name"
+    echo "- Summary: Moved to $next_phase, assigned to $to_agent"
+    echo "- Phase: $next_phase"
+    echo "- Assign: $to_agent"
+    echo "- Verify: $verify"
+    if [ -n "$ADV_RED_SHA" ]; then echo "- Red: $ADV_RED_SHA"; fi
+    if [ -n "$ADV_TESTS" ]; then echo "- Tests: $ADV_TESTS"; fi
+  } >> "$DOCS_DIR/Agentslog.md"
+  roadmap_update_row_inplace "$task" "IN_PROGRESS" "$to_agent@$timestamp" "—"
+  echo "project_docs advance: $task moved to $next_phase, assigned to $to_agent"
+}
+
 cmd_assign() {
   shift 2
   [ "$#" -ge 3 ] || die "assign requires: agent task-id to-agent"
@@ -1518,7 +1700,7 @@ cmd_done() {
 cmd_status() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
   open_task_states | tr '\t' '\037' |
-  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase rest; do
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass rest; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -2539,7 +2721,7 @@ check_brain_rows() {
       if (id=="ID" || id ~ /^-+$/ || id=="—") next
       rows++
       pre="ERROR: docs/Brain.md row \047" id "\047 "
-      if (n!=9) { print pre "has " n " columns, expected 9"; next }
+      if (n!=9) { print pre "has " (n == 0 ? 1 : n) " columns, expected 9"; next }
       if (id !~ /^LRN-[0-9][0-9][0-9]+$/) print pre "has invalid ID format (expected LRN-xxx)"
       if (id in seen) print "ERROR: docs/Brain.md duplicate ID: " id
       seen[id]=1
@@ -2567,7 +2749,7 @@ check_brain_rows() {
 # one warning per spec, because a draft spec is normal during the SPEC phase.
 # The 047 escapes below are apostrophes.
 spec_report() {
-  tr -d '\r' < "$1" | awk -v id="$(basename "$1" .md)" '
+  clean_stream < "$1" | awk -v id="$(basename "$1" .md)" '
     function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
     function err(m) { n++; msg[n] = "ERROR: docs/specs/" id ".md " m }
     NR==1 {
@@ -2583,6 +2765,7 @@ spec_report() {
     sec == "## Scenarios" && /^\|/ {
       line=$0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line)
       cn=split(line, c, "|")
+      if (cn == 0) cn = 1
       for (i=1; i<=cn; i++) c[i]=trim(c[i])
       if (c[1] == "ID") {
         hdr=1
@@ -2622,7 +2805,7 @@ spec_report() {
         e=tl[i]
         if (e !~ /^- [^ ]+ \(S[0-9][0-9]+(, S[0-9][0-9]+)*\)$/) { err("Tests entry \047" substr(e, 3) "\047 is not \047- path (S01, S02)\047"); continue }
         p=substr(e, 3); path=p; sub(/ .*/, "", path)
-        r=p; sub(/^[^(]*\(/, "", r); sub(/\)$/, "", r)
+        r=p; sub(/^.* \(/, "", r); sub(/\)$/, "", r)
         k=split(r, refs, ", ")
         for (j=1; j<=k; j++) if (!(refs[j] in scid)) err("Tests entry \047" path "\047 refers to unknown scenario " refs[j])
       }
@@ -2668,7 +2851,7 @@ check_factory_roster() {
 # docs/brain/tasks has the three sections and a well-formed ## Now.
 # The 047 escapes below are apostrophes.
 memory_report() {
-  tr -d '\r' < "$1" | awk -v id="$(basename "$1" .md)" '
+  clean_stream < "$1" | awk -v id="$(basename "$1" .md)" '
     function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
     function err(m) { n++; msg[n] = "ERROR: docs/brain/tasks/" id ".md " m }
     NR==1 {
@@ -2868,7 +3051,7 @@ rotate_log() {
     echo
     echo "## Entries"
     if [ -n "$open_summary" ]; then
-      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase rest; do
+      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass rest; do
         [ -n "$tid" ] || continue
         if [ "$status" = "REVIEW" ]; then
           # The developer who holds the task is not necessarily the agent of the
@@ -2879,11 +3062,13 @@ rotate_log() {
           echo "## [$ts] | $holder | $tid | IN_PROGRESS | $name"
           echo "- Summary: carried forward from docs/history/$archive_name at rotation"
           if [ -n "$phase" ]; then echo "- Phase: $phase"; fi
+          if [ -n "$specpass" ]; then echo "- Spec-pass: $specpass"; fi
         fi
         echo
         echo "## [$ts] | $agent | $tid | $status | $name"
         echo "- Summary: carried forward from docs/history/$archive_name at rotation"
         if [ "$status" != "REVIEW" ] && [ -n "$phase" ]; then echo "- Phase: $phase"; fi
+        if [ "$status" != "REVIEW" ] && [ -n "$specpass" ]; then echo "- Spec-pass: $specpass"; fi
         if [ "$status" = "PAUSE" ]; then
           echo "- Pause: $pausecat - see docs/history/$archive_name for detail"
         fi
@@ -2916,10 +3101,11 @@ case "$COMMAND" in
   review) cmd_review "$@" ;;
   mode) cmd_mode ;;
   checkpoint) cmd_checkpoint "$@" ;;
+  advance) cmd_advance "$@" ;;
   assign) cmd_assign "$@" ;;
   done) cmd_done "$@" ;;
   status) cmd_status ;;
   *)
-    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint} <project> [args]"
+    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint|advance} <project> [args]"
     ;;
 esac

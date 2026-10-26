@@ -344,3 +344,31 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 - Summary: Review of the handoff from claude-sonnet-5-5
 - Verify: smoke 224/0 sh+ps1; 24 spec fixtures sh==ps1 but 4 cases; Linux==MSYS; classic+no-specs check identical to 9302b58
 - Review: FAIL - FAIL: Tests path with '(' (app/(auth)/x.ts (S01)) falsely errors in sh+ps1: take refs after LAST '('. BOM spec: ps1 OK, sh title error: strip BOM. NBSP cell, ' ' row, .draft.md also differ
+
+## [2026-10-26T20:49:42Z] | claude-sonnet-5-5 | F06-E02-T03 | REVIEW | Phase roles in the roster and claim
+- Summary: Retake: rotate carries phase; unknown phase refused
+- Verify: smoke 1238 pass 0 fail (sh 620 ps1 618); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-26T21:00:47Z] | claude-qa | F06-E03-T02 | REVIEW | Working memory files and checkpoint command
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: smoke 318/0 sh+ps1; 14 checkpoint/check cases sh==ps1 but 2; classic flow identical to 9302b58; Linux busybox sh squeezes too
+- Review: FAIL - FAIL: sh clean_field_text (tr -s) squeezes inner spaces: 'a  b' -> 'a b'; ps1 keeps both, files differ. BOM memory file: sh check errors, ps1 passes. Else ok: pipes, nl, CRLF, lock, classic
+
+## [2026-10-26T21:13:13Z] | claude-qa | F06-E02-T03 | REVIEW | Phase roles in the roster and claim
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: smoke 330/0 sh and ps1; classic rotate old-vs-fix both launchers; Factory REVIEW rotate and odd-phase scenarios sh==ps1
+- Review: PASS - Fix verified at 594cb8f: rotate keeps Phase in sh and ps1, odd phases refused for all, lower-case phase ignored in both. Classic rotate unchanged unless hand-written Phase lines exist.
+
+## [2026-10-26T21:21:33Z] | claude-sonnet-5-5 | F06-E02-T03 | DONE | Phase roles in the roster and claim
+- Summary: Phase roles in roster and claim; rotate carries phase
+- Files: scripts/,references/factory.md
+- Verify: smoke 1238 pass 0 fail; QA PASS factory 330 each; rotate classic identical
+
+## [2026-10-26T21:29:55Z] | claude-sonnet-5-5 | F06-E02-T01 | IN_PROGRESS | Spec template and check rules for scenarios
+- Summary: Retake after QA FAIL: spec edge cases
+- Verify: pending
+
+## [2026-10-26T21:29:57Z] | claude-sonnet-5-5 | F06-E03-T02 | IN_PROGRESS | Working memory files and checkpoint command
+- Summary: Retake after QA FAIL: checkpoint parity
+- Verify: pending

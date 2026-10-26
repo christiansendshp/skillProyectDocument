@@ -2,8 +2,8 @@
 
 ## Operational summary
 
-- Verified capabilities: 31
-- Latest verification: `smoke 902 pass 0 fail; QA PASS factory 162 each; BR-008 identical` (2026-10-26)
+- Verified capabilities: 32
+- Latest verification: `smoke 1238 pass 0 fail; QA PASS factory 330 each; rotate classic identical` (2026-10-26)
 - Known limitation: the AGENTS.md/Agents.md case collision cannot be tested end to end on Windows or macOS.
 
 <!-- context:end -->
@@ -46,3 +46,4 @@ Use one row per stable capability. Link long specifications or runbooks from
 | F06-E01-T02 | init defaults to Factory, init --classic, migrate --factory | smoke 812 pass 0 fail; QA PASS sh==ps1 20 scenarios; BR-008 identical | log:F06-E01-T02 | 2026-10-26 |
 | F06-E01-T03 | Decisions pointer via migrate; fresh Factory context 6750 B | smoke 856 pass 0 fail; QA PASS factory smoke 139 each; context 6750 B | log:F06-E01-T03 | 2026-10-26 |
 | F06-DEBT-01 | Cap parsing, CRLF, roster rerun and flags hardened | smoke 902 pass 0 fail; QA PASS factory 162 each; BR-008 identical | log:F06-DEBT-01 | 2026-10-26 |
+| F06-E02-T03 | Phase roles in roster and claim; rotate carries phase | smoke 1238 pass 0 fail; QA PASS factory 330 each; rotate classic identical | log:F06-E02-T03 | 2026-10-26 |

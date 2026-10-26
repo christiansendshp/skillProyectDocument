@@ -1443,6 +1443,221 @@ SPEC
   assert_failure "$label a lower case phase line is not a phase line" run claim "$ph" claude-dev F09-E01-T02 "lower case"
   grep -q 'phase SPEC of F09-E01-T02 needs SPEC' "$WORK/.out" && ok "$label the task is still in SPEC for both launchers" || bad "$label lower case phase read: $(cat "$WORK/.out")"
 
+  echo "== $label: phases and the advance command with gates (F06-E02-T02) =="
+  git_commit() {  # git_commit <dir> <message>: commits everything, with no identity or signing prompts
+    git -C "$1" add -A >/dev/null 2>&1 && git -C "$1" -c user.name=smoke -c user.email=smoke@example.com -c commit.gpgsign=false commit -q -m "$2" >/dev/null 2>&1
+  }
+  adv_proj() {  # adv_proj <name>: a Factory project whose task sits in SPEC with a valid spec and a working memory
+    av="$WORK/${label}_av_$1"; rm -rf "$av"; mkdir -p "$av"; run init "$av" >/dev/null 2>&1
+    seed_plan_row "$av" F09-E01-T01 "Advance task"
+    run claim "$av" claude-spec F09-E01-T01 "write the spec" >/dev/null 2>&1
+    mkspec "$av" F09-E01-T01
+    run checkpoint "$av" claude-spec F09-E01-T01 "spec written" "ask for review" >/dev/null 2>&1
+  }
+  adv_reviewed() {  # adv_reviewed [reviewer] [PASS|FAIL]: the spec author hands the spec off, the reviewer answers, the author takes it back
+    run handoff "$av" claude-spec F09-E01-T01 "spec ready" "exit=0" "${1:-claude-qa}" >/dev/null 2>&1
+    run review "$av" "${1:-claude-qa}" F09-E01-T01 "${2:-PASS}" "spec checked" "exit=0" >/dev/null 2>&1
+    run claim "$av" claude-spec F09-E01-T01 "advance it" >/dev/null 2>&1
+  }
+  adv_count() { grep -c '^## \[' "$av/docs/Agentslog.md" | tr -d ' '; }
+  adv_refused() {  # adv_refused <description> <expected text> <advance arguments...>
+    ad_desc="$1"; ad_want="$2"; shift 2
+    ad_before="$(adv_count)"
+    assert_failure "$label $ad_desc" run advance "$av" "$@"
+    grep -qF -- "$ad_want" "$WORK/.out" && ok "$label $ad_desc: the message names it" || bad "$label $ad_desc: text wrong, wanted [$ad_want]: $(cat "$WORK/.out")"
+    [ "$(adv_count)" = "$ad_before" ] && ok "$label $ad_desc: nothing is written" || bad "$label $ad_desc: an entry was written"
+  }
+  last_entry() { awk '/^## \[/ { buf=""; } { buf = buf $0 "\n" } END { printf "%s", buf }' "$av/docs/Agentslog.md" | tr -d '\r'; }
+
+  # ---- SPEC to RED: the refusals first, none of them changes anything ----------
+  adv_proj a_main
+  adv_reviewed
+  adv_refused "advance refuses a phase the task cannot reach from SPEC" "advance failed: F09-E01-T01 cannot move from SPEC to GREEN" claude-spec F09-E01-T01 GREEN "exit=1"
+  adv_refused "advance refuses REVIEW, which is the handoff command" "cannot move from SPEC to REVIEW" claude-spec F09-E01-T01 REVIEW "exit=0"
+  adv_refused "advance refuses DONE, which is the done command" "cannot move from SPEC to DONE" claude-spec F09-E01-T01 DONE "exit=0"
+  adv_refused "advance phases are upper case" "cannot move from SPEC to red" claude-spec F09-E01-T01 red "exit=0"
+  adv_refused "advance needs a verify" "advance requires a non-empty verify" claude-spec F09-E01-T01 RED " "
+  adv_refused "advance needs all its arguments" "advance requires: agent task-id next-phase verify [to-agent]" claude-spec F09-E01-T01 RED
+  adv_refused "advance refuses a task that is not in the Roadmap" "advance failed: F99-E99-T99 not found in docs/Roadmap.md" claude-spec F99-E99-T99 RED "exit=0"
+  adv_refused "only the holder advances a task" "advance failed: F09-E01-T01 is owned by claude-spec, not claude-qa" claude-qa F09-E01-T01 RED "exit=0"
+  adv_refused "the agent that takes the next phase needs its role" "advance failed: claude-dev has role DEV, but phase RED of F09-E01-T01 needs TEST (or BOTH)" claude-spec F09-E01-T01 RED "exit=0" claude-dev
+  adv_refused "an agent outside the roster cannot take the next phase" "advance failed: nobody is not in the Agent identity table" claude-spec F09-E01-T01 RED "exit=0" nobody
+  mv "$av/docs/brain/tasks/F09-E01-T01.md" "$WORK/.wm_keep"
+  adv_refused "advance needs the working memory of the task" "advance failed: F09-E01-T01 has no working memory yet (## Now); run checkpoint first" claude-spec F09-E01-T01 RED "exit=0"
+  mv "$WORK/.wm_keep" "$av/docs/brain/tasks/F09-E01-T01.md"
+  cp "$av/docs/specs/F09-E01-T01.md" "$WORK/.spec_keep"
+  rm -f "$av/docs/specs/F09-E01-T01.md"
+  adv_refused "the SPEC gate needs the spec file" "advance failed: docs/specs/F09-E01-T01.md does not exist" claude-spec F09-E01-T01 RED "exit=0"
+  cp "$WORK/.spec_keep" "$av/docs/specs/F09-E01-T01.md"
+  sedi '/^## Tests$/d' "$av/docs/specs/F09-E01-T01.md"
+  adv_refused "the SPEC gate refuses a spec with errors" "advance failed: docs/specs/F09-E01-T01.md has errors (see above)" claude-spec F09-E01-T01 RED "exit=0"
+  grep -q "is missing section '## Tests'" "$WORK/.out" && ok "$label the SPEC gate shows the spec errors" || bad "$label spec errors not shown: $(cat "$WORK/.out")"
+  cp "$WORK/.spec_keep" "$av/docs/specs/F09-E01-T01.md"
+  sedi 's/^- Goal:.*/- Goal: UNKNOWN/' "$av/docs/specs/F09-E01-T01.md"
+  adv_refused "the SPEC gate refuses a spec with UNKNOWN fields" "advance failed: docs/specs/F09-E01-T01.md still has 1 UNKNOWN field(s)" claude-spec F09-E01-T01 RED "exit=0"
+  cp "$WORK/.spec_keep" "$av/docs/specs/F09-E01-T01.md"
+  cp "$av/AGENTS.md" "$WORK/.agents_keep"
+  drop_rows "$av/AGENTS.md" '^| claude-test'
+  adv_refused "advance says when no agent has the role of the next phase" "advance failed: no agent in the Agent identity table has the role TEST for phase RED; pass to-agent" claude-spec F09-E01-T01 RED "exit=0"
+  cp "$WORK/.agents_keep" "$av/AGENTS.md"
+
+  assert_success "$label advance moves a reviewed task from SPEC to RED" run advance "$av" claude-spec F09-E01-T01 RED "spec reviewed, exit=0"
+  grep -q '^project_docs advance: F09-E01-T01 moved to RED, assigned to claude-test$' "$WORK/.out" && ok "$label advance says where the task went and to whom" || bad "$label advance output wrong: $(cat "$WORK/.out")"
+  last_entry > "$WORK/.last"
+  grep -q '^## \[.*\] | claude-spec | F09-E01-T01 | ASSIGNED | Advance task$' "$WORK/.last" && grep -q '^- Phase: RED$' "$WORK/.last" && grep -q '^- Assign: claude-test$' "$WORK/.last" && grep -q '^- Verify: spec reviewed, exit=0$' "$WORK/.last" && ok "$label the ledger gets an ASSIGNED entry with the phase, the assignee and the verify" || bad "$label ledger entry wrong: $(cat "$WORK/.last")"
+  grep -E '^\| F09-E01-T01 \| Advance task \|' "$av/docs/Roadmap.md" | grep -q 'IN_PROGRESS | claude-test@' && ok "$label the Roadmap row stays IN_PROGRESS and changes owner" || bad "$label Roadmap row wrong: $(grep F09-E01-T01 "$av/docs/Roadmap.md")"
+  assert_failure "$label the next phase cannot be claimed by the wrong role" run claim "$av" claude-dev F09-E01-T01 "too soon"
+  assert_success "$label the agent with the role of the next phase claims it" run claim "$av" claude-test F09-E01-T01 "write the failing tests"
+  [ "$(grep -c '^- Phase: RED$' "$av/docs/Agentslog.md")" -eq 2 ] && ok "$label the claim keeps the RED phase" || bad "$label RED phase lost"
+
+  # ---- the review gate -----------------------------------------------------------
+  adv_proj a_noreview
+  adv_refused "the SPEC gate needs a review" "advance failed: the spec of F09-E01-T01 has no Review: PASS yet (hand it off to a reviewer first)" claude-spec F09-E01-T01 RED "exit=0"
+  adv_reviewed claude-qa FAIL
+  adv_refused "a Review: FAIL does not open the gate" "has no Review: PASS yet" claude-spec F09-E01-T01 RED "exit=0"
+  run handoff "$av" claude-spec F09-E01-T01 "spec ready again" "exit=0" claude-qa >/dev/null 2>&1
+  seed_entry "$av" "$(now_ts)" claude-spec F09-E01-T01 REVIEW "Advance task" '- Summary: reviewed by the author\n- Review: PASS - looks fine to me\n'
+  run claim "$av" claude-spec F09-E01-T01 "advance it" >/dev/null 2>&1
+  adv_refused "a Review: PASS from the author does not count" "advance failed: the Review: PASS of the spec of F09-E01-T01 comes from claude-spec itself; another agent must review it" claude-spec F09-E01-T01 RED "exit=0"
+  seed_replace "$av/AGENTS.md" "| Independent review | YES |" "| Independent review | NO |"
+  assert_success "$label Independent review NO drops the review requirement" run advance "$av" claude-spec F09-E01-T01 RED "no review needed here, exit=0"
+
+  adv_proj a_gemini
+  adv_reviewed gemini-qa PASS
+  assert_success "$label a Review: PASS from any other agent opens the gate" run advance "$av" claude-spec F09-E01-T01 RED "exit=0" claude-test
+  grep -q 'assigned to claude-test$' "$WORK/.out" && ok "$label an explicit to-agent is used" || bad "$label to-agent ignored: $(cat "$WORK/.out")"
+
+  adv_proj a_rotate
+  adv_reviewed
+  seed_fill "$av" F09-FILL-02 205
+  assert_success "$label rotate runs on a ledger with a reviewed spec" run rotate "$av"
+  grep -q '^project_docs rotate: archived ' "$WORK/.out" && grep -q '^- Spec-pass: claude-qa$' "$av/docs/Agentslog.md" && ok "$label rotate carries who passed the spec review" || bad "$label spec review lost in rotate: $(grep -c 'Spec-pass' "$av/docs/Agentslog.md")"
+  assert_success "$label the SPEC gate still opens after rotate" run advance "$av" claude-spec F09-E01-T01 RED "exit=0"
+
+  adv_proj a_inreview
+  run handoff "$av" claude-spec F09-E01-T01 "spec ready" "exit=0" claude-qa >/dev/null 2>&1
+  adv_refused "advance needs the task in progress" "advance failed: F09-E01-T01 is not IN_PROGRESS (current: REVIEW)" claude-spec F09-E01-T01 RED "exit=0"
+
+  ip_new a_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  assert_failure "$label advance does not run in classic mode" run advance "$ip" claude-spec F09-E01-T01 RED "exit=0"
+  grep -q 'advance needs Factory mode' "$WORK/.out" && ok "$label classic mode says so" || bad "$label classic advance text wrong: $(cat "$WORK/.out")"
+
+  # ---- RED to GREEN with git: the tests must fail and be committed -----------------
+  red_proj() {  # red_proj <name>: reviewed spec advanced to RED, the test agent has the task and a test file exists
+    adv_proj "$1"; adv_reviewed
+    run advance "$av" claude-spec F09-E01-T01 RED "spec reviewed, exit=0" >/dev/null 2>&1
+    run claim "$av" claude-test F09-E01-T01 "write the failing tests" >/dev/null 2>&1
+    mkdir -p "$av/tests/billing"
+    printf '#!/bin/sh\nexit 1\n' > "$av/tests/billing/export.spec.sh"
+    run checkpoint "$av" claude-test F09-E01-T01 "tests written" "move to GREEN" >/dev/null 2>&1
+  }
+  red_proj r_git
+  git -C "$av" init -q >/dev/null 2>&1
+  adv_refused "the RED gate needs an exit marker" "advance failed: the verify of RED needs exit=N with N not 0 (the tests must fail first)" claude-test F09-E01-T01 GREEN "the tests fail"
+  adv_refused "the RED gate needs failing tests" "advance failed: RED needs failing tests, but the verify says exit=0" claude-test F09-E01-T01 GREEN "all green, exit=0"
+  adv_refused "leading zeros do not turn exit=0 into a failure" "RED needs failing tests, but the verify says exit=0" claude-test F09-E01-T01 GREEN "exit=000"
+  adv_refused "the RED gate refuses tests that are not committed" "advance failed: test file 'tests/billing/export.spec.sh' is not committed (commit the failing tests before GREEN)" claude-test F09-E01-T01 GREEN "exit=1"
+  git_commit "$av" "tests"
+  printf '# edited\n' >> "$av/tests/billing/export.spec.sh"
+  adv_refused "the RED gate refuses a test file with uncommitted changes" "is not committed" claude-test F09-E01-T01 GREEN "exit=1"
+  git -C "$av" checkout -q -- tests/billing/export.spec.sh >/dev/null 2>&1
+  mv "$av/tests/billing/export.spec.sh" "$WORK/.test_keep"
+  adv_refused "the RED gate refuses a missing test file" "advance failed: test file 'tests/billing/export.spec.sh' does not exist" claude-test F09-E01-T01 GREEN "exit=1"
+  mv "$WORK/.test_keep" "$av/tests/billing/export.spec.sh"
+  cp "$av/docs/specs/F09-E01-T01.md" "$WORK/.spec_keep"
+  sedi '/^- tests\/billing/d' "$av/docs/specs/F09-E01-T01.md"
+  adv_refused "the RED gate needs tests listed in the spec" "advance failed: docs/specs/F09-E01-T01.md ## Tests lists no test file" claude-test F09-E01-T01 GREEN "exit=1"
+  cp "$WORK/.spec_keep" "$av/docs/specs/F09-E01-T01.md"
+  assert_success "$label advance moves failing, committed tests from RED to GREEN" run advance "$av" claude-test F09-E01-T01 GREEN "2 tests fail: exit=2"
+  grep -q '^project_docs advance: F09-E01-T01 moved to GREEN, assigned to claude-dev$' "$WORK/.out" && ok "$label the GREEN phase goes to the DEV agent" || bad "$label GREEN output wrong: $(cat "$WORK/.out")"
+  last_entry > "$WORK/.last"
+  head_sha="$(git -C "$av" rev-parse HEAD)"
+  grep -q "^- Red: $head_sha\$" "$WORK/.last" && grep -q '^- Tests: tests/billing/export.spec.sh$' "$WORK/.last" && ok "$label the entry records the Red sha and the test paths" || bad "$label Red entry wrong: $(cat "$WORK/.last")"
+
+  # ---- without git, and the way back ---------------------------------------------------
+  red_proj r_nogit
+  assert_success "$label advance works without git" run advance "$av" claude-test F09-E01-T01 GREEN "exit=1"
+  grep -q 'WARN: git is not available here' "$WORK/.out" && ok "$label the missing git is a warning" || bad "$label no git warning: $(cat "$WORK/.out")"
+  last_entry > "$WORK/.last"
+  ! grep -q '^- Red:' "$WORK/.last" && grep -q '^- Tests: tests/billing/export.spec.sh$' "$WORK/.last" && ok "$label no Red sha without git, the test paths are still recorded" || bad "$label no-git entry wrong: $(cat "$WORK/.last")"
+  run claim "$av" claude-dev F09-E01-T01 "make it pass" >/dev/null 2>&1
+  run checkpoint "$av" claude-dev F09-E01-T01 "started" "implement" >/dev/null 2>&1
+  adv_refused "GREEN cannot skip to REVIEW with advance" "cannot move from GREEN to REVIEW" claude-dev F09-E01-T01 REVIEW "exit=0"
+  assert_success "$label a wrong test sends the task from GREEN back to SPEC" run advance "$av" claude-dev F09-E01-T01 SPEC "scenario S02 is wrong, exit=1"
+  grep -q 'moved to SPEC, assigned to claude-spec$' "$WORK/.out" && ok "$label back to SPEC goes to the SPEC agent" || bad "$label SPEC output wrong: $(cat "$WORK/.out")"
+  run claim "$av" claude-spec F09-E01-T01 "fix the spec" >/dev/null 2>&1
+  run checkpoint "$av" claude-spec F09-E01-T01 "fixed" "review again" >/dev/null 2>&1
+  adv_refused "a task that went back to SPEC needs a new review" "has no Review: PASS yet" claude-spec F09-E01-T01 RED "exit=0"
+  adv_reviewed
+  assert_success "$label after a new review the task moves to RED again" run advance "$av" claude-spec F09-E01-T01 RED "exit=0"
+  run claim "$av" claude-test F09-E01-T01 "rewrite the tests" >/dev/null 2>&1
+  run checkpoint "$av" claude-test F09-E01-T01 "rewritten" "go" >/dev/null 2>&1
+  run advance "$av" claude-test F09-E01-T01 GREEN "exit=1" >/dev/null 2>&1
+  run claim "$av" claude-dev F09-E01-T01 "second try" >/dev/null 2>&1
+  run checkpoint "$av" claude-dev F09-E01-T01 "second" "go" >/dev/null 2>&1
+  assert_success "$label a bad test sends GREEN back to RED" run advance "$av" claude-dev F09-E01-T01 RED "test S01 asserts the wrong thing, exit=1"
+  grep -q 'moved to RED, assigned to claude-test$' "$WORK/.out" && ok "$label back to RED goes to the TEST agent" || bad "$label RED output wrong: $(cat "$WORK/.out")"
+
+  adv_proj t_notdd
+  seed_replace "$av/AGENTS.md" "| Require TDD | YES |" "| Require TDD | NO |"
+  adv_reviewed
+  assert_success "$label Require TDD NO lets a reviewed spec go straight to GREEN" run advance "$av" claude-spec F09-E01-T01 GREEN "spec reviewed, exit=0"
+  grep -q 'moved to GREEN, assigned to claude-dev$' "$WORK/.out" && ok "$label the GREEN phase goes to the DEV agent without RED" || bad "$label no-TDD output wrong: $(cat "$WORK/.out")"
+
+  echo "== $label: spec and working memory edge cases found in review (F06-E02-T01, F06-E03-T02) =="
+  # a test path with a parenthesis, a BOM, blank cells, zero-cell rows and files that are not specs
+  sp_proj rt_paren
+  mkspec "$sp" F09-E01-T01
+  seed_replace "$sp/docs/specs/F09-E01-T01.md" "- tests/billing/export.spec.sh (S01, S02)" "- app/(auth)/login.test.ts (S01, S02)"
+  assert_success "$label a test path with a parenthesis is a valid Tests entry" run check "$sp"
+  seed_replace "$sp/docs/specs/F09-E01-T01.md" "- app/(auth)/login.test.ts (S01, S02)" "- app/(auth)/login.test.ts (S01, S09)"
+  assert_failure "$label the scenarios of that entry are read after the last parenthesis" run check "$sp"
+  grep -q "Tests entry 'app/(auth)/login.test.ts' refers to unknown scenario S09" "$WORK/.out" && ok "$label only the unknown scenario is reported" || bad "$label paren entry text wrong: $(grep specs "$WORK/.out")"
+
+  sp_proj rt_bom
+  mkspec "$sp" F09-E01-T01
+  printf '\357\273\277' | cat - "$sp/docs/specs/F09-E01-T01.md" > "$sp/docs/specs/F09-E01-T01.md.tmp" && mv "$sp/docs/specs/F09-E01-T01.md.tmp" "$sp/docs/specs/F09-E01-T01.md"
+  assert_success "$label a spec that starts with a UTF-8 byte order mark passes check" run check "$sp"
+
+  sp_proj rt_nbsp
+  mkspec "$sp" F09-E01-T01
+  seed_replace "$sp/docs/specs/F09-E01-T01.md" "Three invoices exist" "$(printf '\302\240')"
+  assert_success "$label a cell of non-breaking spaces is content, not an empty cell" run check "$sp"
+
+  sp_proj rt_bar
+  mkspec "$sp" F09-E01-T01
+  printf '%s\n' '|' '||' > "$WORK/.bars"
+  awk -v barfile="$WORK/.bars" '{ print } /^\| S03 \|/ { while ((getline l < barfile) > 0) print l }' "$sp/docs/specs/F09-E01-T01.md" > "$sp/docs/specs/F09-E01-T01.md.tmp" && mv "$sp/docs/specs/F09-E01-T01.md.tmp" "$sp/docs/specs/F09-E01-T01.md"
+  assert_failure "$label a table row made of bars is rejected" run check "$sp"
+  [ "$(grep -c "scenario row '' has 1 columns, expected 6" "$WORK/.out")" -eq 2 ] && ok "$label both bar rows count as one empty cell in sh and ps1" || bad "$label bar rows text wrong: $(grep specs "$WORK/.out")"
+
+  sp_proj rt_names
+  mkspec "$sp" F09-E01-T01
+  printf 'not a spec\n' > "$sp/docs/specs/.draft.md"
+  printf 'not a spec\n' > "$sp/docs/specs/NOTES.MD"
+  printf 'not a spec\n' > "$sp/docs/specs/notes.txt"
+  assert_success "$label only lower case .md files that do not start with a dot are specs" run check "$sp"
+
+  # free text, ids and BOM in the working memory
+  wm_proj rt_text
+  run checkpoint "$wm" claude-dev "F09-E01-T01 " "two  spaces   kept" "  trimmed ends  " >/dev/null 2>&1
+  grep -q '^- Step: two  spaces   kept$' "$wmf" && grep -q '^- Next: trimmed ends$' "$wmf" && ok "$label inner spaces are kept, the ends are trimmed" || bad "$label spaces wrong: $(sed -n 3,6p "$wmf")"
+  [ -f "$wmf" ] && ok "$label a task id with a trailing space is trimmed" || bad "$label task id with a space not found"
+
+  wm_proj rt_bom
+  run checkpoint "$wm" claude-dev F09-E01-T01 "first" "second" >/dev/null 2>&1
+  printf '\357\273\277' | cat - "$wmf" > "$wmf.tmp" && mv "$wmf.tmp" "$wmf"
+  assert_success "$label a working memory with a byte order mark passes check" run check "$wm"
+  assert_success "$label checkpoint reads a working memory with a byte order mark" run checkpoint "$wm" claude-dev F09-E01-T01 "third" "fourth"
+  [ "$(head -c 3 "$wmf" | od -An -tx1 | tr -d ' \n')" != "efbbbf" ] && [ "$(grep -c ' claude-dev: ' "$wmf")" -eq 2 ] && ok "$label the rewritten file has no byte order mark and keeps its trail" || bad "$label BOM rewrite wrong"
+
+  adv_proj rt_verify
+  adv_reviewed
+  assert_success "$label advance trims its verify" run advance "$av" claude-spec F09-E01-T01 RED "   spec ok, exit=0   "
+  last_entry > "$WORK/.last"
+  grep -q '^- Verify: spec ok, exit=0$' "$WORK/.last" && ok "$label the ledger verify has no surrounding spaces" || bad "$label verify not trimmed: $(cat "$WORK/.last")"
+
 #FACTORY_CASES
 }
 

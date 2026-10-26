@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "assign", "done", "status", "mode", "checkpoint", "help")]
+    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "assign", "done", "status", "mode", "checkpoint", "advance", "help")]
     [string]$Command = "help",
 
     [Parameter(Position = 1)]
@@ -509,7 +509,7 @@ function Get-TaskStates {
     $inEntries = $false
     $order = [System.Collections.Generic.List[string]]::new()
     $lastStatus = @{}; $lastAgent = @{}; $lastTs = @{}; $lastPause = @{}; $everDone = @{}; $conflict = @{}; $lastName = @{}
-    $hold = @{}; $lastHandoff = @{}; $lastReview = @{}; $lastPhase = @{}
+    $hold = @{}; $lastHandoff = @{}; $lastReview = @{}; $lastPhase = @{}; $specPass = @{}
     $cur = $null
     foreach ($line in $lines) {
         if ($line -eq "## Entries") { $inEntries = $true; continue }
@@ -552,7 +552,12 @@ function Get-TaskStates {
             $lastHandoff[$cur] = $Matches[1]
             continue
         }
+        if ($cur -and $line -cmatch '^- Spec-pass:\s*(.*?)\s*$') {
+            $specPass[$cur] = $Matches[1]
+            continue
+        }
         if ($cur -and $line -cmatch '^- Phase:\s*(.*?)\s*$') {
+            if ($Matches[1] -ceq "SPEC" -and $lastPhase.ContainsKey($cur) -and $lastPhase[$cur] -and $lastPhase[$cur] -cne "SPEC") { $specPass[$cur] = "" }
             $lastPhase[$cur] = $Matches[1]
             continue
         }
@@ -560,6 +565,11 @@ function Get-TaskStates {
             $rbody = $Matches[1]
             $rdash = $rbody.IndexOf(" - ")
             if ($rdash -ge 0) { $lastReview[$cur] = $rbody.Substring(0, $rdash).TrimEnd() } else { $lastReview[$cur] = $rbody.TrimEnd() }
+            $reviewPhase = "SPEC"
+            if ($lastPhase.ContainsKey($cur) -and $lastPhase[$cur]) { $reviewPhase = $lastPhase[$cur] }
+            if ($reviewPhase -ceq "SPEC") {
+                if ($lastReview[$cur] -cmatch '^PASS') { $specPass[$cur] = $lastAgent[$cur] } else { $specPass[$cur] = "" }
+            }
             continue
         }
         if ($cur -and $line -match '^- Pause: (.*)$') {
@@ -584,6 +594,7 @@ function Get-TaskStates {
             Handoff = $(if ($lastHandoff.ContainsKey($t)) { $lastHandoff[$t] } else { "" })
             Review = $(if ($lastReview.ContainsKey($t)) { $lastReview[$t] } else { "" })
             Phase = $(if ($lastPhase.ContainsKey($t)) { $lastPhase[$t] } else { "" })
+            SpecPass = $(if ($specPass.ContainsKey($t)) { $specPass[$t] } else { "" })
         })
     }
     return $result
@@ -700,18 +711,18 @@ function Get-PhaseRole([string]$Phase) {
 
 # Factory mode only. The agent must be in the roster with the role of the phase,
 # or BOTH.
-function Assert-PhaseRole([string]$Agent, [string]$Phase, [string]$Task) {
+function Assert-PhaseRole([string]$Agent, [string]$Phase, [string]$Task, [string]$Verb = "claim") {
     $role = Get-RosterRole $Agent
     if (-not $role) {
-        throw "claim failed: $Agent is not in the Agent identity table; Factory mode needs a role for each agent"
+        throw "$Verb failed: $Agent is not in the Agent identity table; Factory mode needs a role for each agent"
     }
     $norm = Get-RoleNorm $role
     $need = Get-PhaseRole $Phase
     if (-not $need) {
-        throw "claim failed: $Task is in phase $Phase, which has no role (use SPEC, RED, GREEN or REVIEW)"
+        throw "$Verb failed: $Task is in phase $Phase, which has no role (use SPEC, RED, GREEN or REVIEW)"
     }
     if ($norm -cne "BOTH" -and $norm -cne $need) {
-        throw "claim failed: $Agent has role $role, but phase $Phase of $Task needs $need (or BOTH)"
+        throw "$Verb failed: $Agent has role $role, but phase $Phase of $Task needs $need (or BOTH)"
     }
 }
 
@@ -1200,12 +1211,17 @@ function Enter-DocsLock {
             New-Item -ItemType Directory -Path $lockDir -ErrorAction Stop | Out-Null
             break
         } catch {
-            if (Test-Path -LiteralPath $lockDir -PathType Container) {
-                $age = (Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $lockDir).LastWriteTimeUtc
-                if ($age.TotalSeconds -ge 30) {
-                    Remove-Item -LiteralPath $lockDir -Force -Recurse -ErrorAction SilentlyContinue
-                    continue
+            # The lock can be released between the Test-Path and the Get-Item: ask again.
+            try {
+                if (Test-Path -LiteralPath $lockDir -PathType Container) {
+                    $age = (Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $lockDir -ErrorAction Stop).LastWriteTimeUtc
+                    if ($age.TotalSeconds -ge 30) {
+                        Remove-Item -LiteralPath $lockDir -Force -Recurse -ErrorAction SilentlyContinue
+                        continue
+                    }
                 }
+            } catch {
+                continue
             }
             $attempts++
             if ($attempts -ge 50) { throw "could not acquire docs/.lock (busy); retry" }
@@ -1527,6 +1543,195 @@ function Invoke-Review {
 # "- Assign:" line) and sets the Roadmap Owner to <to-agent>@<timestamp>. The
 # row stays TODO and no work starts: the assignee still has to claim. A task
 # somebody is already working on (IN_PROGRESS, PAUSE, REVIEW) cannot be assigned.
+# Runs git quietly in the project: Code is the exit code, Out the standard output.
+function Invoke-GitProbe([string[]]$GitArgs) {
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $out = & git -C $Project @GitArgs 2>$null
+        return [PSCustomObject]@{ Code = $LASTEXITCODE; Out = (@($out) -join "`n") }
+    } finally {
+        $ErrorActionPreference = $old
+    }
+}
+
+# True when git is installed and the project is inside a work tree.
+function Test-GitReady {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return $false }
+    $r = Invoke-GitProbe @("rev-parse", "--is-inside-work-tree")
+    return ($r.Code -eq 0 -and $r.Out.Trim() -ceq "true")
+}
+
+# The number after the first exit= marker of a verify string, or "".
+function Get-VerifyExit([string]$Text) {
+    if ($Text -cmatch 'exit=([0-9]+)') { return $Matches[1] }
+    return ""
+}
+
+# True when the digits spell zero (leading zeros ignored).
+function Test-ExitIsZero([string]$Digits) {
+    return (-not $Digits.TrimStart('0'))
+}
+
+# True unless the setting says NO (any case).
+function Test-FactoryYes([string]$Name) {
+    return ((Get-FactorySetting $Name).ToUpperInvariant() -ne "NO")
+}
+
+# How many lines of a spec still say UNKNOWN.
+function Get-SpecUnknownCount([string]$Path) {
+    $n = 0
+    foreach ($l in @(Get-ContentUtf8 -LiteralPath $Path)) { if ($l.Contains("UNKNOWN")) { $n++ } }
+    return $n
+}
+
+# The test paths of the ## Tests section of a spec.
+function Get-SpecTests([string]$Path) {
+    $out = [System.Collections.Generic.List[string]]::new()
+    $sec = ""
+    foreach ($l in @(Get-ContentUtf8 -LiteralPath $Path)) {
+        if ($l.StartsWith("## ")) { $sec = $l; continue }
+        if ($sec -ceq "## Tests" -and $l.StartsWith("- ")) {
+            $p = $l.Substring(2)
+            $i = $p.IndexOf(' ')
+            if ($i -ge 0) { $p = $p.Substring(0, $i) }
+            $out.Add($p)
+        }
+    }
+    return $out.ToArray()
+}
+
+# The first roster id whose role is the one of the phase, else the first BOTH.
+function Get-DefaultAssignee([string]$Phase) {
+    $need = Get-PhaseRole $Phase
+    $exact = ""
+    $both = ""
+    foreach ($r in @(Get-RosterRows)) {
+        $role = Get-RoleNorm $r.Role
+        if (-not $exact -and $role -ceq $need) { $exact = $r.Id }
+        if (-not $both -and $role -ceq "BOTH") { $both = $r.Id }
+    }
+    if ($exact) { return $exact }
+    return $both
+}
+
+# Gate SPEC to RED: a valid spec without UNKNOWN and a review PASS from another agent.
+function Assert-AdvanceGateSpec([string]$Task, [string]$Agent, $State) {
+    $spec = Join-Path (Join-Path $DocsDir "specs") "$Task.md"
+    if (-not (Test-Path -LiteralPath $spec -PathType Leaf)) { throw "advance failed: docs/specs/$Task.md does not exist (the SPEC phase produces it)" }
+    $errs = @(Get-SpecReport $spec | Where-Object { $_.StartsWith("ERROR:") })
+    if ($errs.Count -gt 0) {
+        foreach ($e in $errs) { [Console]::Error.WriteLine($e) }
+        throw "advance failed: docs/specs/$Task.md has errors (see above)"
+    }
+    $unk = Get-SpecUnknownCount $spec
+    if ($unk -ne 0) { throw "advance failed: docs/specs/$Task.md still has $unk UNKNOWN field(s)" }
+    if (Test-FactoryYes "Independent review") {
+        $by = $State.SpecPass
+        if (-not $by) { throw "advance failed: the spec of $Task has no Review: PASS yet (hand it off to a reviewer first)" }
+        if ($by -ceq $Agent) { throw "advance failed: the Review: PASS of the spec of $Task comes from $Agent itself; another agent must review it" }
+    }
+}
+
+# Gate RED to GREEN: failing tests (exit not 0), listed in the spec, existing and
+# committed. Leaves $script:AdvRedSha and $script:AdvTests for the ledger entry.
+function Assert-AdvanceGateRed([string]$Task, [string]$Verify) {
+    $n = Get-VerifyExit $Verify
+    if (-not $n) { throw "advance failed: the verify of RED needs exit=N with N not 0 (the tests must fail first)" }
+    if (Test-ExitIsZero $n) { throw "advance failed: RED needs failing tests, but the verify says exit=0" }
+    $spec = Join-Path (Join-Path $DocsDir "specs") "$Task.md"
+    if (-not (Test-Path -LiteralPath $spec -PathType Leaf)) { throw "advance failed: docs/specs/$Task.md does not exist" }
+    $tests = @(Get-SpecTests $spec)
+    if ($tests.Count -eq 0) { throw "advance failed: docs/specs/$Task.md ## Tests lists no test file" }
+    $script:AdvRedSha = ""
+    $git = Test-GitReady
+    foreach ($p in $tests) {
+        if (-not $p) { continue }
+        if (-not (Test-Path -LiteralPath (Join-Path $Project $p) -PathType Leaf)) { throw "advance failed: test file '$p' does not exist" }
+        if ($git) {
+            $tracked = Invoke-GitProbe @("ls-files", "--error-unmatch", "--", $p)
+            $dirty = Invoke-GitProbe @("status", "--porcelain", "--", $p)
+            if ($tracked.Code -ne 0 -or $dirty.Out.Trim()) {
+                throw "advance failed: test file '$p' is not committed (commit the failing tests before GREEN)"
+            }
+        }
+    }
+    $script:AdvTests = ($tests -join " ")
+    if ($git) {
+        $head = Invoke-GitProbe @("rev-parse", "HEAD")
+        if ($head.Code -ne 0) { throw "advance failed: the repository has no commit yet (commit the failing tests before GREEN)" }
+        $script:AdvRedSha = $head.Out.Trim()
+    } else {
+        [Console]::Error.WriteLine("WARN: git is not available here, so the tests cannot be checked as committed and no Red sha is recorded")
+    }
+}
+
+# advance <project> <agent> <task-id> <next-phase> <verify> [to-agent]: moves the
+# task to its next phase, checking the gate of the phase it leaves, and assigns it.
+function Invoke-Advance {
+    Assert-FactoryMode "advance"
+    if ($Arguments.Count -lt 4) { throw "advance requires: agent task-id next-phase verify [to-agent]" }
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
+    $task = ConvertTo-CleanField $Arguments[1]
+    $nextPhase = ConvertTo-CleanField $Arguments[2]
+    $verify = ConvertTo-CleanField $Arguments[3]
+    $toArg = ""
+    if ($Arguments.Count -ge 5) { $toArg = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[4]) }
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "run init first" }
+    if (-not $verify) { throw "advance requires a non-empty verify" }
+    if (-not (Test-RoadmapHasId $task)) { throw "advance failed: $task not found in docs/Roadmap.md" }
+    Enter-DocsLock
+    try {
+        $state = Get-TaskState $task
+        if (-not $state) { throw "advance failed: $task has no IN_PROGRESS entry to advance" }
+        if ($state.Status -ne "IN_PROGRESS") { throw "advance failed: $task is not IN_PROGRESS (current: $($state.Status))" }
+        if ($state.Agent -cne $agent) { throw "advance failed: $task is owned by $($state.Agent), not $agent" }
+        $curPhase = "SPEC"
+        if ($state.Phase) { $curPhase = $state.Phase }
+        $allowed = $false
+        switch -CaseSensitive ("$($curPhase):$nextPhase") {
+            { $_ -cin @("SPEC:RED", "RED:GREEN", "RED:SPEC", "GREEN:SPEC", "GREEN:RED") } { $allowed = $true }
+            "SPEC:GREEN" { if (-not (Test-FactoryYes "Require TDD")) { $allowed = $true } }
+        }
+        if (-not $allowed) {
+            throw "advance failed: $task cannot move from $curPhase to $nextPhase (allowed: SPEC to RED, RED to GREEN, back to SPEC or RED; GREEN to REVIEW is handoff)"
+        }
+        if (-not (Test-WorkingNow $task)) { throw "advance failed: $task has no working memory yet (## Now); run checkpoint first" }
+        if ($toArg) {
+            $toAgent = $toArg
+            Assert-PhaseRole $toAgent $nextPhase $task "advance"
+        } else {
+            $toAgent = Get-DefaultAssignee $nextPhase
+            if (-not $toAgent) { throw "advance failed: no agent in the Agent identity table has the role $(Get-PhaseRole $nextPhase) for phase $nextPhase; pass to-agent" }
+        }
+        $script:AdvRedSha = ""
+        $script:AdvTests = ""
+        if ($curPhase -ceq "SPEC") {
+            Assert-AdvanceGateSpec $task $agent $state
+        } elseif ("$($curPhase):$nextPhase" -ceq "RED:GREEN" -and (Test-FactoryYes "Require TDD")) {
+            Assert-AdvanceGateRed $task $verify
+        }
+        $name = Assert-ValidName $task "advance"
+        $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $lines = @(
+            "",
+            "## [$timestamp] | $agent | $task | ASSIGNED | $name",
+            "- Summary: Moved to $nextPhase, assigned to $toAgent",
+            "- Phase: $nextPhase",
+            "- Assign: $toAgent",
+            "- Verify: $verify"
+        )
+        if ($script:AdvRedSha) { $lines += "- Red: $($script:AdvRedSha)" }
+        if ($script:AdvTests) { $lines += "- Tests: $($script:AdvTests)" }
+        [System.IO.File]::AppendAllText($log, (($lines -join "`n") + "`n"), $Utf8)
+        Set-RoadmapRowInPlace $task "IN_PROGRESS" "$toAgent@$timestamp" $EmDash
+        Write-Output "project_docs advance: $task moved to $nextPhase, assigned to $toAgent"
+    } finally {
+        Exit-DocsLock
+    }
+}
+
 function Invoke-Assign {
     if ($Arguments.Count -lt 3) { throw "assign requires: agent task-id to-agent" }
     $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
@@ -2585,6 +2790,13 @@ function Test-BrainRows {
 # Spec validation (Factory mode only, F06-E02-T01). A spec is docs/specs/<TASK-ID>.md
 # (templates/Spec.md). Structure problems are errors; fields still UNKNOWN are
 # one warning per spec, because a draft spec is normal during the SPEC phase.
+# The cells of a table row, trimmed of spaces and tabs only (the sh launcher does
+# the same), so a cell of non-breaking spaces is content in both.
+function Split-SpecCells([string]$Line) {
+    $line = $Line -replace '^\|', '' -replace '\|[ \t]*$', ''
+    return @($line -split '\|' | ForEach-Object { $_.Trim(" `t") })
+}
+
 function Get-SpecReport([string]$Path) {
     $id = [System.IO.Path]::GetFileNameWithoutExtension($Path)
     $msgs = [System.Collections.Generic.List[string]]::new()
@@ -2606,12 +2818,12 @@ function Get-SpecReport([string]$Path) {
         if ($line.StartsWith("## ")) { $sec = $line; $seen[$sec] = $true; continue }
         if ($line -ceq "<!-- context:end -->") { if ($sec -ceq "## Summary") { $marker = $true }; continue }
         if ($sec -ceq "## Summary") {
-            if ($line.StartsWith("- Goal:")) { $hasGoal = $true; if (-not $line.Substring(7).Trim()) { $msgs.Add("$($pre)has an empty Goal") }; continue }
-            if ($line.StartsWith("- Rules:")) { $hasRules = $true; if (-not $line.Substring(8).Trim()) { $msgs.Add("$($pre)has empty Rules") }; continue }
-            if ($line.StartsWith("- Tags:")) { $hasTags = $true; if (-not $line.Substring(7).Trim()) { $msgs.Add("$($pre)has empty Tags") }; continue }
+            if ($line.StartsWith("- Goal:")) { $hasGoal = $true; if (-not $line.Substring(7).Trim(" `t")) { $msgs.Add("$($pre)has an empty Goal") }; continue }
+            if ($line.StartsWith("- Rules:")) { $hasRules = $true; if (-not $line.Substring(8).Trim(" `t")) { $msgs.Add("$($pre)has empty Rules") }; continue }
+            if ($line.StartsWith("- Tags:")) { $hasTags = $true; if (-not $line.Substring(7).Trim(" `t")) { $msgs.Add("$($pre)has empty Tags") }; continue }
         }
         if ($sec -ceq "## Scenarios" -and $line.StartsWith("|")) {
-            $c = @(Split-TableCells $line)
+            $c = @(Split-SpecCells $line)
             if ($c[0] -ceq "ID") {
                 $hdr = $true
                 if ($c.Count -ne 6 -or $c[1] -cne "Given" -or $c[2] -cne "When" -or $c[3] -cne "Then" -or $c[4] -cne "Level" -or $c[5] -cne "Justification") { $msgs.Add("$($pre)has an invalid Scenarios header") }
@@ -2651,7 +2863,7 @@ function Get-SpecReport([string]$Path) {
         if ($e -cnotmatch '^- [^ ]+ \(S[0-9][0-9]+(, S[0-9][0-9]+)*\)$') { $msgs.Add("$($pre)Tests entry '$($e.Substring(2))' is not '- path (S01, S02)'"); continue }
         $p = $e.Substring(2)
         $path = $p.Substring(0, $p.IndexOf(' '))
-        $r = $p.Substring($p.IndexOf('(') + 1)
+        $r = $p.Substring($p.LastIndexOf(' (') + 2)
         $r = $r.Substring(0, $r.Length - 1)
         foreach ($ref in ($r -split ', ')) {
             if (-not $scid.ContainsKey($ref)) { $msgs.Add("$($pre)Tests entry '$path' refers to unknown scenario $ref") }
@@ -2664,7 +2876,7 @@ function Get-SpecReport([string]$Path) {
 function Test-Specs {
     $dir = Join-Path $DocsDir "specs"
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return }
-    [string[]]$names = @(Get-ChildItem -LiteralPath $dir -Filter "*.md" -File | ForEach-Object { $_.Name })
+    [string[]]$names = @(Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name.EndsWith(".md", [System.StringComparison]::Ordinal) -and -not $_.Name.StartsWith(".") } | ForEach-Object { $_.Name })
     [System.Array]::Sort($names, [System.StringComparer]::Ordinal)
     foreach ($name in $names) {
         foreach ($m in @(Get-SpecReport (Join-Path $dir $name))) {
@@ -2715,17 +2927,17 @@ function Get-MemoryReport([string]$Path) {
         }
         if ($line.StartsWith("## ")) { $sec = $line; $seen[$sec] = $true; continue }
         if ($sec -cne "## Now") { continue }
-        if ($line.StartsWith("- Step:")) { $hs = $true; if (-not $line.Substring(7).Trim()) { $msgs.Add("$($pre)Now has an empty Step") }; continue }
-        if ($line.StartsWith("- Next:")) { $hn = $true; if (-not $line.Substring(7).Trim()) { $msgs.Add("$($pre)Now has an empty Next") }; continue }
+        if ($line.StartsWith("- Step:")) { $hs = $true; if (-not $line.Substring(7).Trim(" `t")) { $msgs.Add("$($pre)Now has an empty Step") }; continue }
+        if ($line.StartsWith("- Next:")) { $hn = $true; if (-not $line.Substring(7).Trim(" `t")) { $msgs.Add("$($pre)Now has an empty Next") }; continue }
         if ($line.StartsWith("- Attempts:")) {
             $ha = $true
-            $v = $line.Substring(11).Trim()
+            $v = $line.Substring(11).Trim(" `t")
             if ($v -notmatch '^[0-9]+$') { $msgs.Add("$($pre)Now has invalid Attempts: $v") }
             continue
         }
         if ($line.StartsWith("- Updated:")) {
             $hu = $true
-            $v = $line.Substring(10).Trim()
+            $v = $line.Substring(10).Trim(" `t")
             if ($v -ne $EmDash -and $v -cnotmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$') { $msgs.Add("$($pre)Now has invalid Updated: $v") }
             continue
         }
@@ -2745,7 +2957,7 @@ function Get-MemoryReport([string]$Path) {
 function Test-WorkingMemory {
     $dir = Join-Path (Join-Path $DocsDir "brain") "tasks"
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return }
-    [string[]]$names = @(Get-ChildItem -LiteralPath $dir -Filter "*.md" -File | ForEach-Object { $_.Name })
+    [string[]]$names = @(Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name.EndsWith(".md", [System.StringComparison]::Ordinal) -and -not $_.Name.StartsWith(".") } | ForEach-Object { $_.Name })
     [System.Array]::Sort($names, [System.StringComparer]::Ordinal)
     foreach ($name in $names) {
         foreach ($m in @(Get-MemoryReport (Join-Path $dir $name))) {
@@ -2910,11 +3122,13 @@ function Invoke-Rotate {
             $lines.Add("## [$($s.Ts)] | $($s.Holder) | $($s.Task) | IN_PROGRESS | $($s.Name)")
             $lines.Add("- Summary: carried forward from docs/history/$name at rotation")
             if ($s.Phase) { $lines.Add("- Phase: $($s.Phase)") }
+            if ($s.SpecPass) { $lines.Add("- Spec-pass: $($s.SpecPass)") }
         }
         $lines.Add("")
         $lines.Add("## [$($s.Ts)] | $($s.Agent) | $($s.Task) | $($s.Status) | $($s.Name)")
         $lines.Add("- Summary: carried forward from docs/history/$name at rotation")
         if ($s.Status -ne "REVIEW" -and $s.Phase) { $lines.Add("- Phase: $($s.Phase)") }
+        if ($s.Status -ne "REVIEW" -and $s.SpecPass) { $lines.Add("- Spec-pass: $($s.SpecPass)") }
         if ($s.Status -eq "PAUSE") {
             $lines.Add("- Pause: $($s.PauseCat) - see docs/history/$name for detail")
         }
@@ -2945,10 +3159,11 @@ switch ($Command) {
     "review" { Invoke-Review }
     "mode" { Invoke-Mode }
     "checkpoint" { Invoke-Checkpoint }
+    "advance" { Invoke-Advance }
     "assign" { Invoke-Assign }
     "done" { Invoke-Done }
     "status" { Invoke-Status }
     default {
-        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint} <project> [args]"
+        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint|advance} <project> [args]"
     }
 }
