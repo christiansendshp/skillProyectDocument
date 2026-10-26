@@ -3,6 +3,11 @@ set -eu
 
 COMMAND="${1:-help}"
 PROJECT="${2:-.}"
+# init and migrate take flags (--classic, --factory); with no project given the
+# first argument is already a flag, so the project is the current folder.
+case "$COMMAND:$PROJECT" in
+  init:--*|migrate:--*) shift; set -- "$COMMAND" . "$@"; PROJECT="." ;;
+esac
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 TEMPLATES_DIR="$SCRIPT_DIR/../templates"
 ADAPTERS_DIR="$SCRIPT_DIR/../adapters"
@@ -200,7 +205,11 @@ init_kind() {
 # init_docs [dispatch args]: init <project> [--classic].
 init_docs() {
   if [ "$#" -ge 2 ]; then shift 2; else shift "$#"; fi
-  init_run "$(init_kind "${1:-}")"
+  id_flag=""
+  for id_a in "$@"; do
+    if [ "$id_a" = "--classic" ]; then id_flag="--classic"; fi
+  done
+  init_run "$(init_kind "$id_flag")"
 }
 
 init_run() {
@@ -268,7 +277,7 @@ insert_section() {
   is_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-section.XXXXXX")"
   awk -v secfile="$2" -v before="$3" -v endm="$BLOCK_END" '
     BEGIN { n=0; while ((getline l < secfile) > 0) s[++n]=l; while (n>0 && s[n]=="") n-- }
-    { lines[NR]=$0 }
+    { sub(/\r$/, ""); lines[NR]=$0 }
     END {
       pos=0
       if (before!="") for (i=1;i<=NR;i++) if (lines[i]==before) { pos=i; break }
@@ -293,6 +302,15 @@ migrate_factory_additions() {
   [ -f "$mf_tpl" ] || die "template missing: AGENTS.factory.md"
   mf_agents="$PROJECT/AGENTS.md"
   mf_sec="$(mktemp "${TMPDIR:-/tmp}/project-docs-sec.XXXXXX")"
+  # The edits below match whole lines, so a CRLF AGENTS.md is made LF first (and
+  # said so); the check and the other commands read either ending.
+  if ! tr -d '\r' < "$mf_agents" | cmp -s - "$mf_agents"; then
+    mf_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-eol.XXXXXX")"
+    tr -d '\r' < "$mf_agents" > "$mf_tmp"
+    mv "$mf_tmp" "$mf_agents"
+    echo "= normalized: AGENTS.md line endings (CRLF to LF)"
+    mf_changed=$((mf_changed + 1))
+  fi
   if ! factory_section_exists; then
     extract_section "$mf_tpl" "## Factory" > "$mf_sec"
     insert_section "$mf_agents" "$mf_sec" "## Agent identity"
@@ -309,16 +327,23 @@ migrate_factory_additions() {
   elif [ -z "$(roster_rows)" ]; then
     extract_section "$mf_tpl" "## Agent identity" | awk '/^\|/ && !/^\| Agent id/ && !/^\|---/' > "$mf_sec"
     mf_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-roster.XXXXXX")"
-    awk -v rowsfile="$mf_sec" '
+    mf_ph=0
+    if grep -qxF -- '| — | — | — | — | — |' "$mf_agents"; then mf_ph=1; fi
+    awk -v rowsfile="$mf_sec" -v ph="$mf_ph" '
       BEGIN { while ((getline l < rowsfile) > 0) r[++n]=l }
       $0=="## Agent identity" { insec=1; print; next }
       insec && /^## / { insec=0 }
       insec && !done && $0=="| — | — | — | — | — |" { for (i=1;i<=n;i++) print r[i]; done=1; next }
       { print }
+      insec && !done && !ph && /^\|-/ { for (i=1;i<=n;i++) print r[i]; done=1 }
     ' "$mf_agents" > "$mf_tmp"
-    mv "$mf_tmp" "$mf_agents"
-    echo "+ added: default agent roster in AGENTS.md"
-    mf_changed=$((mf_changed + 1))
+    if cmp -s "$mf_agents" "$mf_tmp"; then
+      rm -f "$mf_tmp"
+    else
+      mv "$mf_tmp" "$mf_agents"
+      echo "+ added: default agent roster in AGENTS.md"
+      mf_changed=$((mf_changed + 1))
+    fi
   fi
   # The classic block tells agents to escalate to a human; in Factory mode the
   # autonomy policy replaces that. Add the pointer after the bullet, never edit it.
@@ -658,13 +683,14 @@ factory_default() {
 # factory_section_exists: true when AGENTS.md has a "## Factory" heading.
 factory_section_exists() {
   [ -f "$PROJECT/AGENTS.md" ] || return 1
-  awk '$0=="## Factory" { f=1 } END { exit (f ? 0 : 1) }' "$PROJECT/AGENTS.md"
+  awk '{ sub(/\r$/, "") } $0=="## Factory" { f=1 } END { exit (f ? 0 : 1) }' "$PROJECT/AGENTS.md"
 }
 
 # factory_raw_value NAME: the trimmed value cell of the row, or empty.
 factory_raw_value() {
   [ -f "$PROJECT/AGENTS.md" ] || return 0
   awk -v want="$1" '
+    { sub(/\r$/, "") }
     $0=="## Factory" { insec=1; next }
     insec && /^## / { insec=0 }
     insec && /^\|/ {
@@ -682,6 +708,16 @@ factory_setting() {
   fs_v="$(factory_raw_value "$1")"
   if [ -z "$fs_v" ]; then fs_v="$(factory_default "$1")"; fi
   printf '%s' "$fs_v"
+}
+
+# factory_number NAME: the setting as a positive integer of at most nine digits
+# without leading zeros; anything else (text, zero, a huge number) is the default.
+factory_number() {
+  fn_v="$(factory_setting "$1")"
+  case "$fn_v" in ''|*[!0-9]*) factory_default "$1"; return 0 ;; esac
+  while [ "${fn_v#0}" != "$fn_v" ]; do fn_v="${fn_v#0}"; done
+  if [ -z "$fn_v" ] || [ "${#fn_v}" -gt 9 ]; then factory_default "$1"; return 0; fi
+  printf '%s' "$fn_v"
 }
 
 # factory_resolve_mode: sets FACTORY_MODE (FACTORY or CLASSIC) and
@@ -2346,10 +2382,8 @@ check_warnings() {
 check_brain_rows() {
   path="$DOCS_DIR/Brain.md"
   [ -f "$path" ] || return 0
-  bm="$(factory_setting "Brain max entries")"
-  case "$bm" in ''|*[!0-9]*) bm=80 ;; esac
-  [ "$bm" -gt 0 ] || bm=80
-  out="$(awk -v max="$bm" '
+  bm="$(factory_number "Brain max entries")"
+  out="$(tr -d '\r' < "$path" | awk -v max="$bm" '
     $0=="## Entries" { insec=1; next }
     insec && /^## / { insec=0 }
     insec && /^\|/ {
@@ -2377,7 +2411,7 @@ check_brain_rows() {
       if (c[9]!="—" && c[9] !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) print pre "has invalid Last used: " c[9]
     }
     END { if (rows>max) print "ERROR: docs/Brain.md has " rows " entries, over the Brain max entries limit of " max }
-  ' "$path")"
+  ')"
   if [ -n "$out" ]; then
     printf '%s\n' "$out" >&2
     CHECK_FAIL=1

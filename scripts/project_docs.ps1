@@ -12,6 +12,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# init and migrate take flags (--classic, --factory); with no project given the
+# first argument is already a flag, so the project is the current folder.
+if (($Command -eq "init" -or $Command -eq "migrate") -and $Project.StartsWith("--")) {
+    $Arguments = @($Project) + @($Arguments)
+    $Project = "."
+}
 $ScriptDir = $PSScriptRoot
 $TemplatesDir = Join-Path $ScriptDir "..\templates"
 $AdaptersDir = Join-Path $ScriptDir "..\adapters"
@@ -222,7 +228,7 @@ function Get-InitKind([bool]$ClassicFlag) {
 }
 
 function Invoke-Init {
-    Invoke-InitRun (Get-InitKind (@($Arguments) -contains "--classic"))
+    Invoke-InitRun (Get-InitKind (@($Arguments) -ccontains "--classic"))
 }
 
 function Invoke-InitRun([string]$Kind) {
@@ -318,6 +324,14 @@ function Add-FactoryAdditions {
     $tpl = Join-Path $TemplatesDir "AGENTS.factory.md"
     if (-not (Test-Path -LiteralPath $tpl -PathType Leaf)) { throw "template missing: AGENTS.factory.md" }
     $agents = Join-Path $Project "AGENTS.md"
+    # The edits below match whole lines, so a CRLF AGENTS.md is made LF first (and
+    # said so); the check and the other commands read either ending.
+    $rawAgents = [System.IO.File]::ReadAllText($agents, $Utf8)
+    if ($rawAgents.Contains([string][char]13)) {
+        Write-Utf8File $agents $rawAgents.Replace([string][char]13, "")
+        Write-Output "= normalized: AGENTS.md line endings (CRLF to LF)"
+        $changes++
+    }
     if (-not (Test-FactorySectionExists)) {
         Add-SectionToFile $agents (Get-TemplateSection $tpl "## Factory") "## Agent identity"
         Write-Output "+ added: ## Factory section in AGENTS.md"
@@ -337,6 +351,7 @@ function Add-FactoryAdditions {
         $result = [System.Collections.Generic.List[string]]::new()
         $insec = $false; $done = $false
         $placeholder = "| $EmDash | $EmDash | $EmDash | $EmDash | $EmDash |"
+        $ph = $lines -ccontains $placeholder
         foreach ($line in $lines) {
             if ($line -ceq "## Agent identity") { $insec = $true; $result.Add([string]$line); continue }
             if ($insec -and $line.StartsWith("## ")) { $insec = $false }
@@ -346,10 +361,16 @@ function Add-FactoryAdditions {
                 continue
             }
             $result.Add([string]$line)
+            if ($insec -and -not $done -and -not $ph -and $line.StartsWith("|-")) {
+                foreach ($r in $rows) { $result.Add([string]$r) }
+                $done = $true
+            }
         }
-        Write-Utf8File $agents (ConvertTo-JoinedLines ([string[]]$result.ToArray()))
-        Write-Output "+ added: default agent roster in AGENTS.md"
-        $changes++
+        if ($done) {
+            Write-Utf8File $agents (ConvertTo-JoinedLines ([string[]]$result.ToArray()))
+            Write-Output "+ added: default agent roster in AGENTS.md"
+            $changes++
+        }
     }
     # The classic block tells agents to escalate to a human; in Factory mode the
     # autonomy policy replaces that. Add the pointer after the bullet, never edit it.
@@ -759,6 +780,16 @@ function Get-FactoryRawValue([string]$Name) {
 function Get-FactorySetting([string]$Name) {
     $v = Get-FactoryRawValue $Name
     if (-not $v) { $v = Get-FactoryDefault $Name }
+    return $v
+}
+
+# The setting as a positive integer of at most nine digits without leading
+# zeros; anything else (text, zero, a huge number) is the default.
+function Get-FactoryNumber([string]$Name) {
+    $v = Get-FactorySetting $Name
+    if ($v -notmatch '^[0-9]+$') { return (Get-FactoryDefault $Name) }
+    $v = $v.TrimStart('0')
+    if (-not $v -or $v.Length -gt 9) { return (Get-FactoryDefault $Name) }
     return $v
 }
 
@@ -1879,7 +1910,7 @@ function Invoke-Migrate {
         Write-Output "  first 10 words of the prior Outcome/Description text; review each Name by"
         Write-Output "  hand, including any Near term row that may still exceed 10 words)"
     }
-    if (@($Arguments) -contains "--factory") {
+    if (@($Arguments) -ccontains "--factory") {
         Add-FactoryAdditions
         $changed += $script:FactoryChanges
     }
@@ -2349,9 +2380,7 @@ function Write-CheckWarnings {
 function Test-BrainRows {
     $path = Join-Path $DocsDir "Brain.md"
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
-    $max = 80
-    $bm = Get-FactorySetting "Brain max entries"
-    if ($bm -match '^[0-9]+$' -and [int]$bm -gt 0) { $max = [int]$bm }
+    $max = [int](Get-FactoryNumber "Brain max entries")
     $insec = $false
     $rows = 0
     $seen = @{}

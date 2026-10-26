@@ -39,6 +39,9 @@ A row that is missing, empty or just an em dash takes its default:
 | Recall budget bytes | 4096 |
 | Brain max entries | 80 |
 
+A numeric setting must be a whole number from 1 to 999999999 (leading zeros are
+ignored); anything else, including 0, text or a huge number, takes the default.
+
 `PROJECT_DOCS_MODE=classic` or `factory` overrides the file (it exists for
 tests and for forcing one mode from a script); any other value is ignored.
 
@@ -83,6 +86,11 @@ the section or fills an empty roster with the default one, and creates
 the project wrote is replaced. If a `Mode` row already says anything other than
 `FACTORY`, the command keeps it and tells you to edit it. `migrate` without the
 flag never adds Factory files.
+
+Both launchers take the flags after the project (`init <project> --classic`) or
+with no project at all (`init --classic` works on the current folder). Flags
+are case-sensitive. If `AGENTS.md` has CRLF line endings, `migrate --factory`
+rewrites it with LF and says so, because the section inserts match whole lines.
 
 The classic block tells agents to escalate product and cost choices to a human.
 In Factory mode `## Factory` replaces that, so a new Factory project's block

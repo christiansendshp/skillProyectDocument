@@ -19,8 +19,6 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E01-T02 | Init defaults to factory and migrate adds it | init creates seven files plus folders; init --classic creates six; migrate --factory idempotent | Smoke cases pass in sh and ps1 | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T14:14:31Z | F06-E01-T01, F06-E03-T01 | — |
-| F06-E01-T03 | Compact factory rules and autonomy policy in template | Section 4.1 text; decisions section points to it in factory | Fresh factory project context at or below 6912 bytes | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T14:41:13Z | F06-E01-T02 | — |
 
 <!-- context:end -->
 
@@ -143,6 +141,7 @@ task. ID prefix marks the kind: `Fxx-GAP-xx` (missing capability),
 | F05-DEBT-01 | Age rounds differently in sh and PowerShell | Low | F05 | status and the stale checks compute age in whole hours: sh truncates toward zero and PowerShell floors, so an entry timestamped in the future shows 0h in sh and -1h in PowerShell. Only visible with a wrong clock or a hand-written future timestamp | TODO | — | — | — |
 | F05-DEBT-02 | The em dash verify marker is untested in PowerShell | Low | F05 | The smoke test passes arguments to PowerShell through a command string, which mangles a non-ASCII argument, so the em dash verify marker is only exercised through the sh launcher; the PowerShell comparison itself is covered by the other markers | TODO | — | — | — |
 | F05-DEBT-03 | A rotation can fake an instant close | Low | F05 | rotate re-opens a task that was in REVIEW as an IN_PROGRESS entry stamped with the time of its last entry, so a done within 5 minutes of that last entry looks like a task claimed and closed minutes apart. Rare; fix by ignoring carried-forward IN_PROGRESS entries when measuring | TODO | — | — | — |
+| F06-DEBT-01 | Harden Brain cap parsing and CRLF handling in migrate | Low | F06 | QA found edge cases in F06-E03-T01 and F06-E01-T02: Brain max entries above 2^31 aborts ps1 and prints a stray test error in sh, a leading zero prints 010 in sh and 10 in ps1; a CRLF Brain.md or AGENTS.md on Linux sh skips row validation or misplaces inserted sections; migrate --factory announces the roster fill again when the section has a header but no placeholder row | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T16:09:15Z | — | — |
 
 ## Out of scope
 

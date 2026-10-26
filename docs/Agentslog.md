@@ -255,3 +255,32 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 ## [2026-10-26T14:41:13Z] | claude-sonnet-5-5 | F06-E01-T03 | IN_PROGRESS | Compact factory rules and autonomy policy in template
 - Summary: Factory rules pointer in migrated decisions section
 - Verify: pending
+
+## [2026-10-26T15:04:43Z] | claude-sonnet-5-5 | F06-E01-T03 | REVIEW | Compact factory rules and autonomy policy in template
+- Summary: Decisions pointer via migrate; fresh context 6750 B
+- Verify: smoke 856 pass 0 fail (sh 429 ps1 427); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-26T16:08:05Z] | claude-qa | F06-E01-T02 | REVIEW | Init defaults to factory and migrate adds it
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: smoke factory sh 117/0 + ps1 117/0 exit=0; BR-008 diff 10 scenarios identical; sh==ps1 20 scenarios
+- Review: PASS - PASS: smoke 117/117 sh+ps1, BR-008 identical, sh==ps1. Non-blocking: roster fill says added on reruns when no exact placeholder row; Linux sh+CRLF AGENTS.md misplaces sections
+
+## [2026-10-26T16:08:18Z] | claude-sonnet-5-5 | F06-E01-T02 | DONE | Init defaults to factory and migrate adds it
+- Summary: init defaults to Factory, init --classic, migrate --factory
+- Files: scripts/,templates/,README.md,references/
+- Verify: smoke 812 pass 0 fail; QA PASS sh==ps1 20 scenarios; BR-008 identical
+
+## [2026-10-26T16:09:15Z] | claude-sonnet-5-5 | F06-DEBT-01 | IN_PROGRESS | Harden Brain cap parsing and CRLF handling in migrate
+- Summary: Harden Brain cap parsing and CRLF handling
+- Verify: pending
+
+## [2026-10-26T16:13:24Z] | claude-qa | F06-E01-T03 | REVIEW | Compact factory rules and autonomy policy in template
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: smoke factory sh 139/0 + ps1 139/0 exit=0; sh==ps1 4 fixtures; Linux busybox CRLF ok; fresh ctx 6750B
+- Review: PASS - PASS: smoke 139/139 sh+ps1; pointer sh==ps1 on classic, CRLF, reworded-bullet and Factory-init fixtures; once, after bullet, 0 changes on rerun; Linux sh ok. Bullet text match is exact
+
+## [2026-10-26T16:46:37Z] | claude-sonnet-5-5 | F06-E01-T03 | DONE | Compact factory rules and autonomy policy in template
+- Summary: Decisions pointer via migrate; fresh Factory context 6750 B
+- Files: scripts/,references/factory.md
+- Verify: smoke 856 pass 0 fail; QA PASS factory smoke 139 each; context 6750 B

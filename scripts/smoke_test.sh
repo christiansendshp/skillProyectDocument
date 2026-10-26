@@ -1036,6 +1036,75 @@ run_factory_suite() {
   runo migrate "$ip" --factory
   ! grep -q 'Factory pointer' "$WORK/.out" && ! grep -qF -- "$ptr" "$ip/AGENTS.md" && ok "$label no pointer is added when the project reworded the escalate bullet" || bad "$label pointer added to a reworded block"
 
+  echo "== $label: Brain cap parsing and CRLF handling (F06-DEBT-01) =="
+  crlf_file() { sed 's/$/\r/' "$1" > "$1.tmp" && mv "$1.tmp" "$1"; }
+
+  brain_proj db_big "Brain max entries | 99999999999"
+  assert_success "$label a Brain max entries value that is too large falls back to the default" run check "$bp"
+  brain_proj db_text "Brain max entries | lots"
+  assert_success "$label a Brain max entries value that is text falls back to the default" run check "$bp"
+  brain_proj db_zero "Brain max entries | 0"
+  assert_success "$label a Brain max entries value of zero falls back to the default" run check "$bp"
+  brain_proj db_lead "Brain max entries | 002"
+  assert_failure "$label a leading zero does not change the cap" run check "$bp"
+  grep -q "has 3 entries, over the Brain max entries limit of 2$" "$WORK/.out" && ok "$label the cap is printed without its leading zeros" || bad "$label cap text wrong: $(grep Brain "$WORK/.out")"
+  brain_proj db_lead10 "Brain max entries | 0000000002"
+  assert_failure "$label ten digits that are mostly zeros still mean the cap they spell" run check "$bp"
+  grep -q "limit of 2$" "$WORK/.out" && ok "$label a ten digit cap with zeros reads as 2" || bad "$label ten digit cap wrong: $(grep Brain "$WORK/.out")"
+
+  brain_proj db_crlf
+  crlf_file "$bp/docs/Brain.md"
+  assert_success "$label a Brain.md with CRLF line endings passes check" run check "$bp"
+  seed_replace "$bp/docs/Brain.md" "| LRN-003 |" "| LEARN-3 |"
+  assert_failure "$label a CRLF Brain.md still has its rows validated" run check "$bp"
+  grep -q "invalid ID format" "$WORK/.out" && ok "$label the CRLF Brain.md row error is named" || bad "$label CRLF row error missing: $(grep Brain "$WORK/.out")"
+
+  ip_new db_eol
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  crlf_file "$ip/AGENTS.md"
+  runo migrate "$ip" --factory
+  grep -q '^= normalized: AGENTS.md line endings (CRLF to LF)$' "$WORK/.out" && ok "$label migrate --factory says it made a CRLF AGENTS.md LF" || bad "$label normalization not announced: $(cat "$WORK/.out")"
+  tr -d '\r' < "$ip/AGENTS.md" | cmp -s - "$ip/AGENTS.md" && ok "$label the migrated AGENTS.md has no carriage returns" || bad "$label carriage returns left"
+  [ "$(grep -c '^## Factory$' "$ip/AGENTS.md")" -eq 1 ] && [ "$(grep -c '^## Agent identity$' "$ip/AGENTS.md")" -eq 1 ] && ok "$label the sections of a CRLF project are added once" || bad "$label CRLF project sections duplicated"
+  grep -q '^| claude-qa | AI | Claude | QA | — |$' "$ip/AGENTS.md" && ok "$label the CRLF project gets the default roster" || bad "$label CRLF roster missing"
+  assert_success "$label a migrated CRLF project passes check" run check "$ip"
+  runo migrate "$ip" --factory
+  grep -q '^project_docs migrate: 0 change(s)$' "$WORK/.out" && ok "$label a second migrate --factory on the CRLF project changes nothing" || bad "$label CRLF migrate not idempotent: $(cat "$WORK/.out")"
+
+  ip_new db_roster
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  grep -vxF '| — | — | — | — | — |' "$ip/AGENTS.md" > "$ip/AGENTS.md.tmp" && mv "$ip/AGENTS.md.tmp" "$ip/AGENTS.md"
+  runo migrate "$ip" --factory
+  grep -q '^+ added: default agent roster in AGENTS.md$' "$WORK/.out" && ok "$label a roster table with no rows and no placeholder gets the default rows" || bad "$label roster not filled: $(cat "$WORK/.out")"
+  grep -q '^| claude-dev | AI | Claude | DEV | — |$' "$ip/AGENTS.md" && ok "$label the default rows are in the table" || bad "$label default rows missing"
+  cp "$ip/AGENTS.md" "$WORK/.agents_before"
+  runo migrate "$ip" --factory
+  grep -q '^project_docs migrate: 0 change(s)$' "$WORK/.out" && ! grep -q 'default agent roster' "$WORK/.out" && cmp -s "$WORK/.agents_before" "$ip/AGENTS.md" && ok "$label the roster is not announced or changed on a rerun" || bad "$label roster rerun not idempotent: $(cat "$WORK/.out")"
+
+  # init and migrate flags: with no project argument, and not only right after it
+  noproj() {  # noproj <dir> <command> [flags]: runs the command with the current folder as the project
+    npd="$1"; shift
+    if [ "$RUNNER" = "ps1_runner" ]; then
+      npa=""; for npx in "$@"; do npa="$npa '$npx'"; done
+      ( cd "$npd" && "$PWSH" -NoProfile -NonInteractive -Command "& '$PS1_BIN_NATIVE' $npa" ) >"$WORK/.out" 2>&1
+    else
+      ( cd "$npd" && sh "$SH_BIN" "$@" ) >"$WORK/.out" 2>&1
+    fi
+  }
+  ip_new fl_noproj
+  noproj "$ip" init --classic
+  [ ! -e "$ip/docs/Brain.md" ] && [ -f "$ip/AGENTS.md" ] && grep -q '^project_docs init: 6 file(s) created$' "$WORK/.out" && ok "$label init --classic with no project argument uses the current folder" || bad "$label init --classic without a project failed: $(cat "$WORK/.out")"
+  ip_new fl_noproj_m
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  noproj "$ip" migrate --factory
+  grep -q '^+ added: ## Factory section in AGENTS.md$' "$WORK/.out" && ok "$label migrate --factory with no project argument uses the current folder" || bad "$label migrate --factory without a project failed: $(cat "$WORK/.out")"
+  ip_new fl_late
+  runo init "$ip" extra --classic
+  grep -q '^project_docs init: 6 file(s) created$' "$WORK/.out" && ok "$label init finds --classic after another argument" || bad "$label late --classic ignored: $(cat "$WORK/.out")"
+  ip_new fl_case
+  runo init "$ip" --CLASSIC
+  grep -q '^project_docs init: 7 file(s) created$' "$WORK/.out" && ok "$label the flags are case-sensitive, so --CLASSIC does not make init classic" || bad "$label --CLASSIC was honored: $(cat "$WORK/.out")"
+
 #FACTORY_CASES
 }
 
