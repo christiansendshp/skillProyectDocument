@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "assign", "done", "status", "mode", "help")]
+    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "assign", "done", "status", "mode", "checkpoint", "help")]
     [string]$Command = "help",
 
     [Parameter(Position = 1)]
@@ -1277,6 +1277,120 @@ function Invoke-Claim {
     }
 }
 
+# Commands that exist only in Factory mode refuse to run in classic mode.
+function Assert-FactoryMode([string]$CommandName) {
+    if (-not (Test-FactoryOn)) { throw "$CommandName needs Factory mode (see references/factory.md)" }
+}
+
+# The working memory of a task: docs/brain/tasks/<TASK-ID>.md (F06-E03-T02).
+function Get-WorkingMemoryPath([string]$Task) {
+    return (Join-Path (Join-Path (Join-Path $DocsDir "brain") "tasks") "$Task.md")
+}
+
+# True when the task has a working memory with a ## Now.
+function Test-WorkingNow([string]$Task) {
+    $f = Get-WorkingMemoryPath $Task
+    if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { return $false }
+    foreach ($l in @(Get-ContentUtf8 -LiteralPath $f)) { if ($l -ceq "## Now") { return $true } }
+    return $false
+}
+
+# How many times the task was sent back (Review: FAIL lines).
+function Get-TaskAttempts([string]$Task) {
+    $log = Join-Path $DocsDir "Agentslog.md"
+    $n = 0
+    $cur = ""
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $log)) {
+        if ($line -match '^## \[[^\]]*\] \| [^|]* \| ([^|]*) \|') { $cur = $Matches[1].Trim(); continue }
+        if ($cur -ceq $Task -and $line.StartsWith("- Review: FAIL")) { $n++ }
+    }
+    return $n
+}
+
+# checkpoint <project> <agent> <task-id> <step> <next>: creates or updates the
+# working memory of a task: rewrites ## Now and adds a line to ## Trail.
+function Invoke-Checkpoint {
+    Assert-FactoryMode "checkpoint"
+    if ($Arguments.Count -lt 4) { throw "checkpoint requires: agent task-id step next" }
+    $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
+    $task = ConvertTo-CleanField $Arguments[1]
+    $step = ConvertTo-CleanField $Arguments[2]
+    $nxt = ConvertTo-CleanField $Arguments[3]
+    if (-not $step) { throw "checkpoint requires a non-empty step" }
+    if (-not $nxt) { throw "checkpoint requires a non-empty next" }
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "run init first" }
+    if (-not (Test-RoadmapHasId $task)) { throw "checkpoint failed: $task not found in docs/Roadmap.md" }
+    Enter-DocsLock
+    try {
+        $wm = Get-WorkingMemoryPath $task
+        New-Item -ItemType Directory -Path (Split-Path -Parent $wm) -Force | Out-Null
+        if (-not (Test-Path -LiteralPath $wm -PathType Leaf)) {
+            $tpl = Join-Path $TemplatesDir "WorkingMemory.md"
+            if (-not (Test-Path -LiteralPath $tpl -PathType Leaf)) { throw "template missing: WorkingMemory.md" }
+            $fresh = [System.Collections.Generic.List[string]]::new()
+            foreach ($l in @(Get-ContentUtf8 -LiteralPath $tpl)) {
+                $i = $l.IndexOf("{TASK}")
+                if ($i -ge 0) { $fresh.Add($l.Substring(0, $i) + $task + $l.Substring($i + 6)) } else { $fresh.Add($l) }
+            }
+            Write-Utf8File $wm (ConvertTo-JoinedLines ([string[]]$fresh.ToArray()))
+        }
+        $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $attempts = Get-TaskAttempts $task
+        $lines = @(Get-ContentUtf8 -LiteralPath $wm)
+        $out = [System.Collections.Generic.List[string]]::new()
+        $innow = $false; $intrail = $false; $added = $false; $hasNow = $false; $hasTrail = $false
+        $held = 0
+        $newTrail = "- $timestamp ${agent}: $step"
+        for ($i = 0; $i -le $lines.Count; $i++) {
+            $atEnd = ($i -eq $lines.Count)
+            $line = ""
+            if (-not $atEnd) { $line = [string]$lines[$i] }
+            if ($atEnd -or $line.StartsWith("## ")) {
+                if ($intrail -and -not $added) {
+                    $out.Add($newTrail)
+                    $added = $true
+                    for ($b = 0; $b -lt $held; $b++) { $out.Add("") }
+                    $held = 0
+                }
+                if ($atEnd) { break }
+                $innow = $false
+                $intrail = $false
+                if ($line -ceq "## Now") {
+                    $hasNow = $true
+                    $innow = $true
+                    $out.Add($line)
+                    $out.Add("- Step: $step")
+                    $out.Add("- Next: $nxt")
+                    $out.Add("- Attempts: $attempts")
+                    $out.Add("- Updated: $timestamp")
+                    $out.Add("")
+                    continue
+                }
+                if ($line -ceq "## Trail") { $intrail = $true; $hasTrail = $true }
+                $out.Add($line)
+                continue
+            }
+            if ($innow) { continue }
+            if ($intrail) {
+                if ($line -eq "") { $held++; continue }
+                for ($b = 0; $b -lt $held; $b++) { $out.Add("") }
+                $held = 0
+                $out.Add($line)
+                continue
+            }
+            $out.Add($line)
+        }
+        if (-not $hasNow -or -not $hasTrail) {
+            throw "checkpoint failed: docs/brain/tasks/$task.md is not a working memory file (needs ## Now and ## Trail)"
+        }
+        Write-Utf8File $wm (ConvertTo-JoinedLines ([string[]]$out.ToArray()))
+        Write-Output "project_docs checkpoint: $task saved"
+    } finally {
+        Exit-DocsLock
+    }
+}
+
 function Invoke-Pause {
     if ($Arguments.Count -lt 4) { throw "pause requires: agent task-id category detail" }
     $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
@@ -1293,6 +1407,9 @@ function Invoke-Pause {
         if (-not $state) { throw "pause failed: $task has no IN_PROGRESS entry to pause" }
         if ($state.Status -ne "IN_PROGRESS") { throw "pause failed: $task is not IN_PROGRESS (current: $($state.Status))" }
         if ($state.Agent -cne $agent) { throw "pause failed: $task is owned by $($state.Agent), not $agent" }
+        if ((Test-FactoryOn) -and -not (Test-WorkingNow $task)) {
+            throw "pause failed: $task has no working memory yet (## Now); run checkpoint first"
+        }
         $name = Assert-ValidName $task "pause"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         $log = Join-Path $DocsDir "Agentslog.md"
@@ -2576,6 +2693,65 @@ function Test-FactoryRoster {
     }
 }
 
+# Working memory validation (Factory mode only, F06-E03-T02): every file in
+# docs/brain/tasks has the three sections and a well-formed ## Now.
+function Get-MemoryReport([string]$Path) {
+    $id = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+    $pre = "ERROR: docs/brain/tasks/$id.md "
+    $msgs = [System.Collections.Generic.List[string]]::new()
+    $sec = ""; $seen = @{}
+    $hs = $false; $hn = $false; $ha = $false; $hu = $false
+    $lines = @(Get-ContentUtf8 -LiteralPath $Path)
+    for ($ln = 0; $ln -lt $lines.Count; $ln++) {
+        $line = [string]$lines[$ln]
+        if ($ln -eq 0) {
+            $t = "# Working memory $id"
+            if (-not $line.StartsWith($t, [System.StringComparison]::Ordinal) -or ($line.Length -gt $t.Length -and $line[$t.Length] -ne ' ')) {
+                $msgs.Add("$($pre)title must start with '$t'")
+            }
+        }
+        if ($line.StartsWith("## ")) { $sec = $line; $seen[$sec] = $true; continue }
+        if ($sec -cne "## Now") { continue }
+        if ($line.StartsWith("- Step:")) { $hs = $true; if (-not $line.Substring(7).Trim()) { $msgs.Add("$($pre)Now has an empty Step") }; continue }
+        if ($line.StartsWith("- Next:")) { $hn = $true; if (-not $line.Substring(7).Trim()) { $msgs.Add("$($pre)Now has an empty Next") }; continue }
+        if ($line.StartsWith("- Attempts:")) {
+            $ha = $true
+            $v = $line.Substring(11).Trim()
+            if ($v -notmatch '^[0-9]+$') { $msgs.Add("$($pre)Now has invalid Attempts: $v") }
+            continue
+        }
+        if ($line.StartsWith("- Updated:")) {
+            $hu = $true
+            $v = $line.Substring(10).Trim()
+            if ($v -ne $EmDash -and $v -cnotmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$') { $msgs.Add("$($pre)Now has invalid Updated: $v") }
+            continue
+        }
+    }
+    foreach ($req in @("## Now", "## Trail", "## Retro")) {
+        if (-not $seen.ContainsKey($req)) { $msgs.Add("$($pre)is missing section '$req'") }
+    }
+    if ($seen.ContainsKey("## Now")) {
+        if (-not $hs) { $msgs.Add("$($pre)Now is missing '- Step:'") }
+        if (-not $hn) { $msgs.Add("$($pre)Now is missing '- Next:'") }
+        if (-not $ha) { $msgs.Add("$($pre)Now is missing '- Attempts:'") }
+        if (-not $hu) { $msgs.Add("$($pre)Now is missing '- Updated:'") }
+    }
+    return $msgs.ToArray()
+}
+
+function Test-WorkingMemory {
+    $dir = Join-Path (Join-Path $DocsDir "brain") "tasks"
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return }
+    [string[]]$names = @(Get-ChildItem -LiteralPath $dir -Filter "*.md" -File | ForEach-Object { $_.Name })
+    [System.Array]::Sort($names, [System.StringComparer]::Ordinal)
+    foreach ($name in $names) {
+        foreach ($m in @(Get-MemoryReport (Join-Path $dir $name))) {
+            [Console]::Error.WriteLine($m)
+            $script:CheckFail = $true
+        }
+    }
+}
+
 function Invoke-Check {
     $script:CheckFail = $false
     Test-Need "AGENTS.md" @("## Repository rules", "## Startup", "## Close")
@@ -2642,7 +2818,7 @@ function Invoke-Check {
     Test-TableStatusEnum "docs/Stack_Tecnologies.md" @("CONFIRMED", "HYPOTHESIS", "UNKNOWN") "epistemic"
     Test-TableStatusEnum "docs/Roadmap.md" @("TODO", "IN_PROGRESS", "PAUSE", "DONE") "workflow"
     Test-TableNameWordLimit "docs/Roadmap.md" 10
-    if (Test-FactoryOn) { Test-BrainRows; Test-Specs; Test-FactoryRoster }
+    if (Test-FactoryOn) { Test-BrainRows; Test-Specs; Test-FactoryRoster; Test-WorkingMemory }
 
     Write-CheckWarnings
 
@@ -2763,10 +2939,11 @@ switch ($Command) {
     "handoff" { Invoke-Handoff }
     "review" { Invoke-Review }
     "mode" { Invoke-Mode }
+    "checkpoint" { Invoke-Checkpoint }
     "assign" { Invoke-Assign }
     "done" { Invoke-Done }
     "status" { Invoke-Status }
     default {
-        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode} <project> [args]"
+        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint} <project> [args]"
     }
 }

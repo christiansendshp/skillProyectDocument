@@ -1313,6 +1313,110 @@ SPEC
   drop_rows "$ro/AGENTS.md" '^| claude-\|^| gemini-'
   run_env PROJECT_DOCS_MODE=classic check "$ro" >/dev/null 2>&1 && ok "$label classic mode ignores the roster rules" || bad "$label classic mode applied the roster rules"
 
+  echo "== $label: working memory and the checkpoint command (F06-E03-T02) =="
+  wm_proj() { wm="$WORK/${label}_wm_$1"; rm -rf "$wm"; mkdir -p "$wm"; run init "$wm" >/dev/null 2>&1; seed_plan_row "$wm" F09-E01-T01 "Memory task"; wmf="$wm/docs/brain/tasks/F09-E01-T01.md"; }
+
+  wm_proj w_new
+  [ ! -e "$wmf" ] && ok "$label a new Factory project has no working memory file yet" || bad "$label working memory exists before any checkpoint"
+  assert_success "$label checkpoint creates the working memory of a task" run checkpoint "$wm" claude-dev F09-E01-T01 "wrote the parser" "wire the command"
+  grep -q '^project_docs checkpoint: F09-E01-T01 saved$' "$WORK/.out" && ok "$label checkpoint says it saved the task" || bad "$label checkpoint output wrong: $(cat "$WORK/.out")"
+  [ -f "$wmf" ] && ok "$label the file is docs/brain/tasks/<TASK-ID>.md" || bad "$label working memory file missing"
+  [ "$(head -n 1 "$wmf" | tr -d '\r')" = "# Working memory F09-E01-T01" ] && ok "$label the title carries the task id" || bad "$label title wrong: $(head -n 1 "$wmf")"
+  grep -q '^- Step: wrote the parser$' "$wmf" && grep -q '^- Next: wire the command$' "$wmf" && grep -q '^- Attempts: 0$' "$wmf" && ok "$label ## Now holds the step, the next step and the attempts" || bad "$label Now wrong: $(sed -n 3,8p "$wmf")"
+  grep -Eq '^- Updated: [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' "$wmf" && ok "$label ## Now carries the update time" || bad "$label Updated wrong"
+  grep -Eq '^- [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z claude-dev: wrote the parser$' "$wmf" && ok "$label ## Trail gets a line with time, agent and step" || bad "$label Trail wrong"
+  grep -q '^- Used: —$' "$wmf" && grep -q '^- Learned: —$' "$wmf" && ok "$label ## Retro starts empty" || bad "$label Retro wrong"
+  tr -d '\r' < "$wmf" | grep -n '^## ' | tr '\n' ' ' | grep -q '^3:## Now 9:## Trail 12:## Retro $' && ok "$label the three sections come in order" || bad "$label sections wrong: $(grep -n '^## ' "$wmf" | tr '\n' ' ')"
+
+  assert_success "$label a second checkpoint updates the file" run checkpoint "$wm" claude-dev F09-E01-T01 "wired the command" "run the full suite"
+  [ "$(grep -c '^## Now$' "$wmf")" -eq 1 ] && grep -q '^- Step: wired the command$' "$wmf" && ! grep -q '^- Step: wrote the parser$' "$wmf" && ok "$label ## Now is rewritten, not repeated" || bad "$label Now not rewritten: $(sed -n 3,8p "$wmf")"
+  [ "$(grep -c ' claude-dev: ' "$wmf")" -eq 2 ] && grep -n 'wrote the parser' "$wmf" | head -1 | grep -q 'claude-dev: wrote' && ok "$label ## Trail keeps both steps, oldest first" || bad "$label Trail wrong: $(grep claude-dev "$wmf")"
+  [ "$(grep -c '^## ' "$wmf")" -eq 3 ] && ok "$label still exactly three sections" || bad "$label section count changed"
+
+  wm_proj w_attempts
+  seed_entry "$wm" "$(now_ts)" claude-qa F09-E01-T01 REVIEW "Memory task" '- Summary: reviewed\n- Review: FAIL - not enough\n'
+  seed_entry "$wm" "$(now_ts)" claude-qa F09-E01-T01 REVIEW "Memory task" '- Summary: reviewed again\n- Review: FAIL - still not enough\n'
+  seed_entry "$wm" "$(now_ts)" claude-qa F09-E01-T02 REVIEW "Other task" '- Summary: other\n- Review: FAIL - other\n'
+  run checkpoint "$wm" claude-dev F09-E01-T01 "retry" "fix it" >/dev/null 2>&1
+  grep -q '^- Attempts: 2$' "$wmf" && ok "$label Attempts counts the Review: FAIL entries of this task only" || bad "$label Attempts wrong: $(grep Attempts "$wmf")"
+
+  wm_proj w_text
+  run checkpoint "$wm" claude-dev F09-E01-T01 'C:\temp\new | step' "next step's text" >/dev/null 2>&1
+  grep -qF -- '- Step: C:\temp\new / step' "$wmf" && grep -qF -- "- Next: next step's text" "$wmf" && ok "$label backslashes and apostrophes survive, a bar becomes a slash" || bad "$label text mangled: $(sed -n 3,6p "$wmf")"
+
+  wm_proj w_crlf
+  run checkpoint "$wm" claude-dev F09-E01-T01 "first" "second" >/dev/null 2>&1
+  sed 's/$/\r/' "$wmf" > "$wmf.tmp" && mv "$wmf.tmp" "$wmf"
+  assert_success "$label checkpoint reads a working memory with CRLF line endings" run checkpoint "$wm" claude-dev F09-E01-T01 "third" "fourth"
+  tr -d '\r' < "$wmf" | cmp -s - "$wmf" && [ "$(grep -c ' claude-dev: ' "$wmf")" -eq 2 ] && ok "$label the rewritten file is LF and keeps its trail" || bad "$label CRLF rewrite wrong"
+
+  wm_proj w_bad
+  assert_failure "$label checkpoint needs four arguments" run checkpoint "$wm" claude-dev F09-E01-T01 "only a step"
+  grep -q 'checkpoint requires: agent task-id step next' "$WORK/.out" && ok "$label the usage message names the arguments" || bad "$label usage text wrong: $(cat "$WORK/.out")"
+  assert_failure "$label checkpoint refuses an empty step" run checkpoint "$wm" claude-dev F09-E01-T01 " " "next"
+  grep -q 'checkpoint requires a non-empty step' "$WORK/.out" && ok "$label the empty step is named" || bad "$label empty step text wrong: $(cat "$WORK/.out")"
+  assert_failure "$label checkpoint refuses an empty next step" run checkpoint "$wm" claude-dev F09-E01-T01 "step" " "
+  grep -q 'checkpoint requires a non-empty next' "$WORK/.out" && ok "$label the empty next step is named" || bad "$label empty next text wrong: $(cat "$WORK/.out")"
+  assert_failure "$label checkpoint refuses a task that is not in the Roadmap" run checkpoint "$wm" claude-dev F99-E99-T99 "step" "next"
+  grep -q 'checkpoint failed: F99-E99-T99 not found in docs/Roadmap.md' "$WORK/.out" && ok "$label the missing task is named" || bad "$label missing task text wrong: $(cat "$WORK/.out")"
+  [ ! -e "$wm/docs/brain/tasks/F99-E99-T99.md" ] && ok "$label a refused checkpoint creates no file" || bad "$label refused checkpoint created a file"
+
+  wm_proj w_corrupt
+  run checkpoint "$wm" claude-dev F09-E01-T01 "a" "b" >/dev/null 2>&1
+  sedi '/^## Trail$/d' "$wmf"
+  cp "$wmf" "$WORK/.wm_before"
+  assert_failure "$label checkpoint refuses a working memory without ## Trail" run checkpoint "$wm" claude-dev F09-E01-T01 "c" "d"
+  grep -q 'is not a working memory file (needs ## Now and ## Trail)' "$WORK/.out" && cmp -s "$WORK/.wm_before" "$wmf" && ok "$label the damaged file is reported and left untouched" || bad "$label damaged file handling wrong: $(cat "$WORK/.out")"
+
+  ip_new w_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  seed_plan_row "$ip" F09-E01-T01 "Memory task"
+  assert_failure "$label checkpoint does not run in classic mode" run checkpoint "$ip" claude-dev F09-E01-T01 "a" "b"
+  grep -q 'checkpoint needs Factory mode' "$WORK/.out" && [ ! -e "$ip/docs/brain" ] && ok "$label classic mode says so and creates nothing" || bad "$label classic checkpoint wrong: $(cat "$WORK/.out")"
+
+  # pause needs a ## Now in Factory mode
+  wm_proj w_pause
+  run claim "$wm" claude-spec F09-E01-T01 "work" >/dev/null 2>&1
+  before="$(grep -c '^## \[' "$wm/docs/Agentslog.md")"
+  assert_failure "$label pause is refused when the task has no working memory" run pause "$wm" claude-spec F09-E01-T01 OTRO "stopping"
+  grep -q 'pause failed: F09-E01-T01 has no working memory yet (## Now); run checkpoint first' "$WORK/.out" && [ "$(grep -c '^## \[' "$wm/docs/Agentslog.md")" = "$before" ] && ok "$label the refusal says to run checkpoint and writes nothing" || bad "$label pause refusal wrong: $(cat "$WORK/.out")"
+  mkdir -p "$wm/docs/brain/tasks" && printf '# Working memory F09-E01-T01\n\n## Trail\n\n## Retro\n' > "$wmf"
+  assert_failure "$label a working memory file without ## Now does not count" run pause "$wm" claude-spec F09-E01-T01 OTRO "stopping"
+  run checkpoint "$wm" claude-spec F09-E01-T01 "half way" "continue" >/dev/null 2>&1
+  rm -f "$wmf"
+  run checkpoint "$wm" claude-spec F09-E01-T01 "half way" "continue" >/dev/null 2>&1
+  assert_success "$label pause works once the task has a ## Now" run pause "$wm" claude-spec F09-E01-T01 OTRO "stopping"
+
+  ip_new w_pause_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  seed_plan_row "$ip" F09-E01-T01 "Memory task"
+  run claim "$ip" someone F09-E01-T01 "work" >/dev/null 2>&1
+  assert_success "$label classic pause needs no working memory" run pause "$ip" someone F09-E01-T01 OTRO "stopping"
+
+  # check validates the working memory files
+  wm_bad() {  # wm_bad <fixture-name> <sed expression> <expected message>
+    wm_proj "$1"
+    run checkpoint "$wm" claude-dev F09-E01-T01 "a step" "a next step" >/dev/null 2>&1
+    sedi "$2" "$wmf"
+    assert_failure "$label check rejects: $3" run check "$wm"
+    grep -qF -- "$3" "$WORK/.out" && ok "$label check names it: $3" || bad "$label check does not name '$3': $(grep brain "$WORK/.out" | head -3)"
+  }
+  wm_proj w_ok
+  run checkpoint "$wm" claude-dev F09-E01-T01 "a step" "a next step" >/dev/null 2>&1
+  assert_success "$label a working memory written by checkpoint passes check" run check "$wm"
+  wm_bad wc_trail '/^## Trail$/d' "is missing section '## Trail'"
+  wm_bad wc_retro '/^## Retro$/d' "is missing section '## Retro'"
+  wm_bad wc_now '/^## Now$/d' "is missing section '## Now'"
+  wm_bad wc_step 's/^- Step:.*/- Step:/' "Now has an empty Step"
+  wm_bad wc_next 's/^- Next:.*/- Next: /' "Now has an empty Next"
+  wm_bad wc_attempts 's/^- Attempts:.*/- Attempts: x/' "Now has invalid Attempts: x"
+  wm_bad wc_updated 's/^- Updated:.*/- Updated: yesterday/' "Now has invalid Updated: yesterday"
+  wm_bad wc_nonext '/^- Next:/d' "Now is missing '- Next:'"
+  wm_bad wc_title '1s/.*/# Working memory OTHER/' "title must start with '# Working memory F09-E01-T01'"
+  wm_proj w_classic_check
+  printf 'garbage\n' > "$wmf"
+  run_env PROJECT_DOCS_MODE=classic check "$wm" >/dev/null 2>&1 && ok "$label classic mode ignores docs/brain/tasks" || bad "$label classic mode checked a working memory"
+
 #FACTORY_CASES
 }
 

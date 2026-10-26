@@ -312,3 +312,12 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 ## [2026-10-26T18:00:29Z] | claude-sonnet-5-5 | F06-E02-T03 | IN_PROGRESS | Phase roles in the roster and claim
 - Summary: Phase roles in the roster and claim
 - Verify: pending
+
+## [2026-10-26T18:55:35Z] | claude-sonnet-5-5 | F06-E02-T03 | REVIEW | Phase roles in the roster and claim
+- Summary: Phase field, role gate in claim, roster rules in check
+- Verify: smoke 1102 pass 0 fail (sh 552 ps1 550); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-26T18:56:16Z] | claude-sonnet-5-5 | F06-E03-T02 | IN_PROGRESS | Working memory files and checkpoint command
+- Summary: Working memory files and checkpoint command
+- Verify: pending

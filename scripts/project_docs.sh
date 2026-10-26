@@ -1186,6 +1186,101 @@ cmd_claim() {
   echo "project_docs claim: $task claimed by $agent"
 }
 
+# clean_field_text VALUE: the free text of a Factory command (step, lesson, ...):
+# a run of CR/LF becomes one space, a bar becomes a slash, the ends are trimmed.
+# This is what the PowerShell launcher does; clean_field (classic) differs, and
+# stays as it is (BR-008).
+clean_field_text() {
+  printf '%s' "$1" | tr -s '\r\n' ' ' | tr '|' '/' | awk '{ gsub(/^[ \t]+|[ \t]+$/, ""); print }'
+}
+
+# Commands that exist only in Factory mode refuse to run in classic mode.
+require_factory() {
+  factory_on || die "$1 needs Factory mode (see references/factory.md)"
+}
+
+# The working memory of a task: docs/brain/tasks/<TASK-ID>.md (F06-E03-T02).
+working_memory_path() {
+  printf '%s/brain/tasks/%s.md' "$DOCS_DIR" "$1"
+}
+
+# has_working_now TASK: true when the task has a working memory with a ## Now.
+has_working_now() {
+  hw_f="$(working_memory_path "$1")"
+  [ -f "$hw_f" ] && tr -d '\r' < "$hw_f" | grep -qx '## Now'
+}
+
+# task_attempts TASK: how many times the task was sent back (Review: FAIL lines).
+task_attempts() {
+  [ -f "$DOCS_DIR/Agentslog.md" ] || { printf '0'; return 0; }
+  awk -v t="$1" '
+    /^## \[/ { line=$0; sub(/^## \[/, "", line); sub(/\] \| /, "|", line); gsub(/ \| /, "|", line); split(line, f, "|"); cur=f[3]; next }
+    cur == t && /^- Review: FAIL/ { n++ }
+    END { print n + 0 }
+  ' "$DOCS_DIR/Agentslog.md"
+}
+
+# checkpoint <project> <agent> <task-id> <step> <next>: creates or updates the
+# working memory of a task: rewrites ## Now and adds a line to ## Trail.
+cmd_checkpoint() {
+  shift 2
+  require_factory checkpoint
+  [ "$#" -ge 4 ] || die "checkpoint requires: agent task-id step next"
+  agent="$(canonical_agent "$(clean_field "$1")")"
+  task="$(clean_field "$2")"
+  step="$(clean_field_text "$3")"
+  nxt="$(clean_field_text "$4")"
+  [ -n "$step" ] || die "checkpoint requires a non-empty step"
+  [ -n "$nxt" ] || die "checkpoint requires a non-empty next"
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  roadmap_has_id "$task" || die "checkpoint failed: $task not found in docs/Roadmap.md"
+  with_lock
+  wm="$(working_memory_path "$task")"
+  mkdir -p "$DOCS_DIR/brain/tasks"
+  if [ ! -f "$wm" ]; then
+    [ -f "$TEMPLATES_DIR/WorkingMemory.md" ] || die "template missing: WorkingMemory.md"
+    awk -v task="$task" '{ i = index($0, "{TASK}"); if (i > 0) $0 = substr($0, 1, i - 1) task substr($0, i + 6); print }' "$TEMPLATES_DIR/WorkingMemory.md" > "$wm"
+  fi
+  timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  attempts="$(task_attempts "$task")"
+  wm_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-memory.XXXXXX")"
+  if ! tr -d '\r' < "$wm" | WM_STEP="$step" WM_NEXT="$nxt" awk -v att="$attempts" -v ts="$timestamp" -v agent="$agent" '
+    function flush_trail() {
+      if (intrail && !added) {
+        print "- " ts " " agent ": " ENVIRON["WM_STEP"]
+        added=1
+        while (nb > 0) { print ""; nb-- }
+      }
+    }
+    $0 == "## Now" {
+      flush_trail(); intrail=0; innow=1; hasnow=1
+      print
+      print "- Step: " ENVIRON["WM_STEP"]
+      print "- Next: " ENVIRON["WM_NEXT"]
+      print "- Attempts: " att
+      print "- Updated: " ts
+      print ""
+      next
+    }
+    /^## / {
+      flush_trail(); innow=0
+      intrail = ($0 == "## Trail")
+      if (intrail) hastrail=1
+      print
+      next
+    }
+    innow { next }
+    intrail { if ($0 == "") { nb++; next } while (nb > 0) { print ""; nb-- } print; next }
+    { print }
+    END { flush_trail(); if (!hasnow || !hastrail) exit 3 }
+  ' > "$wm_tmp"; then
+    rm -f "$wm_tmp"
+    die "checkpoint failed: docs/brain/tasks/$task.md is not a working memory file (needs ## Now and ## Trail)"
+  fi
+  mv "$wm_tmp" "$wm"
+  echo "project_docs checkpoint: $task saved"
+}
+
 cmd_pause() {
   shift 2
   [ "$#" -ge 4 ] || die "pause requires: agent task-id category detail"
@@ -1207,6 +1302,9 @@ cmd_pause() {
   fi
   [ "$status" = "IN_PROGRESS" ] || die "pause failed: $task is not IN_PROGRESS (current: $status)"
   [ "$owner" = "$agent" ] || die "pause failed: $task is owned by $owner, not $agent"
+  if factory_on && ! has_working_now "$task"; then
+    die "pause failed: $task has no working memory yet (## Now); run checkpoint first"
+  fi
   name="$(require_valid_name "$task" pause)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   {
@@ -2563,6 +2661,47 @@ check_factory_roster() {
   fi
 }
 
+# Working memory validation (Factory mode only, F06-E03-T02): every file in
+# docs/brain/tasks has the three sections and a well-formed ## Now.
+# The 047 escapes below are apostrophes.
+memory_report() {
+  tr -d '\r' < "$1" | awk -v id="$(basename "$1" .md)" '
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    function err(m) { n++; msg[n] = "ERROR: docs/brain/tasks/" id ".md " m }
+    NR==1 {
+      t = "# Working memory " id
+      if (index($0, t) != 1 || (length($0) > length(t) && substr($0, length(t) + 1, 1) != " ")) err("title must start with \047" t "\047")
+    }
+    /^## / { sec=$0; seen[sec]=1; next }
+    sec == "## Now" && /^- Step:/ { hs=1; if (trim(substr($0, 8)) == "") err("Now has an empty Step"); next }
+    sec == "## Now" && /^- Next:/ { hn=1; if (trim(substr($0, 8)) == "") err("Now has an empty Next"); next }
+    sec == "## Now" && /^- Attempts:/ { ha=1; v=trim(substr($0, 12)); if (v !~ /^[0-9]+$/) err("Now has invalid Attempts: " v); next }
+    sec == "## Now" && /^- Updated:/ { hu=1; v=trim(substr($0, 11)); if (v != "—" && v !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/) err("Now has invalid Updated: " v); next }
+    END {
+      split("## Now|## Trail|## Retro", req, "|")
+      for (i=1; i<=3; i++) if (!(req[i] in seen)) err("is missing section \047" req[i] "\047")
+      if ("## Now" in seen) {
+        if (!hs) err("Now is missing \047- Step:\047")
+        if (!hn) err("Now is missing \047- Next:\047")
+        if (!ha) err("Now is missing \047- Attempts:\047")
+        if (!hu) err("Now is missing \047- Updated:\047")
+      }
+      for (i=1; i<=n; i++) print msg[i]
+    }
+  '
+}
+
+check_working_memory() {
+  [ -d "$DOCS_DIR/brain/tasks" ] || return 0
+  for cw_f in "$DOCS_DIR"/brain/tasks/*.md; do
+    [ -f "$cw_f" ] || continue
+    cw_out="$(memory_report "$cw_f")"
+    [ -n "$cw_out" ] || continue
+    printf '%s\n' "$cw_out" >&2
+    CHECK_FAIL=1
+  done
+}
+
 check_docs() {
   CHECK_FAIL=0
   need AGENTS.md "## Repository rules" "## Startup" "## Close"
@@ -2624,7 +2763,7 @@ check_docs() {
   check_table_status_enum docs/Stack_Tecnologies.md "CONFIRMED HYPOTHESIS UNKNOWN" "epistemic"
   check_table_status_enum docs/Roadmap.md "TODO IN_PROGRESS PAUSE DONE" "workflow"
   check_table_name_wordlimit docs/Roadmap.md 10
-  if factory_on; then check_brain_rows; check_specs; check_factory_roster; fi
+  if factory_on; then check_brain_rows; check_specs; check_factory_roster; check_working_memory; fi
 
   check_warnings
 
@@ -2771,10 +2910,11 @@ case "$COMMAND" in
   handoff) cmd_handoff "$@" ;;
   review) cmd_review "$@" ;;
   mode) cmd_mode ;;
+  checkpoint) cmd_checkpoint "$@" ;;
   assign) cmd_assign "$@" ;;
   done) cmd_done "$@" ;;
   status) cmd_status ;;
   *)
-    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode} <project> [args]"
+    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint} <project> [args]"
     ;;
 esac

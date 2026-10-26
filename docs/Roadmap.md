@@ -21,6 +21,7 @@ stable for positional edits.
 |---|---|---|---|---|---|---|---|
 | F06-E02-T01 | Spec template and check rules for scenarios | templates/Spec.md and check per section 4.4 | Invalid specs fail check; valid spec passes | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T17:02:56Z | F06-E01-T01 | — |
 | F06-E02-T03 | Phase roles in the roster and claim | D-05 roles; DEVELOPER alias of DEV | Role mismatch refused in factory and ignored in classic | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T18:00:29Z | F06-E01-T01 | — |
+| F06-E03-T02 | Working memory files and checkpoint command | docs/brain/tasks; pause and advance require Now | Smoke cases create, update and require the file | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T18:56:16Z | F06-E01-T01 | — |
 
 <!-- context:end -->
 
@@ -97,7 +98,6 @@ Spec: docs/features/ia-factory.md (closed decisions D-01 to D-21 are ADR-023 onw
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E03-T02 | Working memory files and checkpoint command | docs/brain/tasks; pause and advance require Now | Smoke cases create, update and require the file | TODO | — | F06-E01-T01 | — |
 | F06-E03-T03 | Recall command with deterministic ranking and budget | Algorithm in section 4.5 | Same bytes in sh and ps1; never above budget; whole rows only | TODO | — | F06-E03-T01, F06-E03-T02, F06-E02-T01 | — |
 | F06-E03-T04 | Learn and retro commands with mandatory lessons | retro rules and done integration per section 4.5 | learned none refused after a FAIL; Hits updated on done | TODO | — | F06-E03-T03 | — |
 | F06-E03-T05 | Brain garbage collection in rotate and promotion warning | Archive to 75 percent of cap with SHA-256 check | Over-cap fixture ends under cap; archive verified | TODO | — | F06-E03-T01 | — |

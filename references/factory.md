@@ -144,3 +144,17 @@ In Factory mode:
   `QA` (or `BOTH`), or a role outside the list above (roles are upper case).
 
 In classic mode none of this applies: `claim` ignores roles and writes no phase.
+
+## Working memory and checkpoint
+
+`checkpoint <project> <agent> <task-id> <step> <next>` keeps the working memory
+of a task in `docs/brain/tasks/<TASK-ID>.md` (made from
+`templates/WorkingMemory.md` the first time). It rewrites `## Now` (`Step`,
+`Next`, `Attempts` = the task's `Review: FAIL` count, `Updated`) and adds one
+`- <time> <agent>: <step>` line to `## Trail`; `## Retro` is filled by `retro`.
+Run it before any long step, before pausing, before compacting and before a
+phase change: whoever resumes the task cold, including after a runtime
+compaction, reads this file (through `recall`) instead of the whole history.
+In Factory mode `pause` refuses a task that has no `## Now`. `check` validates
+the files. A `|` in `step` or `next` becomes `/`, like in the PowerShell
+launcher. The command exists only in Factory mode.
