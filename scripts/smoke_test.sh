@@ -2641,6 +2641,22 @@ SPEC
   run rotate "$au" >/dev/null 2>&1
   runo next "$au" gemini-qa
   [ "$(head -n 1 "$WORK/.out" | tr -d '\r')" = "none" ] && ok "$label an audited task is not carried again" || bad "$label next after the second rotate: $(cat "$WORK/.out")"
+  au_proj r2np
+  sedi '/^| Preferred reviewer | gemini-qa |$/d' "$au/AGENTS.md"
+  seed_fill "$au" F09-FILL-11 205
+  run rotate "$au" >/dev/null 2>&1
+  ! grep -q '| F09-E01-T10 | DONE |' "$au/docs/Agentslog.md" && ok "$label with no Preferred reviewer nobody audits, so rotate carries no closed task" || bad "$label a closed task was carried with no Preferred reviewer"
+  au_proj r2cap
+  cap_i=20
+  while [ "$cap_i" -le 44 ]; do
+    cap_id="F09-E02-T$cap_i"
+    seed_entry "$au" "2026-09-$(printf '%02d' $((cap_i - 14)))T10:00:00Z" claude-dev "$cap_id" IN_PROGRESS "Closed one model $cap_i" '- Summary: w\n- Verify: pending\n- Phase: GREEN\n- Lane: NORMAL\n'
+    seed_entry "$au" "2026-09-$(printf '%02d' $((cap_i - 14)))T10:05:00Z" claude-dev "$cap_id" DONE "Closed one model $cap_i" '- Summary: d\n- Files: x\n- Verify: exit=0\n- Cross-model: NO\n'
+    cap_i=$((cap_i + 1))
+  done
+  seed_fill "$au" F09-FILL-12 205
+  run rotate "$au" >/dev/null 2>&1
+  [ "$(grep -c '| F09-E0[12]-T[0-9]* | DONE |' "$au/docs/Agentslog.md")" -eq 20 ] && grep -q '| F09-E02-T44 | DONE |' "$au/docs/Agentslog.md" && ! grep -q '| F09-E02-T24 | DONE |' "$au/docs/Agentslog.md" && ok "$label rotate carries at most the 20 latest closed tasks that wait for an audit" || bad "$label carried: $(grep -c '| F09-E0[12]-T[0-9]* | DONE |' "$au/docs/Agentslog.md")"
 
   # ---- the marker of the .gitignore block is found in other writings --------------------------------------------------
   GI_MARK='# project-documentation dispatcher (generated files)'
@@ -2664,6 +2680,19 @@ SPEC
   done
   wait
   [ "$(grep -c '^| LRN-' "$bnb")" -eq 6 ] && [ "$(grep '^| LRN-' "$bnb" | cut -d'|' -f2 | sort -u | wc -l | tr -d ' ')" -eq 6 ] && ok "$label three lessons added at the same time are three lessons with three ids" || bad "$label parallel learn: $(grep '^| LRN-' "$bnb" | cut -c1-40 | tr '\n' '~') $(cat "$WORK"/.par1 "$WORK"/.par2 "$WORK"/.par3 | tr '\n' '~' | cut -c1-300)"
+  # an old lock (a command that died) is taken over once, also when several commands find it at the same time
+  bn_proj stale
+  mkdir -p "$bn/docs/.lock"
+  stale_ok=0
+  if touch -d '3 minutes ago' "$bn/docs/.lock" 2>/dev/null; then stale_ok=1
+  elif touch -t "$(date -v-3M +%Y%m%d%H%M.%S 2>/dev/null)" "$bn/docs/.lock" 2>/dev/null; then stale_ok=1; fi
+  if [ "$stale_ok" -eq 1 ]; then
+    for par_i in 1 2 3 4; do
+      ( run learn "$bn" claude-dev F09-E01-T01 PITFALL "Stale lesson $par_i" "stale$par_i" "Text $par_i" > "$WORK/.par$par_i" 2>&1 ) &
+    done
+    wait
+    [ "$(grep -c '^| LRN-' "$bnb")" -eq 7 ] && [ ! -e "$bn/docs/.lock" ] && [ ! -e "$bn/docs/.lock.takeover" ] && ok "$label four commands that find an old lock take it over once, lose nothing and leave no lock" || bad "$label stale lock: $(grep -c '^| LRN-' "$bnb") rows, lock $( [ -e "$bn/docs/.lock" ] && echo left || echo gone ), takeover $( [ -e "$bn/docs/.lock.takeover" ] && echo left || echo gone )"
+  fi
 
   echo "== $label: test paths of a spec stay inside the project (F06-DEBT-03) =="
   spec_bad sp_abs 's#tests/billing/export.spec.sh#/etc/export.spec.sh#' "Tests entry '/etc/export.spec.sh' must be a relative path inside the project (no absolute path, drive letter or .. segment)"
@@ -3053,6 +3082,37 @@ run_dispatch_suite() {
   dp_limit_case reset_hour "You've hit your weekly limit - resets 9am" 09:00
   dp_limit_case reset_caps "YOU'VE HIT YOUR SESSION LIMIT. RESETS 11:30PM" 23:30
   dp_limit_case reset_24h "You've hit your opus limit, resets 15:45" 15:45
+
+  # a Cooldown of 0 is 60 minutes; a file is not a project folder; a pause that is refused after a limit
+  dp_proj zerocool
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  awk -F'|' '$2 ~ /^ claude-dev / { n = split($0, c, "|"); printf "|%s|%s|%s|%s| 0 |%s|%s|\n", c[2], c[3], c[4], c[5], c[7], c[8]; next } { print }' "$dp/.factory/dispatch.md" > "$dp/.factory/dispatch.md.tmp" && mv "$dp/.factory/dispatch.md.tmp" "$dp/.factory/dispatch.md"
+  dp_script claude-dev "ok:claim claude-dev F09-E01-T01 \"fix\" ;; ok:checkpoint claude-dev F09-E01-T01 \"started\" \"continue\" ;; limit:You've hit your session limit"
+  dp_run --once
+  dp_cd="$(sed -n 's/^| cooldown:claude | \([0-9]*\) |$/\1/p' "$dp/.factory/state.md")"
+  dp_now="$(date +%s)"
+  [ -n "$dp_cd" ] && [ "$dp_cd" -ge $((dp_now + 3300)) ] && ok "$label a Cooldown minutes of 0 waits sixty minutes, not none" || bad "$label cooldown epoch $dp_cd, now $dp_now"
+  dp_proj notfolder
+  dp_save="$dp"; dp="$dp_save/.factory/dispatch.md"
+  dp_run
+  [ "$dp_rc" -eq 1 ] && dp_has "a file given as the project is refused like a missing folder" "factory_dispatch: project folder not found" || bad "$label file as project exit $dp_rc: $(dp_out | head -n 3)"
+  dp="$dp_save"
+  dp_proj limitrefused
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  dp_script claude-dev "write:docs/brain/tasks/F09-E01-T01.md=this is not a working memory ;; ok:claim claude-dev F09-E01-T01 \"fix\" ;; limit:You've hit your session limit"
+  dp_run
+  dp_has "a refused pause after a limit is logged as it is" "dispatch: run 1 could not pause F09-E01-T01 for claude-dev (pause was refused)"
+  dp_lacks "it is not logged as paused" "paused F09-E01-T01 (LIMITE)"
+  dp_has "the plan still waits" "dispatch: sleep until "
+
+  # the actions of the fake CLI that the other cases do not use
+  dp_proj actions
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  dp_script claude-dev "exec:git rev-parse --verify nothing-here-at-all ;; write:code1.txt=code {EXIT} ;; git:--version ;; tryok:handoff claude-dev F09-E01-T01 \"x\" exit=0 ;; write:code2.txt=code {EXIT} ;; ok:claim claude-dev F09-E01-T01 \"fix\" ;; ok:checkpoint claude-dev F09-E01-T01 \"started\" \"continue\""
+  dp_run --once
+  [ "$(tr -d '\r' < "$dp/code1.txt")" = "code 128" ] && ok "$label exec leaves its exit code in {EXIT}" || bad "$label code1: $(cat "$dp/code1.txt" 2>&1)"
+  [ "$(tr -d '\r' < "$dp/code2.txt")" = "code 1" ] && ok "$label tryok does not end the line and leaves its exit code in {EXIT}" || bad "$label code2: $(cat "$dp/code2.txt" 2>&1)"
+  dp_has "the action line ran to its end" "dispatch: run 1 ok"
 }
 
 file_hash() {

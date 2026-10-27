@@ -838,3 +838,130 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 ## [2026-10-27T16:38:09Z] | claude-sonnet-5-5 | F06-DEBT-02 | IN_PROGRESS | Bind the spec review to the spec content
 - Summary: bind the spec review to the spec content
 - Verify: pending
+
+## [2026-10-27T17:01:39Z] | claude-sonnet-5-5 | F06-E04-T01 | IN_PROGRESS | Digest command for asynchronous human review
+- Summary: retake after the QA round 2 findings
+- Verify: pending
+
+## [2026-10-27T17:01:41Z] | claude-sonnet-5-5 | F06-E06-T02 | IN_PROGRESS | Dispatcher loop in PowerShell with limit detection
+- Summary: retake after the QA round 2 findings
+- Verify: pending
+
+## [2026-10-27T17:01:44Z] | claude-sonnet-5-5 | F06-E06-T03 | IN_PROGRESS | Dispatcher loop in sh with identical behavior
+- Summary: retake after the QA round 2 findings
+- Verify: pending
+
+## [2026-10-27T17:01:47Z] | claude-sonnet-5-5 | F06-E05-T01 | IN_PROGRESS | Document factory mode across skill and references
+- Summary: retake after the QA round 2 findings
+- Verify: pending
+
+## [2026-10-27T17:01:50Z] | claude-sonnet-5-5 | F06-E04-T01 | REVIEW | Digest command for asynchronous human review
+- Summary: digest: dates, counts by since, character safe cuts, line cap; see commit ee6c1ad
+- Verify: commit ee6c1ad; focused runs of every new case pass in sh (136) and ps1 (134) incl. the dispatcher suite; dogfood.sh passed on 2b97a0b; full smoke running; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T17:01:53Z] | claude-sonnet-5-5 | F06-E06-T02 | REVIEW | Dispatcher loop in PowerShell with limit detection
+- Summary: ps1 dispatcher: refused pause, API keys, STOP while waiting, portable; see commit ee6c1ad
+- Verify: commit ee6c1ad; focused runs of every new case pass in sh (136) and ps1 (134) incl. the dispatcher suite; dogfood.sh passed on 2b97a0b; full smoke running; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T17:01:56Z] | claude-sonnet-5-5 | F06-E06-T03 | REVIEW | Dispatcher loop in sh with identical behavior
+- Summary: sh dispatcher: refused pause, relative path, cooldown cell, CRLF, keys; see commit ee6c1ad
+- Verify: commit ee6c1ad; focused runs of every new case pass in sh (136) and ps1 (134) incl. the dispatcher suite; dogfood.sh passed on 2b97a0b; full smoke running; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T17:01:59Z] | claude-sonnet-5-5 | F06-E05-T01 | REVIEW | Document factory mode across skill and references
+- Summary: docs: mode, signatures, autonomy, context economy, worked example, adapters back; see commit ee6c1ad
+- Verify: commit ee6c1ad; focused runs of every new case pass in sh (136) and ps1 (134) incl. the dispatcher suite; dogfood.sh passed on 2b97a0b; full smoke running; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T17:02:01Z] | claude-sonnet-5-5 | F06-DEBT-02 | REVIEW | Bind the spec review to the spec content
+- Summary: spec review bound to the SHA-256 of the spec; see commit ee6c1ad
+- Verify: commit ee6c1ad; focused runs of every new case pass in sh (136) and ps1 (134) incl. the dispatcher suite; dogfood.sh passed on 2b97a0b; full smoke running; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T17:02:03Z] | claude-sonnet-5-5 | F06-DEBT-03 | REVIEW | Reject test paths outside the project
+- Summary: test paths inside the project; see commit ee6c1ad
+- Verify: commit ee6c1ad; focused runs of every new case pass in sh (136) and ps1 (134) incl. the dispatcher suite; dogfood.sh passed on 2b97a0b; full smoke running; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T17:02:06Z] | claude-sonnet-5-5 | F06-DEBT-04 | REVIEW | Make the docs lock exclusive and race free
+- Summary: exclusive docs lock; see commit ee6c1ad
+- Verify: commit ee6c1ad; focused runs of every new case pass in sh (136) and ps1 (134) incl. the dispatcher suite; dogfood.sh passed on 2b97a0b; full smoke running; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T17:28:09Z] | claude-qa | F06-E04-T01 | REVIEW | Digest command for asynchronous human review
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 3 on a frozen copy of ee6c1ad (git archive); sh and ps1 compared; exit=0
+- Review: PASS - digest: real dates only, counts follow since, names cut by characters, long lines capped, 6013 entries in 3 s, sh and ps1 byte-identical
+
+## [2026-10-27T17:28:13Z] | claude-qa | F06-DEBT-02 | REVIEW | Bind the spec review to the spec content
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 3 on a frozen copy of ee6c1ad (git archive); sh and ps1 compared; exit=0
+- Review: PASS - the Spec-sha equals sha256sum of the spec, edits after PASS are refused, a new handoff and PASS clears it, rotate carries it, a ledger without it passes as before
+
+## [2026-10-27T17:28:16Z] | claude-qa | F06-DEBT-03 | REVIEW | Reject test paths outside the project
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 3 on a frozen copy of ee6c1ad (git archive); sh and ps1 compared; exit=0
+- Review: PASS - 30 odd paths give the same verdict in sh and ps1; absolute, drive, UNC and .. paths are refused and names with dots inside are accepted
+
+## [2026-10-27T17:28:18Z] | claude-qa | F06-DEBT-04 | REVIEW | Make the docs lock exclusive and race free
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 3 on a frozen copy of ee6c1ad (git archive); sh and ps1 compared; exit=0
+- Review: FAIL - an old lock plus four parallel learn calls lost a lesson in sh in 2 of 3 rounds: two waiters saw the same old lock and the second removed the fresh lock of the first; the takeover must be atomic
+
+## [2026-10-27T17:28:41Z] | claude-sonnet-5-5 | F06-E02-T06 | DONE | Fast lane with size limits and promotion to SPEC
+- Summary: fast lane with size limits and promotion to SPEC; renames, spaces, git failures and long paths handled
+- Files: scripts/project_docs.sh, scripts/project_docs.ps1, scripts/smoke_test.sh, references/factory.md
+- Verify: QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0
+
+## [2026-10-27T17:28:46Z] | claude-sonnet-5-5 | F06-E01-T07 | DONE | Context drops older log entries to fit in Factory mode
+- Summary: Factory context drops older entries instead of failing
+- Files: scripts/project_docs.sh, scripts/project_docs.ps1, scripts/smoke_test.sh, references/factory.md
+- Verify: QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0
+
+## [2026-10-27T17:28:51Z] | claude-sonnet-5-5 | F06-E04-T01 | DONE | Digest command for asynchronous human review
+- Summary: digest command for the asynchronous human review
+- Files: scripts/project_docs.sh, scripts/project_docs.ps1, scripts/smoke_test.sh, references/factory.md
+- Verify: QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0
+
+## [2026-10-27T17:28:56Z] | claude-sonnet-5-5 | F06-DEBT-02 | DONE | Bind the spec review to the spec content
+- Summary: the review of a spec is bound to its SHA-256
+- Files: scripts/project_docs.sh, scripts/project_docs.ps1, scripts/smoke_test.sh, references/factory.md
+- Verify: QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0
+
+## [2026-10-27T17:29:00Z] | claude-sonnet-5-5 | F06-DEBT-03 | DONE | Reject test paths outside the project
+- Summary: test paths of a spec stay inside the project
+- Files: scripts/project_docs.sh, scripts/project_docs.ps1, scripts/smoke_test.sh, references/factory.md
+- Verify: QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0
+
+## [2026-10-27T17:29:06Z] | claude-sonnet-5-5 | F06-E04-T03 | IN_PROGRESS | Cross-model marker, default reviewers and audits
+- Summary: retake after the QA round 3 findings
+- Verify: pending
+
+## [2026-10-27T17:29:10Z] | claude-sonnet-5-5 | F06-DEBT-04 | IN_PROGRESS | Make the docs lock exclusive and race free
+- Summary: retake after the QA round 3 findings
+- Verify: pending
+
+## [2026-10-27T17:39:21Z] | claude-qa | F06-E06-T02 | REVIEW | Dispatcher loop in PowerShell with limit detection
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 3 on a frozen copy of ee6c1ad (git archive); SMOKE_ONLY=dispatch 87 passed in sh and 85 in ps1; exit=0
+- Review: PASS - ps1 dispatcher: every defect of round 2 re-run by hand and fixed; remarks (Cooldown 0, a file as the project) are fixed before done
+
+## [2026-10-27T17:39:24Z] | claude-qa | F06-E06-T03 | REVIEW | Dispatcher loop in sh with identical behavior
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 3 on a frozen copy of ee6c1ad (git archive); SMOKE_ONLY=dispatch 87 passed in sh and 85 in ps1; exit=0
+- Review: PASS - sh dispatcher: refused pause, relative path, cooldown cells, CRLF, options, missing folder, STOP while waiting and API keys all fixed
+
+## [2026-10-27T17:39:27Z] | claude-qa | F06-E05-T01 | REVIEW | Document factory mode across skill and references
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 3 on a frozen copy of ee6c1ad (git archive); SMOKE_ONLY=dispatch 87 passed in sh and 85 in ps1; exit=0
+- Review: FAIL - docs: a line break cut the inline code in factory.md, README and workflow.md still said six files and roles only warn in classic, and the removal of the API keys, could not block and the 60 minute fallback were not documented
+
+## [2026-10-27T17:39:29Z] | claude-sonnet-5-5 | F06-E05-T01 | IN_PROGRESS | Document factory mode across skill and references
+- Summary: retake after the QA round 3 findings
+- Verify: pending
+
+## [2026-10-27T17:39:32Z] | claude-sonnet-5-5 | F06-E05-T02 | IN_PROGRESS | Add factory evals and adjust six-file evals
+- Summary: retake after the QA round 3 findings
+- Verify: pending

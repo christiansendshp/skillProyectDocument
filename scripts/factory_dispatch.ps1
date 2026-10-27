@@ -42,6 +42,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Core = Join-Path $ScriptDir "project_docs.ps1"
 $PromptTemplate = Join-Path (Join-Path $ScriptDir "..") "templates/dispatch-prompt.md"
 try { $Project = (Resolve-Path -LiteralPath $Project -ErrorAction Stop).Path } catch { [Console]::Error.WriteLine("factory_dispatch: project folder not found"); exit 1 }
+if (-not (Test-Path -LiteralPath $Project -PathType Container)) { [Console]::Error.WriteLine("factory_dispatch: project folder not found"); exit 1 }
 $FDir = Join-Path $Project ".factory"
 $Config = Join-Path $FDir "dispatch.md"
 $StateFile = Join-Path $FDir "state.md"
@@ -153,7 +154,7 @@ function Get-Agents {
         $mr = $c[5]; if ($mr -ceq $EmDash) { $mr = "" }
         $cv = $c[6]; if ($cv -ceq $EmDash) { $cv = "" }
         $cool = 60
-        if ($c[4] -match '^[0-9]+$') { $cool = [int]$c[4] }
+        if ($c[4] -match '^[0-9]+$' -and [int]$c[4] -gt 0) { $cool = [int]$c[4] }
         $list.Add([PSCustomObject]@{ Id = $c[0]; Plan = $c[1]; Command = $cmd; Limits = $c[3]; Cooldown = $cool; MaxRuns = $mr; Covers = $cv })
     }
     return $list.ToArray()

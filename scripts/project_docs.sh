@@ -1234,7 +1234,24 @@ with_lock() {
       esac
       now_epoch="$(date -u +%s)"
       if [ $((now_epoch - lock_epoch)) -ge 30 ]; then
-        rmdir "$lockdir" 2>/dev/null || true
+        # An old lock is taken over by one waiter at a time, who reads its age again inside the
+        # takeover: two waiters that saw the same old lock could otherwise both remove it, and the
+        # second would remove the new lock of the first.
+        if mkdir "$lockdir.takeover" 2>/dev/null; then
+          lock_epoch2="$(stat -c %Y "$lockdir" 2>/dev/null || stat -f %m "$lockdir" 2>/dev/null || echo 0)"
+          case "$lock_epoch2" in ''|*[!0-9]*) lock_epoch2=0 ;; esac
+          if [ "$lock_epoch2" -gt 0 ] && [ $(( $(date -u +%s) - lock_epoch2 )) -ge 30 ]; then
+            rmdir "$lockdir" 2>/dev/null || true
+          fi
+          rmdir "$lockdir.takeover" 2>/dev/null || true
+        elif [ -d "$lockdir.takeover" ]; then
+          # a takeover that died leaves its marker: it counts as old too
+          take_epoch="$(stat -c %Y "$lockdir.takeover" 2>/dev/null || stat -f %m "$lockdir.takeover" 2>/dev/null || echo 0)"
+          case "$take_epoch" in ''|*[!0-9]*) take_epoch=0 ;; esac
+          if [ "$take_epoch" -gt 0 ] && [ $(( $(date -u +%s) - take_epoch )) -ge 30 ]; then rmdir "$lockdir.takeover" 2>/dev/null || true; fi
+        fi
+        if [ "$attempts" -ge 50 ]; then die "could not acquire docs/.lock (busy); retry"; fi
+        sleep 0.1 2>/dev/null || sleep 1
         continue
       fi
     fi
@@ -4020,8 +4037,10 @@ rotate_log() {
     fi
     # A closed task of the normal lane that one model reviewed and nobody audited yet stays in the
     # ledger as a DONE entry, so the audit queue of the preferred reviewer survives the rotation.
-    if factory_on; then
-      all_task_states | awk -F'\t' '$2 == "DONE" && $18 != "FAST" && $20 == "NO" && $21 + 0 == 0' | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base cross audited pdetail rest; do
+    # Only when a preferred reviewer is set (nobody else audits), and the 20 latest at most, so a
+    # queue nobody works off cannot keep the ledger over its limit.
+    if factory_on && [ -n "$(factory_setting "Preferred reviewer")" ]; then
+      all_task_states | awk -F'\t' '$2 == "DONE" && $18 != "FAST" && $20 == "NO" && $21 + 0 == 0' | LC_ALL=C sort -t "$(printf '\t')" -k4,4 | tail -n 20 | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base cross audited pdetail rest; do
         [ -n "$tid" ] || continue
         echo
         echo "## [$ts] | $agent | $tid | DONE | $name"

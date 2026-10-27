@@ -69,7 +69,7 @@ agents_tsv() {  # id, plan, command, limit text, cooldown minutes, max runs per 
       if (c[1] == "Agent id" || c[1] ~ /^-+$/ || c[1] == "") next
       cmd = c[3]
       if (cmd ~ /^`/) { sub(/^`/, "", cmd); sub(/`$/, "", cmd) }
-      cool = (c[5] ~ /^[0-9]+$/) ? c[5] : 60
+      cool = (c[5] ~ /^[0-9]+$/ && c[5] + 0 > 0) ? c[5] : 60
       mr = c[6]; if (mr !~ /^[0-9]+$/) mr = ""
       cv = c[7]; if (cv == "—") cv = ""
       printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", c[1], c[2], cmd, c[4], cool, mr, cv

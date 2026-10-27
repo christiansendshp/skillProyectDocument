@@ -93,7 +93,7 @@ Triggered when the user asks to create a new app, system, or product, and
 when installing the skill mid-project with Product/Stack still mostly
 `UNKNOWN` after reconstruction from code:
 
-1. `init` (creates the six files and links agent files); `migrate` first if
+1. `init` (creates the six files, or the seven of Factory mode, and links agent files); `migrate` first if
    the project uses the legacy `docs/Agents.md` format or a YAML Roadmap.
 2. Fill Product and Stack with whatever the request or the project already
    gives, aligning each answer to a `ProductDescription.md`/
@@ -425,8 +425,9 @@ the project root `AGENTS.md` records them:
 ```
 
 `Kind` is `HUMAN` or `AI`; `Role` is `SPEC`, `TEST`, `DEV`, `QA`, `OPS` or `BOTH`
-(`DEVELOPER` is the old name of `DEV`; in classic mode the roles only warn, in
-Factory mode they decide who may take which phase). The section
+(`DEVELOPER` is the old name of `DEV`; in classic mode a review by an agent whose role
+is `DEVELOPER` warns, and in Factory mode the roles decide who may take which phase).
+The section
 is not required by `check`, and `init` adds it to new projects only, never to
 an existing `AGENTS.md` block.
 

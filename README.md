@@ -1,7 +1,7 @@
 # project-documentation
 
 Compact, coordinated project memory for AI coding agents. It creates six
-stable files at project initialization, keeps startup context bounded while
+stable files at project initialization (seven in Factory mode), keeps startup context bounded while
 preserving cold history, and lets multiple agents (Claude Code, Codex,
 OpenCode, Antigravity, others) take tasks without overlapping.
 
@@ -90,7 +90,7 @@ Factory mode only (every one refuses to run in a classic project):
 
 `scripts/factory_dispatch.sh` and `scripts/factory_dispatch.ps1` (`<project> [--watch] [--once]`)
 are the dispatcher: they ask `next` for each agent of `.factory/dispatch.md`, launch
-that agent's CLI, detect quota limits in its output, and keep going. They live
+that agent's CLI (without any API key in its environment), detect quota limits in its output, and keep going. They live
 outside the core and are tested with fake CLIs.
 
 Initialization is idempotent and never overwrites existing content —

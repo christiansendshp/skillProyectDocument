@@ -372,7 +372,9 @@ recorded phase shows `SPEC`. In classic mode the output is the one it always was
   "<summary>" "<files>" "<verify>"`. An `AUDIT` entry is valid only in Factory
   mode, never reopens a task and takes the task out of the audit queue. `rotate` carries a
   closed task that still waits for its audit as a `DONE` entry, so the queue survives
-  a rotation. A problem
+  a rotation; it does so only when a `Preferred reviewer` is set (nobody else audits) and
+  for the 20 latest at most, so a queue nobody works off cannot keep the ledger over its
+  limit. A problem
   found by the audit goes in as a new `Fxx-BUG-xx` row.
 
 ## digest: what a person reads
@@ -528,6 +530,16 @@ need `--allowedTools` or `permissions.allow` rules in the project's
 5. With no one to run and a cooldown open, the dispatcher prints `sleep until HH:MM`
    and waits (`PROJECT_DOCS_DISPATCH_NO_SLEEP=1` prints it and stops, for tests).
 
+The agent CLIs start without `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `GEMINI_API_KEY` and
+`GOOGLE_API_KEY` in their environment, so each one uses the login of its subscription; a
+Gemini CLI that signs in with an API key must use another way to sign in. A `Cooldown
+minutes` or `Max runs per day` cell that is not a number takes 60 minutes or no cap, and a
+`Cooldown minutes` of 0 counts as 60. When the pause the dispatcher wants to write is
+refused (for example the task has no working memory) it logs `could not block` or `could
+not pause`, keeps the failure counter and skips that agent on that task, so nothing
+loops; delete the `fails:` row of `.factory/state.md` to try again. Waits are made in
+steps of at most 30 seconds, so `.factory/STOP` is read during a cooldown.
+
 Log lines all start with `dispatch:`. To retry a pair that failed three times without
 a pause, delete its `fails:` row from `.factory/state.md`.
 
@@ -539,8 +551,7 @@ remove it) and run its actions separated by ` ;; `: `ok:<core command>` (the pro
 added; a failure ends the line), `tryok:<core command>` (the same, a failure does not end
 the line), `exec:<command line>` (runs it in the project, for example a test; its exit
 code is the value of `{EXIT}` in the actions that follow, and of `tryok`), `write:<path>=<text>`
-(`
-` is a new line), `git:<args>`, `env:<NAME>` (prints the variable the dispatcher
+(a backslash and n in the text is a new line), `git:<args>`, `env:<NAME>` (prints the variable the dispatcher
 handed over, to prove that API keys are not), `limit:<text>` and `fail:<text>`. The smoke
 test drives the dispatcher with them, so no real quota is ever spent; `scripts/tests/dogfood.sh`
 runs a whole lifecycle with them.

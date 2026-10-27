@@ -38,4 +38,7 @@ twice (a dash means none). `{PROMPT_FILE}` becomes the path of the prompt writte
 - Shell commands other than file edits need `--allowedTools` or `permissions.allow` rules in the
   project's `.claude/settings.json` (the agents run `scripts/project_docs.sh` or `.ps1`).
 - `gemini -p` runs without a screen; YOLO is only on with the `--approval-mode=yolo` flag.
+- The agent CLIs run without `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `GEMINI_API_KEY` and
+  `GOOGLE_API_KEY` in their environment, so they use the login of their subscription.
+- A `Cooldown minutes` cell that is not a number (or is 0) takes 60 minutes.
 - To stop the dispatcher after the run in progress, create the file `.factory/STOP`.

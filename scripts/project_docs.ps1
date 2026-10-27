@@ -1314,7 +1314,30 @@ function Enter-DocsLock {
             if (Test-Path -LiteralPath $lockDir -PathType Container) {
                 $age = (Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $lockDir -ErrorAction Stop).LastWriteTimeUtc
                 if ($age.TotalSeconds -ge 30) {
-                    Remove-Item -LiteralPath $lockDir -Force -Recurse -ErrorAction SilentlyContinue
+                    # An old lock is taken over by one waiter at a time, who reads its age again inside the
+                    # takeover: two waiters that saw the same old lock could otherwise both remove it, and the
+                    # second would remove the new lock of the first.
+                    $takeDir = $lockDir + ".takeover"
+                    & cmd.exe /d /c ('mkdir "' + $takeDir + '" 2>nul') | Out-Null
+                    if ($LASTEXITCODE -eq 0) {
+                        try {
+                            if (Test-Path -LiteralPath $lockDir -PathType Container) {
+                                $age2 = (Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $lockDir -ErrorAction Stop).LastWriteTimeUtc
+                                if ($age2.TotalSeconds -ge 30) { Remove-Item -LiteralPath $lockDir -Force -Recurse -ErrorAction SilentlyContinue }
+                            }
+                        } catch { }
+                        Remove-Item -LiteralPath $takeDir -Force -Recurse -ErrorAction SilentlyContinue
+                    }
+                    elseif (Test-Path -LiteralPath $takeDir -PathType Container) {
+                        # a takeover that died leaves its marker: it counts as old too
+                        try {
+                            $ageT = (Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $takeDir -ErrorAction Stop).LastWriteTimeUtc
+                            if ($ageT.TotalSeconds -ge 30) { Remove-Item -LiteralPath $takeDir -Force -Recurse -ErrorAction SilentlyContinue }
+                        } catch { }
+                    }
+                    $attempts++
+                    if ($attempts -ge 50) { throw "could not acquire docs/.lock (busy); retry" }
+                    Start-Sleep -Milliseconds 100
                     continue
                 }
             }
@@ -1916,6 +1939,7 @@ function Assert-FastSize([string]$Task, $State) {
     foreach ($l in $untracked) {
         $p = Join-Path $Project $l
         # Windows PowerShell 5.1 rejects a path past 260 characters unless it has the \\?\ prefix
+        $p = [System.IO.Path]::GetFullPath($p)
         if ($p.Length -ge 240 -and -not $p.StartsWith("\\")) { $p = "\\?\" + $p }
         if (-not [System.IO.File]::Exists($p)) { throw "handoff failed: the new file $l cannot be read, so its lines cannot be counted" }
         if ($true) {
@@ -4179,9 +4203,12 @@ function Invoke-Rotate {
     }
     # A closed task of the normal lane that one model reviewed and nobody audited yet stays in the
     # ledger as a DONE entry, so the audit queue of the preferred reviewer survives the rotation.
-    if (Test-FactoryOn) {
-        foreach ($s in @(Get-TaskStates)) {
-            if ($s.Status -eq "DONE" -and $s.Lane -cne "FAST" -and $s.Cross -ceq "NO" -and -not $s.Audited) {
+    # Only when a preferred reviewer is set (nobody else audits), and the 20 latest at most, so a
+    # queue nobody works off cannot keep the ledger over its limit.
+    if ((Test-FactoryOn) -and (Get-FactorySetting "Preferred reviewer")) {
+        $queue = @(Get-TaskStates | Where-Object { $_.Status -eq "DONE" -and $_.Lane -cne "FAST" -and $_.Cross -ceq "NO" -and -not $_.Audited } | Sort-Object -Property Ts | Select-Object -Last 20)
+        foreach ($s in $queue) {
+            if ($true) {
                 $lines.Add("")
                 $lines.Add("## [$($s.Ts)] | $($s.Agent) | $($s.Task) | DONE | $($s.Name)")
                 $lines.Add("- Summary: carried forward from docs/history/$name at rotation, still to be audited")

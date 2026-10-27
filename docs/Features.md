@@ -2,8 +2,8 @@
 
 ## Operational summary
 
-- Verified capabilities: 45
-- Latest verification: `commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0` (2026-10-27)
+- Verified capabilities: 52
+- Latest verification: `QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0` (2026-10-27)
 - Known limitation: the AGENTS.md/Agents.md case collision cannot be tested end to end on Windows or macOS.
 
 <!-- context:end -->
@@ -60,3 +60,10 @@ Use one row per stable capability. Link long specifications or runbooks from
 | F06-E02-T04 | strict exit markers and unchanged tests from the Red sha, renames included | commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0 | log:F06-E02-T04 | 2026-10-27 |
 | F06-E01-T06 | next gives a reviewed task back to its holder | commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0 | log:F06-E01-T06 | 2026-10-27 |
 | F06-E04-T02 | status adds the phase and the lane in Factory mode | commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0 | log:F06-E04-T02 | 2026-10-27 |
+| F06-E02-T06 | fast lane with size limits and promotion to SPEC; renames, spaces, git failures and long paths handled | QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0 | log:F06-E02-T06 | 2026-10-27 |
+| F06-E02 | Epic complete | all tasks DONE | log:F06-E02-T06 | 2026-10-27 |
+| F06-E01-T07 | Factory context drops older entries instead of failing | QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0 | log:F06-E01-T07 | 2026-10-27 |
+| F06-E01 | Epic complete | all tasks DONE | log:F06-E01-T07 | 2026-10-27 |
+| F06-E04-T01 | digest command for the asynchronous human review | QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0 | log:F06-E04-T01 | 2026-10-27 |
+| F06-DEBT-02 | the review of a spec is bound to its SHA-256 | QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0 | log:F06-DEBT-02 | 2026-10-27 |
+| F06-DEBT-03 | test paths of a spec stay inside the project | QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0 | log:F06-DEBT-03 | 2026-10-27 |
