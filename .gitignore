@@ -1,2 +1,6 @@
 # Artefactos de prueba local
 /tmp/
+
+# project-documentation dispatcher (generated files)
+.factory/state.md
+.factory/runs/
