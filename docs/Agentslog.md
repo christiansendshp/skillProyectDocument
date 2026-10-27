@@ -372,3 +372,59 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 ## [2026-10-26T21:29:57Z] | claude-sonnet-5-5 | F06-E03-T02 | IN_PROGRESS | Working memory files and checkpoint command
 - Summary: Retake after QA FAIL: checkpoint parity
 - Verify: pending
+
+## [2026-10-26T22:55:03Z] | claude-sonnet-5-5 | F06-E02-T01 | REVIEW | Spec template and check rules for scenarios
+- Summary: Retake: path parens, BOM, trim, zero cells, file filter
+- Verify: smoke 1494 pass 0 fail (sh 748 ps1 746); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-26T22:55:04Z] | claude-sonnet-5-5 | F06-E03-T02 | REVIEW | Working memory files and checkpoint command
+- Summary: Retake: text cleaning parity, BOM, task id trim, lock race
+- Verify: smoke 1494 pass 0 fail (sh 748 ps1 746); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-26T22:55:05Z] | claude-sonnet-5-5 | F06-E02-T02 | REVIEW | Phase lines and advance command with gates
+- Summary: advance command with SPEC and RED gates
+- Verify: smoke 1494 pass 0 fail (sh 748 ps1 746); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-26T23:00:13Z] | claude-sonnet-5-5 | F06-E02-T04 | IN_PROGRESS | Exit markers and immutable tests from RED sha
+- Summary: Exit markers and tests unchanged since RED
+- Verify: pending
+
+## [2026-10-26T23:00:15Z] | claude-sonnet-5-5 | F06-E02-T05 | IN_PROGRESS | Turn review warnings into errors in factory
+- Summary: Review warnings become errors in Factory mode
+- Verify: pending
+
+## [2026-10-26T23:00:17Z] | claude-sonnet-5-5 | F06-E01-T05 | IN_PROGRESS | Enforce WIP and fix attempt limits in claim
+- Summary: WIP limit and fix attempts in claim
+- Verify: pending
+
+## [2026-10-26T23:03:49Z] | claude-qa | F06-E02-T02 | REVIEW | Phase lines and advance command with gates
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: classic rotate old vs 4b9185a differs by +'- Spec-pass: a-qa' in sh and ps1; gates, exit parsing, git states, concurrency checked in sh
+- Review: FAIL - BR-008: classic rotate now emits '- Spec-pass: <reviewer>' for a task in REVIEW with Review PASS (sh and ps1); master does not. Guard spec_pass and the Spec-pass line with Factory mode (scanner and rotate)
+
+## [2026-10-26T23:23:59Z] | claude-qa | F06-E02-T01 | REVIEW | Spec template and check rules for scenarios
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: smoke sh 458/0, ps1 458 pending at record; 25 spec fixtures sh==ps1; Linux busybox BOM ok; classic==9302b58
+- Review: PASS - PASS: all findings fixed: last-paren Tests paths, BOM, NBSP cells, ' ' rows, dotfile/.MD filter agree in sh+ps1 on 25 spec fixtures; classic untouched. Residual: spec glob order is locale-dependent
+
+## [2026-10-26T23:24:01Z] | claude-qa | F06-E03-T02 | REVIEW | Working memory files and checkpoint command
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: smoke sh 458/0, ps1 458 pending at record; 4 parallel ps1 rounds ok; Linux busybox checkpoint ok; classic==9302b58
+- Review: PASS - PASS: inner spaces kept, trailing-space task id trimmed, BOM memory file ok, ps1 lock race gone (4x 4-way runs, 0 errors); 12 checkpoint/check cases byte-identical sh==ps1; classic untouched
+
+## [2026-10-26T23:33:42Z] | claude-sonnet-5-5 | F06-E02-T01 | DONE | Spec template and check rules for scenarios
+- Summary: Spec template and Factory-only spec validation
+- Files: templates/Spec.md,scripts/
+- Verify: smoke 1494 pass 0 fail; QA PASS factory 458 each; sh==ps1 25 fixtures
+
+## [2026-10-26T23:33:44Z] | claude-sonnet-5-5 | F06-E03-T02 | DONE | Working memory files and checkpoint command
+- Summary: Working memory, checkpoint command, pause gate
+- Files: templates/WorkingMemory.md,scripts/
+- Verify: smoke 1494 pass 0 fail; QA PASS factory 458 each; lock race fixed
+
+## [2026-10-26T23:33:47Z] | claude-sonnet-5-5 | F06-E02-T02 | IN_PROGRESS | Phase lines and advance command with gates
+- Summary: Retake after QA FAIL: classic stays byte-identical
+- Verify: pending

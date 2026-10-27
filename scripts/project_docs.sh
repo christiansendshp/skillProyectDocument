@@ -495,7 +495,11 @@ latest_log_entries() {
 # ---------------------------------------------------------------------------
 all_task_states() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
-  awk -v stale_s="$((STALE_HOURS * 3600))" "$AWK_EPOCH"'
+  # fac is 1 only in Factory mode: the Factory lines of the ledger (Phase, Spec-pass,
+  # Red, Tests, Attempts) are read and derived from only then (BR-008).
+  ats_fac=0
+  if factory_on; then ats_fac=1; fi
+  awk -v stale_s="$((STALE_HOURS * 3600))" -v fac="$ats_fac" "$AWK_EPOCH"'
     $0 == "## Entries" { in_entries=1; next }
     in_entries && /^## \[/ {
       line=$0
@@ -528,6 +532,7 @@ all_task_states() {
       dash=index(line," - ")
       if (dash>0) p=substr(line,1,dash-1); else p=line
       last_pause[cur]=p
+      if (fac && p == "BLOQUEO") att[cur]=0
       next
     }
     in_entries && cur!="" && /^- Assign:/ {
@@ -542,16 +547,36 @@ all_task_states() {
       last_handoff[cur]=line
       next
     }
-    in_entries && cur!="" && /^- Spec-pass:/ {
+    in_entries && cur!="" && fac && /^- Red:/ {
+      line=$0
+      sub(/^- Red:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
+      red[cur]=line
+      next
+    }
+    in_entries && cur!="" && fac && /^- Tests:/ {
+      line=$0
+      sub(/^- Tests:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
+      tests[cur]=line
+      next
+    }
+    in_entries && cur!="" && fac && /^- Attempts:/ {
+      line=$0
+      sub(/^- Attempts:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
+      att[cur]=line + 0
+      next
+    }
+    in_entries && cur!="" && fac && /^- Spec-pass:/ {
       line=$0
       sub(/^- Spec-pass:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
       spec_pass[cur]=line
       next
     }
-    in_entries && cur!="" && /^- Phase:/ {
+    in_entries && cur!="" && fac && /^- Phase:/ {
       line=$0
       sub(/^- Phase:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
       if (line == "SPEC" && last_phase[cur] != "" && last_phase[cur] != "SPEC") spec_pass[cur]=""
+      if (line == "RED" && last_phase[cur] == "GREEN") att[cur]++
+      if (line == "RED" || line == "SPEC") { red[cur]=""; tests[cur]="" }
       last_phase[cur]=line
       next
     }
@@ -563,13 +588,14 @@ all_task_states() {
       gsub(/[ \t]+$/,"",p)
       last_review[cur]=p
       ph=last_phase[cur]; if (ph == "") ph="SPEC"
-      if (ph == "SPEC") { if (p ~ /^PASS/) spec_pass[cur]=last_agent[cur]; else spec_pass[cur]="" }
+      if (fac && ph == "SPEC") { if (p ~ /^PASS/) spec_pass[cur]=last_agent[cur]; else spec_pass[cur]="" }
+      if (fac && p ~ /^FAIL/) att[cur]++
       next
     }
     END {
       for (i=1;i<=cnt;i++) {
         t=order[i]
-        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t], (t in hold ? hold[t] : last_agent[t]), last_handoff[t], last_review[t], last_phase[t], spec_pass[t]
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t], (t in hold ? hold[t] : last_agent[t]), last_handoff[t], last_review[t], last_phase[t], spec_pass[t], red[t], tests[t], att[t] + 0
       }
     }
   ' "$DOCS_DIR/Agentslog.md"
@@ -843,7 +869,7 @@ stage_label() {
 open_tasks_line() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
   open_task_states | tr '\t' '\037' |
-  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass rest; do
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts rest; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -1143,9 +1169,9 @@ with_lock() {
 cmd_claim() {
   shift 2
   [ "$#" -ge 3 ] || die "claim requires: agent task-id summary"
-  agent="$(canonical_agent "$(clean_field "$1")")"
-  task="$(clean_field "$2")"
-  summary="$(clean_field "$3")"
+  agent="$(canonical_agent "$(clean_arg "$1")")"
+  task="$(clean_arg "$2")"
+  summary="$(clean_arg "$3")"
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
   if ! roadmap_has_id "$task"; then
     die "claim failed: $task not found in docs/Roadmap.md"
@@ -1185,6 +1211,16 @@ cmd_claim() {
     claim_phase="$(printf '%s' "${state:-}" | cut -f12)"
     [ -n "$claim_phase" ] || claim_phase="SPEC"
     require_phase_role "$agent" "$claim_phase" "$task"
+    claim_att="$(printf '%s' "${state:-}" | cut -f16)"
+    claim_max="$(factory_number "Max fix attempts")"
+    if [ "${claim_att:-0}" -ge "$claim_max" ]; then
+      die "claim failed: $task used $claim_att of $claim_max fix attempts; pause it with BLOQUEO and write the lesson, or raise Max fix attempts"
+    fi
+    claim_wip="$(factory_number "WIP per agent")"
+    claim_busy="$(all_task_states | awk -F'\t' -v a="$agent" -v t="$task" '$2 == "IN_PROGRESS" && $3 == a && $1 != t { n++; ids = (ids == "" ? $1 : ids ", " $1) } END { if (n > 0) printf "%d %s", n, ids }')"
+    if [ -n "$claim_busy" ] && [ "${claim_busy%% *}" -ge "$claim_wip" ]; then
+      die "claim failed: $agent already has ${claim_busy%% *} task(s) in progress (WIP per agent is $claim_wip): ${claim_busy#* }"
+    fi
   fi
   name="$(require_valid_name "$task")"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
@@ -1213,6 +1249,46 @@ clean_field_text() {
   printf '%s' "$1" | tr '\r\n' '\001\001' | awk '{ gsub(/\001+/, " "); gsub(/\|/, "/"); gsub(/^[ \t]+|[ \t]+$/, ""); print }'
 }
 
+# clean_arg VALUE: an argument of claim, pause, handoff, review, assign and done:
+# the classic cleaner in classic mode, the one the PowerShell launcher uses in
+# Factory mode, so both launchers write the same bytes.
+clean_arg() {
+  if factory_on; then clean_field_text "$1"; else clean_field "$1"; fi
+}
+
+# require_exit_zero VERB VERIFY: Factory mode. The verify must carry exit=0.
+require_exit_zero() {
+  rz_n="$(verify_exit "$2")"
+  [ -n "$rz_n" ] || die "$1 failed: the verify needs exit=N (exit=0 when the checks pass)"
+  exit_is_zero "$rz_n" || die "$1 failed: the verify says exit=$rz_n, not exit=0"
+}
+
+# require_tests_unchanged TASK STATE: handoff in GREEN. The test files recorded at
+# RED (the Tests line) must be as they were at the Red sha; without git it only warns.
+require_tests_unchanged() {
+  rt_tests="$(printf '%s' "$2" | cut -f15)"
+  [ -n "$rt_tests" ] || return 0
+  rt_red="$(printf '%s' "$2" | cut -f14)"
+  if [ -n "$rt_red" ] && git_ready; then
+    git -C "$PROJECT" cat-file -e "$rt_red^{commit}" 2>/dev/null || die "handoff failed: the Red sha $rt_red is not in this repository"
+    # shellcheck disable=SC2086
+    rt_changed="$(git -C "$PROJECT" diff --name-only "$rt_red" -- $rt_tests 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+    [ -z "$rt_changed" ] || die "handoff failed: test file(s) changed since RED ($rt_red): $rt_changed; a wrong test goes back to SPEC with advance"
+  else
+    echo "WARN: git is not available here, so the tests cannot be checked as unchanged since RED; the reviewer must write 'tests unchanged' in the review note" >&2
+  fi
+}
+
+# require_tests_note TASK STATE NOTE: review PASS of a GREEN handoff whose tests git
+# could not check needs the words "tests unchanged" in the note.
+require_tests_note() {
+  rn_tests="$(printf '%s' "$2" | cut -f15)"
+  [ -n "$rn_tests" ] || return 0
+  [ "$(printf '%s' "$2" | cut -f12)" = "GREEN" ] || return 0
+  if [ -n "$(printf '%s' "$2" | cut -f14)" ] && git_ready; then return 0; fi
+  printf '%s' "$3" | tr 'A-Z' 'a-z' | grep -q 'tests unchanged' || die "review failed: git could not check the tests of $1; the note must say 'tests unchanged'"
+}
+
 # Commands that exist only in Factory mode refuse to run in classic mode.
 require_factory() {
   factory_on || die "$1 needs Factory mode (see references/factory.md)"
@@ -1231,12 +1307,8 @@ has_working_now() {
 
 # task_attempts TASK: how many times the task was sent back (Review: FAIL lines).
 task_attempts() {
-  [ -f "$DOCS_DIR/Agentslog.md" ] || { printf '0'; return 0; }
-  awk -v t="$1" '
-    /^## \[/ { line=$0; sub(/^## \[/, "", line); sub(/\] \| /, "|", line); gsub(/ \| /, "|", line); split(line, f, "|"); cur=f[3]; next }
-    cur == t && /^- Review: FAIL/ { n++ }
-    END { print n + 0 }
-  ' "$DOCS_DIR/Agentslog.md"
+  ta_v="$(task_state "$1" | cut -f16)" || true
+  printf '%s' "${ta_v:-0}"
 }
 
 # checkpoint <project> <agent> <task-id> <step> <next>: creates or updates the
@@ -1303,10 +1375,10 @@ cmd_checkpoint() {
 cmd_pause() {
   shift 2
   [ "$#" -ge 4 ] || die "pause requires: agent task-id category detail"
-  agent="$(canonical_agent "$(clean_field "$1")")"
-  task="$(clean_field "$2")"
-  category="$(clean_field "$3")"
-  detail="$(clean_field "$4")"
+  agent="$(canonical_agent "$(clean_arg "$1")")"
+  task="$(clean_arg "$2")"
+  category="$(clean_arg "$3")"
+  detail="$(clean_arg "$4")"
   case "$category" in
     LIMITE|ESPERA_RESPUESTA|BLOQUEO|OTRO) ;;
     *) die "pause requires category one of LIMITE, ESPERA_RESPUESTA, BLOQUEO, OTRO" ;;
@@ -1319,8 +1391,13 @@ cmd_pause() {
   else
     die "pause failed: $task has no IN_PROGRESS entry to pause"
   fi
-  [ "$status" = "IN_PROGRESS" ] || die "pause failed: $task is not IN_PROGRESS (current: $status)"
-  [ "$owner" = "$agent" ] || die "pause failed: $task is owned by $owner, not $agent"
+  if factory_on && [ "$status" = "REVIEW" ]; then
+    pause_holder="$(printf '%s' "$state" | cut -f9)"
+    [ "$pause_holder" = "$agent" ] || die "pause failed: $task is held by $pause_holder, not $agent"
+  else
+    [ "$status" = "IN_PROGRESS" ] || die "pause failed: $task is not IN_PROGRESS (current: $status)"
+    [ "$owner" = "$agent" ] || die "pause failed: $task is owned by $owner, not $agent"
+  fi
   if factory_on && ! has_working_now "$task"; then
     die "pause failed: $task has no working memory yet (## Now); run checkpoint first"
   fi
@@ -1342,11 +1419,11 @@ cmd_pause() {
 cmd_handoff() {
   shift 2
   [ "$#" -ge 4 ] || die "handoff requires: agent task-id summary verify [reviewer]"
-  agent="$(canonical_agent "$(clean_field "$1")")"
-  task="$(clean_field "$2")"
-  summary="$(clean_field "$3")"
-  verify="$(clean_field "$4")"
-  reviewer="$(clean_field "${5:-}")"
+  agent="$(canonical_agent "$(clean_arg "$1")")"
+  task="$(clean_arg "$2")"
+  summary="$(clean_arg "$3")"
+  verify="$(clean_arg "$4")"
+  reviewer="$(clean_arg "${5:-}")"
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
   [ -n "$summary" ] || die "handoff requires a non-empty summary"
   if [ -z "$verify" ] || [ "$verify" = "pending" ]; then
@@ -1361,6 +1438,17 @@ cmd_handoff() {
   fi
   [ "$status" = "IN_PROGRESS" ] || die "handoff failed: $task is not IN_PROGRESS (current: $status)"
   [ "$owner" = "$agent" ] || die "handoff failed: $task is owned by $owner, not $agent"
+  if factory_on; then
+    handoff_phase="$(printf '%s' "$state" | cut -f12)"
+    [ -n "$handoff_phase" ] || handoff_phase="SPEC"
+    case "$handoff_phase" in
+      SPEC|GREEN) ;;
+      *) die "handoff failed: $task is in phase $handoff_phase; move it with advance" ;;
+    esac
+    require_exit_zero handoff "$verify"
+    has_working_now "$task" || die "handoff failed: $task has no working memory yet (## Now); run checkpoint first"
+    if [ "$handoff_phase" = "GREEN" ]; then require_tests_unchanged "$task" "$state"; fi
+  fi
   name="$(require_valid_name "$task" handoff)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   {
@@ -1386,11 +1474,11 @@ cmd_handoff() {
 cmd_review() {
   shift 2
   [ "$#" -ge 4 ] || die "review requires: agent task-id PASS|FAIL note [verify]"
-  agent="$(canonical_agent "$(clean_field "$1")")"
-  task="$(clean_field "$2")"
-  result="$(clean_field "$3")"
-  note="$(clean_field "$4")"
-  verify="$(clean_field "${5:-}")"
+  agent="$(canonical_agent "$(clean_arg "$1")")"
+  task="$(clean_arg "$2")"
+  result="$(clean_arg "$3")"
+  note="$(clean_arg "$4")"
+  verify="$(clean_arg "${5:-}")"
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
   case "$result" in
     PASS|FAIL) ;;
@@ -1411,6 +1499,23 @@ cmd_review() {
   fi
   [ "$status" = "REVIEW" ] || die "review failed: $task has no pending handoff (current: $status)"
   [ -z "$reviewed" ] || die "review failed: $task was already reviewed ($reviewed); the holder must claim it again"
+  if factory_on; then
+    review_phase="$(printf '%s' "$state" | cut -f12)"
+    [ -n "$review_phase" ] || review_phase="SPEC"
+    if [ "$agent" = "$holder" ] && factory_yes "Independent review"; then
+      die "review failed: $agent developed $task; an independent review is required"
+    fi
+    review_role="$(roster_role "$agent")"
+    [ -n "$review_role" ] || die "review failed: $agent is not in the Agent identity table; Factory mode needs a role for each agent"
+    review_norm="$(role_norm "$review_role")"
+    if [ "$review_norm" != "QA" ] && [ "$review_norm" != "BOTH" ] && { [ "$review_phase" != "SPEC" ] || [ "$review_norm" != "SPEC" ]; }; then
+      die "review failed: $agent has role $review_role, but a review of phase $review_phase needs QA (or BOTH)"
+    fi
+    if [ "$result" = "PASS" ]; then
+      require_exit_zero review "$verify"
+      require_tests_note "$task" "$state" "$note"
+    fi
+  fi
   if [ "$agent" = "$holder" ]; then
     if [ "${PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW:-0}" = "1" ]; then
       die "review failed: $agent developed $task; an independent review is required"
@@ -1606,9 +1711,9 @@ cmd_advance() {
 cmd_assign() {
   shift 2
   [ "$#" -ge 3 ] || die "assign requires: agent task-id to-agent"
-  agent="$(canonical_agent "$(clean_field "$1")")"
-  task="$(clean_field "$2")"
-  to_agent="$(canonical_agent "$(clean_field "$3")")"
+  agent="$(canonical_agent "$(clean_arg "$1")")"
+  task="$(clean_arg "$2")"
+  to_agent="$(canonical_agent "$(clean_arg "$3")")"
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
   [ -n "$to_agent" ] || die "assign requires a non-empty to-agent"
   if ! roadmap_has_id "$task"; then
@@ -1637,12 +1742,13 @@ cmd_assign() {
 cmd_done() {
   shift 2
   [ "$#" -ge 5 ] || die "done requires: agent task-id summary files verify"
-  agent="$(canonical_agent "$(clean_field "$1")")"
-  task="$(clean_field "$2")"
-  summary="$(clean_field "$3")"
-  files="$(clean_field "$4")"
-  verify="$(clean_field "$5")"
+  agent="$(canonical_agent "$(clean_arg "$1")")"
+  task="$(clean_arg "$2")"
+  summary="$(clean_arg "$3")"
+  files="$(clean_arg "$4")"
+  verify="$(clean_arg "$5")"
   [ -n "$verify" ] || die "done requires a non-empty verify"
+  if factory_on; then require_exit_zero done "$verify"; fi
   with_lock
   # Who may close a task: nobody has an entry for it (retroactive close, the
   # normal case for batches), the holder, the reviewer who left Review: PASS,
@@ -1663,6 +1769,11 @@ cmd_done() {
       allowed=1
     fi
     [ "$allowed" -eq 1 ] || die "done failed: $task is held by $holder"
+    if factory_on; then
+      if [ "$status" != "REVIEW" ] || [ "$review" != "PASS" ]; then
+        die "done failed: $task has no Review: PASS yet (status $status, last review ${review:-none})"
+      fi
+    fi
     if [ "$status" = "REVIEW" ] && [ "$review" != "PASS" ]; then
       if [ "$review" = "FAIL" ]; then
         echo "WARN: $task: closing without a passing review (the last review was FAIL)" >&2
@@ -1670,6 +1781,9 @@ cmd_done() {
         echo "WARN: $task: closing without a passing review (the handoff is still pending)" >&2
       fi
     fi
+  fi
+  if factory_on && ! task_state "$task" >/dev/null 2>&1; then
+    die "done failed: $task has no ledger entries; claim it first"
   fi
   vlow="$(printf '%s' "$verify" | tr 'A-Z' 'a-z' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
   case "$vlow" in
@@ -1700,7 +1814,7 @@ cmd_done() {
 cmd_status() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
   open_task_states | tr '\t' '\037' |
-  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass rest; do
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts rest; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -3051,8 +3165,12 @@ rotate_log() {
     echo
     echo "## Entries"
     if [ -n "$open_summary" ]; then
-      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass rest; do
+      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts rest; do
         [ -n "$tid" ] || continue
+        att_carry="${attempts:-0}"
+        case "$review" in
+          FAIL*) if [ "$status" = "REVIEW" ] && [ "$att_carry" -gt 0 ]; then att_carry=$((att_carry - 1)); fi ;;
+        esac
         if [ "$status" = "REVIEW" ]; then
           # The developer who holds the task is not necessarily the agent of the
           # last entry (a reviewer wrote it), so re-open the holder first and
@@ -3063,12 +3181,18 @@ rotate_log() {
           echo "- Summary: carried forward from docs/history/$archive_name at rotation"
           if [ -n "$phase" ]; then echo "- Phase: $phase"; fi
           if [ -n "$specpass" ]; then echo "- Spec-pass: $specpass"; fi
+          if [ -n "$red" ]; then echo "- Red: $red"; fi
+          if [ -n "$tests" ]; then echo "- Tests: $tests"; fi
+          if [ "$att_carry" -gt 0 ]; then echo "- Attempts: $att_carry"; fi
         fi
         echo
         echo "## [$ts] | $agent | $tid | $status | $name"
         echo "- Summary: carried forward from docs/history/$archive_name at rotation"
         if [ "$status" != "REVIEW" ] && [ -n "$phase" ]; then echo "- Phase: $phase"; fi
         if [ "$status" != "REVIEW" ] && [ -n "$specpass" ]; then echo "- Spec-pass: $specpass"; fi
+        if [ "$status" != "REVIEW" ] && [ -n "$red" ]; then echo "- Red: $red"; fi
+        if [ "$status" != "REVIEW" ] && [ -n "$tests" ]; then echo "- Tests: $tests"; fi
+        if [ "$status" != "REVIEW" ] && [ "$att_carry" -gt 0 ]; then echo "- Attempts: $att_carry"; fi
         if [ "$status" = "PAUSE" ]; then
           echo "- Pause: $pausecat - see docs/history/$archive_name for detail"
         fi

@@ -19,9 +19,10 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E02-T01 | Spec template and check rules for scenarios | templates/Spec.md and check per section 4.4 | Invalid specs fail check; valid spec passes | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T21:29:55Z | F06-E01-T01 | — |
-| F06-E03-T02 | Working memory files and checkpoint command | docs/brain/tasks; pause and advance require Now | Smoke cases create, update and require the file | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T21:29:57Z | F06-E01-T01 | — |
-| F06-E02-T02 | Phase lines and advance command with gates | Section 4.3 table; writes ASSIGNED with Phase | Every gate has a passing and a failing smoke case | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T19:47:57Z | F06-E02-T01, F06-E02-T03, F06-E03-T02 | — |
+| F06-E02-T02 | Phase lines and advance command with gates | Section 4.3 table; writes ASSIGNED with Phase | Every gate has a passing and a failing smoke case | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T23:33:47Z | F06-E02-T01, F06-E02-T03, F06-E03-T02 | — |
+| F06-E02-T04 | Exit markers and immutable tests from RED sha | D-06 and D-07 including the no-git warning | Changing a recorded test after RED makes handoff fail | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T23:00:13Z | F06-E02-T02 | — |
+| F06-E02-T05 | Turn review warnings into errors in factory | Self-review, close without PASS, empty verify | Same cases warn in classic and fail in factory | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T23:00:15Z | F06-E01-T01 | — |
+| F06-E01-T05 | Enforce WIP and fix attempt limits in claim | D-13 and D-14 | Smoke cases refuse the claim with a clear message | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T23:00:17Z | F06-E02-T02 | — |
 
 <!-- context:end -->
 
@@ -83,14 +84,11 @@ Spec: docs/features/ia-factory.md (closed decisions D-01 to D-21 are ADR-023 onw
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
 | F06-E01-T04 | Add next command for autonomous task selection | Order and skips per section 4.3 | Smoke cases for every role return the expected ID | TODO | — | F06-E02-T02, F06-E02-T03 | — |
-| F06-E01-T05 | Enforce WIP and fix attempt limits in claim | D-13 and D-14 | Smoke cases refuse the claim with a clear message | TODO | — | F06-E02-T02 | — |
 
 #### F06-E02 — Spec and TDD production line
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E02-T04 | Exit markers and immutable tests from RED sha | D-06 and D-07 including the no-git warning | Changing a recorded test after RED makes handoff fail | TODO | — | F06-E02-T02 | — |
-| F06-E02-T05 | Turn review warnings into errors in factory | Self-review, close without PASS, empty verify | Same cases warn in classic and fail in factory | TODO | — | F06-E01-T01 | — |
 | F06-E02-T06 | Fast lane with size limits and promotion to SPEC | Section 4.3.1; Lane and Base lines; BUG rows need a test file | Every fast lane limit has a passing and a failing smoke case | TODO | — | F06-E02-T04, F06-E02-T05 | — |
 
 #### F06-E03 — Brain and context economy
@@ -140,6 +138,8 @@ task. ID prefix marks the kind: `Fxx-GAP-xx` (missing capability),
 | F05-DEBT-01 | Age rounds differently in sh and PowerShell | Low | F05 | status and the stale checks compute age in whole hours: sh truncates toward zero and PowerShell floors, so an entry timestamped in the future shows 0h in sh and -1h in PowerShell. Only visible with a wrong clock or a hand-written future timestamp | TODO | — | — | — |
 | F05-DEBT-02 | The em dash verify marker is untested in PowerShell | Low | F05 | The smoke test passes arguments to PowerShell through a command string, which mangles a non-ASCII argument, so the em dash verify marker is only exercised through the sh launcher; the PowerShell comparison itself is covered by the other markers | TODO | — | — | — |
 | F05-DEBT-03 | A rotation can fake an instant close | Low | F05 | rotate re-opens a task that was in REVIEW as an IN_PROGRESS entry stamped with the time of its last entry, so a done within 5 minutes of that last entry looks like a task claimed and closed minutes apart. Rare; fix by ignoring carried-forward IN_PROGRESS entries when measuring | TODO | — | — | — |
+| F06-DEBT-02 | Bind the spec review to the spec content | Low | F06 | QA found that a spec edited after its Review: PASS still opens the SPEC to RED gate because nothing hashes the spec; record a SHA-256 of the spec at the SPEC handoff and compare it at advance | TODO | — | — | — |
+| F06-DEBT-03 | Reject test paths outside the project | Low | F06 | QA found that a tracked test path such as ../root.test.sh in a sub-project, an absolute path or a drive path passes the spec check and the RED gate; the spec rules should require a relative path without .. segments | TODO | — | — | — |
 
 ## Out of scope
 

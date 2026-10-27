@@ -509,7 +509,10 @@ function Get-TaskStates {
     $inEntries = $false
     $order = [System.Collections.Generic.List[string]]::new()
     $lastStatus = @{}; $lastAgent = @{}; $lastTs = @{}; $lastPause = @{}; $everDone = @{}; $conflict = @{}; $lastName = @{}
-    $hold = @{}; $lastHandoff = @{}; $lastReview = @{}; $lastPhase = @{}; $specPass = @{}
+    $hold = @{}; $lastHandoff = @{}; $lastReview = @{}; $lastPhase = @{}; $specPass = @{}; $redSha = @{}; $testPaths = @{}; $attempts = @{}
+    # The Factory lines of the ledger (Phase, Spec-pass, Red, Tests, Attempts) are read and
+    # derived from only in Factory mode (BR-008).
+    $fac = Test-FactoryOn
     $cur = $null
     foreach ($line in $lines) {
         if ($line -eq "## Entries") { $inEntries = $true; continue }
@@ -552,12 +555,28 @@ function Get-TaskStates {
             $lastHandoff[$cur] = $Matches[1]
             continue
         }
-        if ($cur -and $line -cmatch '^- Spec-pass:\s*(.*?)\s*$') {
+        if ($fac -and $cur -and $line -cmatch '^- Red:\s*(.*?)\s*$') {
+            $redSha[$cur] = $Matches[1]
+            continue
+        }
+        if ($fac -and $cur -and $line -cmatch '^- Tests:\s*(.*?)\s*$') {
+            $testPaths[$cur] = $Matches[1]
+            continue
+        }
+        if ($fac -and $cur -and $line -cmatch '^- Attempts:\s*(.*?)\s*$') {
+            $n = 0
+            if ($Matches[1] -match '^[0-9]+') { $n = [int]$Matches[0] }
+            $attempts[$cur] = $n
+            continue
+        }
+        if ($fac -and $cur -and $line -cmatch '^- Spec-pass:\s*(.*?)\s*$') {
             $specPass[$cur] = $Matches[1]
             continue
         }
-        if ($cur -and $line -cmatch '^- Phase:\s*(.*?)\s*$') {
+        if ($fac -and $cur -and $line -cmatch '^- Phase:\s*(.*?)\s*$') {
             if ($Matches[1] -ceq "SPEC" -and $lastPhase.ContainsKey($cur) -and $lastPhase[$cur] -and $lastPhase[$cur] -cne "SPEC") { $specPass[$cur] = "" }
+            if ($Matches[1] -ceq "RED" -and $lastPhase.ContainsKey($cur) -and $lastPhase[$cur] -ceq "GREEN") { $attempts[$cur] = 1 + [int]$attempts[$cur] }
+            if ($Matches[1] -ceq "RED" -or $Matches[1] -ceq "SPEC") { $redSha[$cur] = ""; $testPaths[$cur] = "" }
             $lastPhase[$cur] = $Matches[1]
             continue
         }
@@ -567,15 +586,17 @@ function Get-TaskStates {
             if ($rdash -ge 0) { $lastReview[$cur] = $rbody.Substring(0, $rdash).TrimEnd() } else { $lastReview[$cur] = $rbody.TrimEnd() }
             $reviewPhase = "SPEC"
             if ($lastPhase.ContainsKey($cur) -and $lastPhase[$cur]) { $reviewPhase = $lastPhase[$cur] }
-            if ($reviewPhase -ceq "SPEC") {
+            if ($fac -and $reviewPhase -ceq "SPEC") {
                 if ($lastReview[$cur] -cmatch '^PASS') { $specPass[$cur] = $lastAgent[$cur] } else { $specPass[$cur] = "" }
             }
+            if ($fac -and $lastReview[$cur] -cmatch '^FAIL') { $attempts[$cur] = 1 + [int]$attempts[$cur] }
             continue
         }
         if ($cur -and $line -match '^- Pause: (.*)$') {
             $body = $Matches[1]
             $dashIdx = $body.IndexOf(" - ")
             if ($dashIdx -ge 0) { $lastPause[$cur] = $body.Substring(0, $dashIdx) } else { $lastPause[$cur] = $body }
+            if ($fac -and $lastPause[$cur] -ceq "BLOQUEO") { $attempts[$cur] = 0 }
             continue
         }
     }
@@ -595,6 +616,9 @@ function Get-TaskStates {
             Review = $(if ($lastReview.ContainsKey($t)) { $lastReview[$t] } else { "" })
             Phase = $(if ($lastPhase.ContainsKey($t)) { $lastPhase[$t] } else { "" })
             SpecPass = $(if ($specPass.ContainsKey($t)) { $specPass[$t] } else { "" })
+            Red = $(if ($redSha.ContainsKey($t)) { $redSha[$t] } else { "" })
+            Tests = $(if ($testPaths.ContainsKey($t)) { $testPaths[$t] } else { "" })
+            Attempts = [int]$attempts[$t]
         })
     }
     return $result
@@ -1277,6 +1301,15 @@ function Invoke-Claim {
             $claimPhase = "SPEC"
             if ($state -and $state.Phase) { $claimPhase = $state.Phase }
             Assert-PhaseRole $agent $claimPhase $task
+            $maxAttempts = [int](Get-FactoryNumber "Max fix attempts")
+            if ($state -and [int]$state.Attempts -ge $maxAttempts) {
+                throw "claim failed: $task used $($state.Attempts) of $maxAttempts fix attempts; pause it with BLOQUEO and write the lesson, or raise Max fix attempts"
+            }
+            $wipMax = [int](Get-FactoryNumber "WIP per agent")
+            $busy = @(Get-TaskStates | Where-Object { $_.Status -eq "IN_PROGRESS" -and $_.Agent -ceq $agent -and $_.Task -cne $task })
+            if ($busy.Count -ge $wipMax) {
+                throw "claim failed: $agent already has $($busy.Count) task(s) in progress (WIP per agent is $wipMax): $((@($busy | ForEach-Object { $_.Task })) -join ', ')"
+            }
         }
         $name = Assert-ValidName $task "claim"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -1293,6 +1326,40 @@ function Invoke-Claim {
         Write-Output "project_docs claim: $task claimed by $agent"
     } finally {
         Exit-DocsLock
+    }
+}
+
+# Factory mode. The verify must carry exit=0.
+function Assert-ExitZero([string]$Verb, [string]$Verify) {
+    $n = Get-VerifyExit $Verify
+    if (-not $n) { throw "$Verb failed: the verify needs exit=N (exit=0 when the checks pass)" }
+    if (-not (Test-ExitIsZero $n)) { throw "$Verb failed: the verify says exit=$n, not exit=0" }
+}
+
+# Handoff in GREEN. The test files recorded at RED (the Tests line) must be as they were
+# at the Red sha; without git it only warns.
+function Assert-TestsUnchanged([string]$Task, $State) {
+    if (-not $State.Tests) { return }
+    if ($State.Red -and (Test-GitReady)) {
+        $c = Invoke-GitProbe @("cat-file", "-e", "$($State.Red)^{commit}")
+        if ($c.Code -ne 0) { throw "handoff failed: the Red sha $($State.Red) is not in this repository" }
+        $paths = @($State.Tests -split ' ' | Where-Object { $_ })
+        $d = Invoke-GitProbe (@("diff", "--name-only", $State.Red, "--") + $paths)
+        $changed = (@($d.Out -split "`n" | Where-Object { $_.Trim() }) | ForEach-Object { $_.Trim() }) -join " "
+        if ($changed) { throw "handoff failed: test file(s) changed since RED ($($State.Red)): $changed; a wrong test goes back to SPEC with advance" }
+    } else {
+        [Console]::Error.WriteLine("WARN: git is not available here, so the tests cannot be checked as unchanged since RED; the reviewer must write 'tests unchanged' in the review note")
+    }
+}
+
+# Review PASS of a GREEN handoff whose tests git could not check needs the words
+# "tests unchanged" in the note.
+function Assert-TestsNote([string]$Task, $State, [string]$Note) {
+    if (-not $State.Tests) { return }
+    if ($State.Phase -cne "GREEN") { return }
+    if ($State.Red -and (Test-GitReady)) { return }
+    if (-not $Note.ToLowerInvariant().Contains("tests unchanged")) {
+        throw "review failed: git could not check the tests of $Task; the note must say 'tests unchanged'"
     }
 }
 
@@ -1316,14 +1383,9 @@ function Test-WorkingNow([string]$Task) {
 
 # How many times the task was sent back (Review: FAIL lines).
 function Get-TaskAttempts([string]$Task) {
-    $log = Join-Path $DocsDir "Agentslog.md"
-    $n = 0
-    $cur = ""
-    foreach ($line in @(Get-ContentUtf8 -LiteralPath $log)) {
-        if ($line -match '^## \[[^\]]*\] \| [^|]* \| ([^|]*) \|') { $cur = $Matches[1].Trim(); continue }
-        if ($cur -ceq $Task -and $line.StartsWith("- Review: FAIL")) { $n++ }
-    }
-    return $n
+    $st = Get-TaskState $Task
+    if (-not $st) { return 0 }
+    return [int]$st.Attempts
 }
 
 # checkpoint <project> <agent> <task-id> <step> <next>: creates or updates the
@@ -1424,8 +1486,12 @@ function Invoke-Pause {
     try {
         $state = Get-TaskState $task
         if (-not $state) { throw "pause failed: $task has no IN_PROGRESS entry to pause" }
-        if ($state.Status -ne "IN_PROGRESS") { throw "pause failed: $task is not IN_PROGRESS (current: $($state.Status))" }
-        if ($state.Agent -cne $agent) { throw "pause failed: $task is owned by $($state.Agent), not $agent" }
+        if ((Test-FactoryOn) -and $state.Status -eq "REVIEW") {
+            if ($state.Holder -cne $agent) { throw "pause failed: $task is held by $($state.Holder), not $agent" }
+        } else {
+            if ($state.Status -ne "IN_PROGRESS") { throw "pause failed: $task is not IN_PROGRESS (current: $($state.Status))" }
+            if ($state.Agent -cne $agent) { throw "pause failed: $task is owned by $($state.Agent), not $agent" }
+        }
         if ((Test-FactoryOn) -and -not (Test-WorkingNow $task)) {
             throw "pause failed: $task has no working memory yet (## Now); run checkpoint first"
         }
@@ -1466,6 +1532,14 @@ function Invoke-Handoff {
         if (-not $state) { throw "handoff failed: $task has no IN_PROGRESS entry to hand off" }
         if ($state.Status -ne "IN_PROGRESS") { throw "handoff failed: $task is not IN_PROGRESS (current: $($state.Status))" }
         if ($state.Agent -cne $agent) { throw "handoff failed: $task is owned by $($state.Agent), not $agent" }
+        if (Test-FactoryOn) {
+            $handoffPhase = "SPEC"
+            if ($state.Phase) { $handoffPhase = $state.Phase }
+            if ($handoffPhase -cne "SPEC" -and $handoffPhase -cne "GREEN") { throw "handoff failed: $task is in phase $handoffPhase; move it with advance" }
+            Assert-ExitZero "handoff" $verify
+            if (-not (Test-WorkingNow $task)) { throw "handoff failed: $task has no working memory yet (## Now); run checkpoint first" }
+            if ($handoffPhase -ceq "GREEN") { Assert-TestsUnchanged $task $state }
+        }
         $name = Assert-ValidName $task "handoff"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         $entryLines = @(
@@ -1512,6 +1586,23 @@ function Invoke-Review {
         if (-not $state) { throw "review failed: $task has no handoff to review" }
         if ($state.Status -ne "REVIEW") { throw "review failed: $task has no pending handoff (current: $($state.Status))" }
         if ($state.Review) { throw "review failed: $task was already reviewed ($($state.Review)); the holder must claim it again" }
+        if (Test-FactoryOn) {
+            $reviewPhase = "SPEC"
+            if ($state.Phase) { $reviewPhase = $state.Phase }
+            if ($agent -ceq $state.Holder -and (Test-FactoryYes "Independent review")) {
+                throw "review failed: $agent developed $task; an independent review is required"
+            }
+            $reviewRole = Get-RosterRole $agent
+            if (-not $reviewRole) { throw "review failed: $agent is not in the Agent identity table; Factory mode needs a role for each agent" }
+            $reviewNorm = Get-RoleNorm $reviewRole
+            if ($reviewNorm -cne "QA" -and $reviewNorm -cne "BOTH" -and ($reviewPhase -cne "SPEC" -or $reviewNorm -cne "SPEC")) {
+                throw "review failed: $agent has role $reviewRole, but a review of phase $reviewPhase needs QA (or BOTH)"
+            }
+            if ($result -ceq "PASS") {
+                Assert-ExitZero "review" $verify
+                Assert-TestsNote $task $state $note
+            }
+        }
         if ($agent -ceq $state.Holder) {
             if ($env:PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW -eq "1") {
                 throw "review failed: $agent developed $task; an independent review is required"
@@ -1771,6 +1862,7 @@ function Invoke-Done {
     $files = ConvertTo-CleanField $Arguments[3]
     $verify = ConvertTo-CleanField $Arguments[4]
     if (-not $verify) { throw "done requires a non-empty verify" }
+    if (Test-FactoryOn) { Assert-ExitZero "done" $verify }
     Enter-DocsLock
     try {
         # Who may close a task: nobody has an entry for it (retroactive close,
@@ -1785,6 +1877,11 @@ function Invoke-Done {
             elseif ($env:PROJECT_DOCS_FORCE -eq "1") { $allowed = $true }
             elseif (Test-Stale $task) { $allowed = $true }
             if (-not $allowed) { throw "done failed: $task is held by $($state.Holder)" }
+            if ((Test-FactoryOn) -and ($state.Status -ne "REVIEW" -or $state.Review -cne "PASS")) {
+                $lastReview = "none"
+                if ($state.Review) { $lastReview = $state.Review }
+                throw "done failed: $task has no Review: PASS yet (status $($state.Status), last review $lastReview)"
+            }
             if ($state.Status -eq "REVIEW" -and $state.Review -cne "PASS") {
                 if ($state.Review -ceq "FAIL") {
                     [Console]::Error.WriteLine("WARN: ${task}: closing without a passing review (the last review was FAIL)")
@@ -1793,6 +1890,7 @@ function Invoke-Done {
                 }
             }
         }
+        if ((Test-FactoryOn) -and -not $state) { throw "done failed: $task has no ledger entries; claim it first" }
         $vlow = $verify.Trim().ToLowerInvariant()
         if ($vlow -in @("none", "n/a", "no run", "ninguno", [string]$EmDash, "unknown")) {
             [Console]::Error.WriteLine("WARN: verify `"$verify`" says nothing about what was checked")
@@ -3113,6 +3211,8 @@ function Invoke-Rotate {
     $lines.Add("")
     $lines.Add("## Entries")
     foreach ($s in $openStates) {
+        $attCarry = [int]$s.Attempts
+        if ($s.Status -eq "REVIEW" -and $s.Review -cmatch '^FAIL' -and $attCarry -gt 0) { $attCarry-- }
         if ($s.Status -eq "REVIEW") {
             # The developer who holds the task is not necessarily the agent of
             # the last entry (a reviewer wrote it), so re-open the holder first
@@ -3123,12 +3223,18 @@ function Invoke-Rotate {
             $lines.Add("- Summary: carried forward from docs/history/$name at rotation")
             if ($s.Phase) { $lines.Add("- Phase: $($s.Phase)") }
             if ($s.SpecPass) { $lines.Add("- Spec-pass: $($s.SpecPass)") }
+            if ($s.Red) { $lines.Add("- Red: $($s.Red)") }
+            if ($s.Tests) { $lines.Add("- Tests: $($s.Tests)") }
+            if ($attCarry -gt 0) { $lines.Add("- Attempts: $attCarry") }
         }
         $lines.Add("")
         $lines.Add("## [$($s.Ts)] | $($s.Agent) | $($s.Task) | $($s.Status) | $($s.Name)")
         $lines.Add("- Summary: carried forward from docs/history/$name at rotation")
         if ($s.Status -ne "REVIEW" -and $s.Phase) { $lines.Add("- Phase: $($s.Phase)") }
         if ($s.Status -ne "REVIEW" -and $s.SpecPass) { $lines.Add("- Spec-pass: $($s.SpecPass)") }
+        if ($s.Status -ne "REVIEW" -and $s.Red) { $lines.Add("- Red: $($s.Red)") }
+        if ($s.Status -ne "REVIEW" -and $s.Tests) { $lines.Add("- Tests: $($s.Tests)") }
+        if ($s.Status -ne "REVIEW" -and $attCarry -gt 0) { $lines.Add("- Attempts: $attCarry") }
         if ($s.Status -eq "PAUSE") {
             $lines.Add("- Pause: $($s.PauseCat) - see docs/history/$name for detail")
         }

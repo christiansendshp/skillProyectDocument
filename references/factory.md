@@ -186,3 +186,33 @@ reviewer and `review PASS`; the author then retakes the task with `claim`.
 Without git the RED to GREEN gate cannot check that the tests are committed: it
 warns and records no `Red` sha. `rotate` carries the phase and the spec reviewer
 (`- Spec-pass:`) of every open task. The command exists only in Factory mode.
+
+## Evidence, reviews and limits
+
+**Exit markers.** In Factory mode every `verify` that closes a step carries
+`exit=N`, the exit code of the command that was run. `advance` from RED to GREEN
+needs an `exit=` other than 0 (the tests must fail first); `handoff`, `review
+PASS` and `done` need `exit=0`. The first `exit=` in the text counts.
+
+**Tests do not change in GREEN.** `handoff` of a GREEN task compares the test
+files recorded at RED (the `- Tests:` line, with the `- Red: <sha>` of the commit)
+against that sha, committed or not, and refuses if any differs: a wrong test goes
+back to SPEC with `advance`. Without git it only warns, and the reviewer has to
+write `tests unchanged` in the note of the `review PASS`. `handoff` also needs a
+working memory (`checkpoint`) and is for SPEC and GREEN only; RED leaves with
+`advance`.
+
+**Reviews are independent.** In Factory mode the warnings of classic mode are
+errors: a review by the agent that holds the task (unless `Independent review` is
+`NO`), a reviewer whose role is not `QA` or `BOTH` (a `SPEC` agent may review a
+spec), a reviewer that is not in the roster, and a `done` with no `Review: PASS`,
+with no ledger entries or whose verify has no `exit=0`.
+
+**Limits per agent and per task.** `claim` refuses an agent that already has
+`WIP per agent` tasks in progress (a task waiting for review does not count) and
+refuses a task that used `Max fix attempts`: each `Review: FAIL` and each move from
+GREEN back to RED is one attempt. Then the holder runs `pause ... BLOQUEO` (allowed
+from REVIEW in Factory mode) and writes the lesson; the count starts again after a
+`BLOQUEO` pause. `rotate` carries the attempts, `Red` and `Tests` of open tasks.
+In classic mode the ledger lines `Phase`, `Spec-pass`, `Red`, `Tests` and
+`Attempts` are ignored and never carried.

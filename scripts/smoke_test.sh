@@ -1421,6 +1421,7 @@ SPEC
   ph_proj() { ph="$WORK/${label}_ph_$1"; rm -rf "$ph"; mkdir -p "$ph"; run init "$ph" >/dev/null 2>&1; seed_plan_row "$ph" F09-E01-T01 "Phase task"; seed_plan_row "$ph" F09-E01-T02 "Review phase task"; }
 
   ph_proj rot
+  seed_replace "$ph/AGENTS.md" "| WIP per agent | 1 |" "| WIP per agent | 2 |"
   seed_entry "$ph" "$(now_ts)" claude-test F09-E01-T01 ASSIGNED "Phase task" '- Assign: claude-dev\n- Phase: GREEN\n'
   seed_entry "$ph" "$(now_ts)" claude-dev F09-E01-T02 IN_PROGRESS "Review phase task" '- Summary: working\n- Verify: pending\n- Phase: GREEN\n'
   seed_entry "$ph" "$(now_ts)" claude-dev F09-E01-T02 REVIEW "Review phase task" '- Summary: ready\n- Verify: exit=0\n- Handoff: claude-qa\n'
@@ -1464,7 +1465,7 @@ SPEC
     ad_desc="$1"; ad_want="$2"; shift 2
     ad_before="$(adv_count)"
     assert_failure "$label $ad_desc" run advance "$av" "$@"
-    grep -qF -- "$ad_want" "$WORK/.out" && ok "$label $ad_desc: the message names it" || bad "$label $ad_desc: text wrong, wanted [$ad_want]: $(cat "$WORK/.out")"
+    tr '\n\r' '  ' < "$WORK/.out" | tr -s ' ' | grep -qF -- "$ad_want" && ok "$label $ad_desc: the message names it" || bad "$label $ad_desc: text wrong, wanted [$ad_want]: $(cat "$WORK/.out")"
     [ "$(adv_count)" = "$ad_before" ] && ok "$label $ad_desc: nothing is written" || bad "$label $ad_desc: an entry was written"
   }
   last_entry() { awk '/^## \[/ { buf=""; } { buf = buf $0 "\n" } END { printf "%s", buf }' "$av/docs/Agentslog.md" | tr -d '\r'; }
@@ -1657,6 +1658,180 @@ SPEC
   assert_success "$label advance trims its verify" run advance "$av" claude-spec F09-E01-T01 RED "   spec ok, exit=0   "
   last_entry > "$WORK/.last"
   grep -q '^- Verify: spec ok, exit=0$' "$WORK/.last" && ok "$label the ledger verify has no surrounding spaces" || bad "$label verify not trimmed: $(cat "$WORK/.last")"
+
+  echo "== $label: exit markers, unchanged tests, review errors, WIP and attempts (F06-E02-T04, F06-E02-T05, F06-E01-T05) =="
+  gr_proj() {  # gr_proj <name> <git|nogit>: a task in GREEN held by claude-dev, with a working memory
+    red_proj "$1"
+    red_sha=""
+    if [ "$2" = "git" ]; then git -C "$av" init -q >/dev/null 2>&1; git_commit "$av" "tests"; red_sha="$(git -C "$av" rev-parse HEAD)"; fi
+    run advance "$av" claude-test F09-E01-T01 GREEN "exit=1" >/dev/null 2>&1
+    run claim "$av" claude-dev F09-E01-T01 "make it pass" >/dev/null 2>&1
+    run checkpoint "$av" claude-dev F09-E01-T01 "started" "implement" >/dev/null 2>&1
+  }
+  out_has() {  # the text is in the last output, line wraps of the PowerShell error stream folded
+    tr '\n\r' '  ' < "$WORK/.out" | tr -s ' ' | grep -qF -- "$1"
+  }
+  refused() {  # refused <description> <expected text> <command...>
+    rf_desc="$1"; rf_want="$2"; shift 2
+    rf_before="$(grep -c '^## \[' "$av/docs/Agentslog.md" | tr -d ' ')"
+    assert_failure "$label $rf_desc" run "$@"
+    out_has "$rf_want" && ok "$label $rf_desc: the message names it" || bad "$label $rf_desc: text wrong, wanted [$rf_want]: $(cat "$WORK/.out")"
+    [ "$(grep -c '^## \[' "$av/docs/Agentslog.md" | tr -d ' ')" = "$rf_before" ] && ok "$label $rf_desc: nothing is written" || bad "$label $rf_desc: an entry was written"
+  }
+
+  # ---- handoff: the verify and the tests recorded at RED -----------------------------------
+  gr_proj h_git git
+  refused "handoff needs an exit marker in Factory mode" "handoff failed: the verify needs exit=N (exit=0 when the checks pass)" handoff "$av" claude-dev F09-E01-T01 "implemented" "the tests pass" claude-qa
+  refused "handoff refuses a failing verify" "handoff failed: the verify says exit=1, not exit=0" handoff "$av" claude-dev F09-E01-T01 "implemented" "2 failed: exit=1" claude-qa
+  mv "$av/docs/brain/tasks/F09-E01-T01.md" "$WORK/.wm_keep"
+  refused "handoff needs the working memory" "handoff failed: F09-E01-T01 has no working memory yet (## Now); run checkpoint first" handoff "$av" claude-dev F09-E01-T01 "implemented" "exit=0" claude-qa
+  mv "$WORK/.wm_keep" "$av/docs/brain/tasks/F09-E01-T01.md"
+  printf '# edited in GREEN\n' >> "$av/tests/billing/export.spec.sh"
+  refused "handoff refuses a test file changed after RED (uncommitted)" "handoff failed: test file(s) changed since RED ($red_sha): tests/billing/export.spec.sh; a wrong test goes back to SPEC with advance" handoff "$av" claude-dev F09-E01-T01 "implemented" "exit=0" claude-qa
+  git_commit "$av" "weaken the test"
+  refused "handoff refuses a test file changed after RED (committed)" "test file(s) changed since RED" handoff "$av" claude-dev F09-E01-T01 "implemented" "exit=0" claude-qa
+  git -C "$av" checkout -q "$red_sha" -- tests/billing/export.spec.sh >/dev/null 2>&1
+  git_commit "$av" "restore the test"
+  assert_success "$label handoff passes once the tests are as they were at RED" run handoff "$av" claude-dev F09-E01-T01 "implemented" "all pass, exit=0" claude-qa
+  refused "review PASS needs an exit marker" "review failed: the verify needs exit=N (exit=0 when the checks pass)" review "$av" claude-qa F09-E01-T01 PASS "looks good" "ran the suite"
+  refused "review PASS needs exit=0" "review failed: the verify says exit=3, not exit=0" review "$av" claude-qa F09-E01-T01 PASS "looks good" "exit=3"
+  assert_success "$label review PASS with git needs no note about the tests" run review "$av" claude-qa F09-E01-T01 PASS "looks good" "exit=0"
+  refused "done needs an exit marker" "done failed: the verify needs exit=N (exit=0 when the checks pass)" done "$av" claude-dev F09-E01-T01 "implemented" "src/" "all green"
+  refused "done refuses a failing verify" "done failed: the verify says exit=1, not exit=0" done "$av" claude-dev F09-E01-T01 "implemented" "src/" "exit=1"
+  assert_success "$label done closes a reviewed task with exit=0" run done "$av" claude-dev F09-E01-T01 "implemented" "src/" "suite passes, exit=0"
+
+  red_proj h_red
+  refused "handoff is not for a task in RED" "handoff failed: F09-E01-T01 is in phase RED; move it with advance" handoff "$av" claude-test F09-E01-T01 "tests ready" "exit=0" claude-qa
+
+  adv_proj h_spec
+  refused "a spec handoff needs an exit marker too" "handoff failed: the verify needs exit=N" handoff "$av" claude-spec F09-E01-T01 "spec ready" "spec checked" claude-qa
+
+  gr_proj h_nogit nogit
+  assert_success "$label handoff without git warns that the tests cannot be checked" run handoff "$av" claude-dev F09-E01-T01 "implemented" "exit=0" claude-qa
+  grep -q "WARN: git is not available here, so the tests cannot be checked as unchanged since RED; the reviewer must write 'tests unchanged' in the review note" "$WORK/.out" && ok "$label the warning tells the reviewer what to write" || bad "$label no-git warning wrong: $(cat "$WORK/.out")"
+  refused "review PASS without git needs 'tests unchanged' in the note" "review failed: git could not check the tests of F09-E01-T01; the note must say 'tests unchanged'" review "$av" claude-qa F09-E01-T01 PASS "looks good" "exit=0"
+  assert_success "$label review PASS with 'tests unchanged' in the note" run review "$av" claude-qa F09-E01-T01 PASS "Looks good, Tests Unchanged since RED" "exit=0"
+
+  gr_proj h_rotate git
+  seed_fill "$av" F09-FILL-03 205
+  assert_success "$label rotate runs on a GREEN task" run rotate "$av"
+  grep -q "^- Red: $red_sha\$" "$av/docs/Agentslog.md" && grep -q '^- Tests: tests/billing/export.spec.sh$' "$av/docs/Agentslog.md" && ok "$label rotate carries the Red sha and the test paths" || bad "$label Red lost in rotate: $(grep -E '^- (Red|Tests)' "$av/docs/Agentslog.md" | tr '\n' ' ')"
+  printf '# edited after rotate\n' >> "$av/tests/billing/export.spec.sh"
+  refused "the tests stay protected after rotate" "handoff failed: test file(s) changed since RED" handoff "$av" claude-dev F09-E01-T01 "implemented" "exit=0" claude-qa
+
+  # ---- review and done: warnings become errors in Factory mode -----------------------------
+  gr_proj r_self git
+  run handoff "$av" claude-dev F09-E01-T01 "implemented" "exit=0" claude-qa >/dev/null 2>&1
+  refused "a self-review is an error in Factory mode" "review failed: claude-dev developed F09-E01-T01; an independent review is required" review "$av" claude-dev F09-E01-T01 PASS "mine is fine" "exit=0"
+  refused "a reviewer must have the QA role for a GREEN handoff" "review failed: claude-test has role TEST, but a review of phase GREEN needs QA (or BOTH)" review "$av" claude-test F09-E01-T01 PASS "fine" "exit=0"
+  refused "a reviewer must be in the roster" "review failed: nobody is not in the Agent identity table; Factory mode needs a role for each agent" review "$av" nobody F09-E01-T01 PASS "fine" "exit=0"
+  seed_replace "$av/AGENTS.md" "| Independent review | YES |" "| Independent review | NO |"
+  seed_replace "$av/AGENTS.md" "| claude-dev | AI | Claude | DEV |" "| claude-dev | AI | Claude | BOTH |"
+  assert_success "$label Independent review NO turns the self-review back into a warning" run review "$av" claude-dev F09-E01-T01 PASS "self checked" "exit=0"
+  grep -q 'WARN: self-review: claude-dev reviews its own handoff of F09-E01-T01' "$WORK/.out" && ok "$label the self-review warning is the classic one" || bad "$label no self-review warning: $(cat "$WORK/.out")"
+
+  adv_proj r_spec
+  printf '%s\n' "| claude-spec2 | AI | Claude | SPEC | — |" > "$WORK/.row"
+  awk -v rowfile="$WORK/.row" 'BEGIN { getline r < rowfile } { print } /^\| claude-spec \|/ { print r }' "$av/AGENTS.md" > "$av/AGENTS.md.tmp" && mv "$av/AGENTS.md.tmp" "$av/AGENTS.md"
+  run handoff "$av" claude-spec F09-E01-T01 "spec ready" "exit=0" claude-spec2 >/dev/null 2>&1
+  assert_success "$label an agent with the SPEC role may review a spec" run review "$av" claude-spec2 F09-E01-T01 PASS "spec reads well" "exit=0"
+
+  adv_proj d_none
+  refused "done needs a review in Factory mode" "done failed: F09-E01-T01 has no Review: PASS yet (status IN_PROGRESS, last review none)" done "$av" claude-spec F09-E01-T01 "spec" "docs/" "exit=0"
+  run handoff "$av" claude-spec F09-E01-T01 "spec ready" "exit=0" claude-qa >/dev/null 2>&1
+  refused "done refuses a handoff nobody reviewed" "done failed: F09-E01-T01 has no Review: PASS yet (status REVIEW, last review none)" done "$av" claude-spec F09-E01-T01 "spec" "docs/" "exit=0"
+  run review "$av" claude-qa F09-E01-T01 FAIL "unclear" "exit=1" >/dev/null 2>&1
+  refused "done refuses after a Review: FAIL" "last review FAIL" done "$av" claude-spec F09-E01-T01 "spec" "docs/" "exit=0"
+  seed_plan_row "$av" F09-E01-T09 "A task nobody claimed"
+  refused "done refuses a task with no ledger entries" "done failed: F09-E01-T09 has no ledger entries; claim it first" done "$av" claude-spec F09-E01-T09 "nothing" "docs/" "exit=0"
+
+  ip_new d_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  seed_plan_row "$ip" F09-E01-T01 "Classic task"
+  run claim "$ip" someone F09-E01-T01 "work" >/dev/null 2>&1
+  run handoff "$ip" someone F09-E01-T01 "ready" "tests ran fine" reviewer >/dev/null 2>&1
+  assert_success "$label classic mode still lets a task close without a passing review" run done "$ip" someone F09-E01-T01 "done" "src/" "none"
+  grep -q 'WARN: F09-E01-T01: closing without a passing review (the handoff is still pending)' "$WORK/.out" && grep -q 'says nothing about what was checked' "$WORK/.out" && ok "$label classic mode only warns about both" || bad "$label classic done warnings wrong: $(cat "$WORK/.out")"
+
+  # ---- claim: WIP per agent ------------------------------------------------------------------
+  wp_proj() { av="$WORK/${label}_wp_$1"; rm -rf "$av"; mkdir -p "$av"; run init "$av" >/dev/null 2>&1; seed_plan_row "$av" F09-E01-T01 "First wip task"; seed_plan_row "$av" F09-E01-T02 "Second wip task"; seed_plan_row "$av" F09-E01-T03 "Third wip task"; }
+  wp_proj one
+  run claim "$av" claude-spec F09-E01-T01 "first" >/dev/null 2>&1
+  refused "a second task is refused when WIP per agent is 1" "claim failed: claude-spec already has 1 task(s) in progress (WIP per agent is 1): F09-E01-T01" claim "$av" claude-spec F09-E01-T02 "second"
+  assert_success "$label the holder may claim its own task again" run claim "$av" claude-spec F09-E01-T01 "again"
+  seed_replace "$av/AGENTS.md" "| WIP per agent | 1 |" "| WIP per agent | 2 |"
+  assert_success "$label WIP per agent 2 allows a second task" run claim "$av" claude-spec F09-E01-T02 "second"
+  refused "the limit still applies at 2" "claim failed: claude-spec already has 2 task(s) in progress (WIP per agent is 2): F09-E01-T01, F09-E01-T02" claim "$av" claude-spec F09-E01-T03 "third"
+  run checkpoint "$av" claude-spec F09-E01-T01 "spec" "review" >/dev/null 2>&1
+  run handoff "$av" claude-spec F09-E01-T01 "spec ready" "exit=0" claude-qa >/dev/null 2>&1
+  assert_success "$label a task waiting for review does not count as work in progress" run claim "$av" claude-spec F09-E01-T03 "third"
+  ip_new wp_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  seed_plan_row "$ip" F09-E01-T01 "First wip task"; seed_plan_row "$ip" F09-E01-T02 "Second wip task"
+  run claim "$ip" someone F09-E01-T01 "first" >/dev/null 2>&1
+  assert_success "$label classic mode has no WIP limit" run claim "$ip" someone F09-E01-T02 "second"
+
+  # ---- claim: fix attempts ---------------------------------------------------------------------
+  at_proj() {  # at_proj <name> <fails>: a GREEN task of claude-dev handed off and failed <fails> times
+    av="$WORK/${label}_at_$1"; rm -rf "$av"; mkdir -p "$av"; run init "$av" >/dev/null 2>&1
+    seed_plan_row "$av" F09-E01-T01 "Attempts task"
+    seed_entry "$av" "$(now_ts)" claude-test F09-E01-T01 ASSIGNED "Attempts task" '- Assign: claude-dev\n- Phase: GREEN\n'
+    at_i=0
+    while [ "$at_i" -lt "$2" ]; do
+      seed_entry "$av" "$(now_ts)" claude-dev F09-E01-T01 IN_PROGRESS "Attempts task" '- Summary: try\n- Verify: pending\n- Phase: GREEN\n'
+      seed_entry "$av" "$(now_ts)" claude-dev F09-E01-T01 REVIEW "Attempts task" '- Summary: ready\n- Verify: exit=0\n- Handoff: claude-qa\n'
+      seed_entry "$av" "$(now_ts)" claude-qa F09-E01-T01 REVIEW "Attempts task" '- Summary: review\n- Review: FAIL - not yet\n'
+      at_i=$((at_i + 1))
+    done
+  }
+  at_proj two 2
+  assert_success "$label two failed reviews are below the default limit of three" run claim "$av" claude-dev F09-E01-T01 "third try"
+  run checkpoint "$av" claude-dev F09-E01-T01 "trying" "go" >/dev/null 2>&1
+  grep -q '^- Attempts: 2$' "$av/docs/brain/tasks/F09-E01-T01.md" && ok "$label the working memory shows two attempts" || bad "$label attempts wrong: $(grep Attempts "$av/docs/brain/tasks/F09-E01-T01.md")"
+  at_proj three 3
+  run checkpoint "$av" claude-dev F09-E01-T01 "stuck" "ask for help" >/dev/null 2>&1
+  grep -q '^- Attempts: 3$' "$av/docs/brain/tasks/F09-E01-T01.md" && ok "$label the working memory shows three attempts" || bad "$label attempts wrong: $(grep Attempts "$av/docs/brain/tasks/F09-E01-T01.md")"
+  refused "the claim after the third failed review is refused" "claim failed: F09-E01-T01 used 3 of 3 fix attempts; pause it with BLOQUEO and write the lesson, or raise Max fix attempts" claim "$av" claude-dev F09-E01-T01 "fourth try"
+  assert_success "$label the holder pauses a task in REVIEW with BLOQUEO" run pause "$av" claude-dev F09-E01-T01 BLOQUEO "three reviews failed"
+  assert_success "$label after the BLOQUEO the attempts start again" run claim "$av" claude-dev F09-E01-T01 "after the lesson"
+  at_proj max 2
+  seed_replace "$av/AGENTS.md" "| Max fix attempts | 3 |" "| Max fix attempts | 2 |"
+  refused "Max fix attempts is read from the table" "claim failed: F09-E01-T01 used 2 of 2 fix attempts" claim "$av" claude-dev F09-E01-T01 "again"
+  at_proj back 1
+  seed_replace "$av/AGENTS.md" "| Max fix attempts | 3 |" "| Max fix attempts | 2 |"
+  seed_entry "$av" "$(now_ts)" claude-dev F09-E01-T01 ASSIGNED "Attempts task" '- Assign: claude-test\n- Phase: RED\n'
+  refused "a move from GREEN back to RED counts as an attempt" "claim failed: F09-E01-T01 used 2 of 2 fix attempts" claim "$av" claude-test F09-E01-T01 "rewrite the tests"
+  at_proj rot 3
+  seed_replace "$av/AGENTS.md" "| Max fix attempts | 3 |" "| Max fix attempts | 5 |"
+  seed_fill "$av" F09-FILL-04 205
+  run rotate "$av" >/dev/null 2>&1
+  # the carried REVIEW entry brings its own FAIL line, so the carried count is one less
+  grep -q '^- Attempts: 2$' "$av/docs/Agentslog.md" && ok "$label rotate carries the attempts, one less than the FAIL line it also carries" || bad "$label attempts lost in rotate: $(grep Attempts "$av/docs/Agentslog.md" | tr '\n' ' ')"
+  run checkpoint "$av" claude-dev F09-E01-T01 "after rotate" "go" >/dev/null 2>&1
+  grep -q '^- Attempts: 3$' "$av/docs/brain/tasks/F09-E01-T01.md" && ok "$label the count survives rotate" || bad "$label count after rotate wrong: $(grep Attempts "$av/docs/brain/tasks/F09-E01-T01.md")"
+  ip_new at_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  seed_plan_row "$ip" F09-E01-T01 "Attempts task"
+  seed_entry "$ip" "$(now_ts)" a F09-E01-T01 REVIEW "Attempts task" '- Summary: r\n- Verify: v\n- Review: FAIL - x\n'
+  seed_entry "$ip" "$(now_ts)" a F09-E01-T01 REVIEW "Attempts task" '- Summary: r\n- Verify: v\n- Review: FAIL - x\n'
+  seed_entry "$ip" "$(now_ts)" a F09-E01-T01 REVIEW "Attempts task" '- Summary: r\n- Verify: v\n- Review: FAIL - x\n'
+  assert_success "$label classic mode has no attempts limit" run claim "$ip" a F09-E01-T01 "again"
+
+  # classic mode: the Factory lines of the ledger mean nothing, and rotate carries none of them (BR-008)
+  ip_new cx_rotate
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  seed_plan_row "$ip" F09-E01-T01 "Classic failed task"
+  seed_plan_row "$ip" F09-E01-T02 "Classic passed task"
+  seed_entry "$ip" "$(now_ts)" a F09-E01-T01 IN_PROGRESS "Classic failed task" '- Summary: work\n- Verify: pending\n- Phase: GREEN\n'
+  seed_entry "$ip" "$(now_ts)" a F09-E01-T01 REVIEW "Classic failed task" '- Summary: ready\n- Verify: tests\n- Handoff: b\n- Red: abc123\n- Tests: t.sh\n'
+  seed_entry "$ip" "$(now_ts)" b F09-E01-T01 REVIEW "Classic failed task" '- Summary: review\n- Review: FAIL - no\n- Attempts: 7\n- Spec-pass: b\n'
+  seed_entry "$ip" "$(now_ts)" a F09-E01-T02 IN_PROGRESS "Classic passed task" '- Summary: work\n- Verify: pending\n'
+  seed_entry "$ip" "$(now_ts)" a F09-E01-T02 REVIEW "Classic passed task" '- Summary: ready\n- Verify: tests\n- Handoff: b\n'
+  seed_entry "$ip" "$(now_ts)" b F09-E01-T02 REVIEW "Classic passed task" '- Summary: review\n- Review: PASS - good\n'
+  seed_fill "$ip" F09-FILL-05 205
+  assert_success "$label rotate runs on a classic ledger with reviewed tasks" run rotate "$ip"
+  ! grep -Eq '^- (Phase|Spec-pass|Red|Tests|Attempts):' "$ip/docs/Agentslog.md" && ok "$label classic rotate carries no Factory line" || bad "$label classic rotate carried: $(grep -E '^- (Phase|Spec-pass|Red|Tests|Attempts):' "$ip/docs/Agentslog.md" | tr '\n' ' ')"
+  grep -q '^- Review: PASS - carried forward' "$ip/docs/Agentslog.md" && grep -q '^- Review: FAIL - carried forward' "$ip/docs/Agentslog.md" && ok "$label classic rotate still carries the reviews" || bad "$label classic reviews lost"
 
 #FACTORY_CASES
 }
