@@ -2858,6 +2858,20 @@ SPEC
   seed_entry "$bn" "$(now_ts)" claude-spec F09-E01-T01 ASSIGNED "Export invoices as CSV" '- Assign: claude-spec\n'
   assert_success "$label a task that was only assigned still starts in SPEC" run claim "$bn" claude-spec F09-E01-T01 "start"
   [ "$(grep -c '^- Phase: SPEC$' "$bn/docs/Agentslog.md")" -eq 1 ] && ok "$label a first claim in Factory mode writes the SPEC phase" || bad "$label first claim phase wrong: $(grep -E '^- Phase:' "$bn/docs/Agentslog.md" | tr '\n' ' ')"
+  # append-log is not a way around the lifecycle: it cannot start, hold, assign or close a task (ADR-093)
+  bn_proj appendlog
+  al_before="$(grep -c '^## \[' "$bn/docs/Agentslog.md")"
+  assert_failure "$label append-log refuses to start a task in Factory mode" run append-log "$bn" claude-spec F09-E01-T01 IN_PROGRESS "manual start" docs/ pending
+  grep -q 'append-log failed: IN_PROGRESS is a lifecycle status' "$WORK/.out" && ok "$label the refusal names the status" || bad "$label append-log text wrong: $(cat "$WORK/.out")"
+  tr '\n\r' '  ' < "$WORK/.out" | tr -s ' ' | grep -qF 'use claim, pause, handoff, review, advance, assign or done' && ok "$label the refusal names the commands to use" || bad "$label append-log refusal does not name the commands: $(cat "$WORK/.out")"
+  for al_st in REVIEW PAUSE ASSIGNED DONE; do
+    assert_failure "$label append-log refuses $al_st in Factory mode" run append-log "$bn" claude-spec F09-E01-T01 "$al_st" "manual" docs/ pending
+  done
+  [ "$(grep -c '^## \[' "$bn/docs/Agentslog.md")" = "$al_before" ] && ok "$label a refused append-log writes nothing" || bad "$label a refused append-log wrote an entry"
+  assert_success "$label append-log still records an audit in Factory mode" run append-log "$bn" claude-qa F09-E01-T01 AUDIT "audit ok" docs/ "exit=0"
+  ip_new al_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  assert_success "$label append-log in classic mode keeps accepting every status" run append-log "$ip" claude-spec F09-E01-T01 IN_PROGRESS "manual start" docs/ pending
   # a task that went through advance closes from GREEN (the cases of the evidence block do it with git), and the fast lane starts in GREEN
   ft_proj gate_fast nogit
   run claim "$ft" claude-dev F09-E01-T01 "fix it" >/dev/null 2>&1

@@ -4125,6 +4125,11 @@ function Invoke-AppendLog {
     }
     $fields = @($Arguments | ForEach-Object { ConvertTo-CleanField $_ })
     $followUp = if ($fields.Count -ge 7) { $fields[6] } else { "none" }
+    # In Factory mode the statuses of the lifecycle belong to its commands: a hand-written entry
+    # would start, hold or close a task with no phase, spec, tests or review (BR-009, ADR-093).
+    if ((Test-FactoryOn) -and $fields[2] -cin @("IN_PROGRESS", "PAUSE", "REVIEW", "ASSIGNED", "DONE")) {
+        throw "append-log failed: $($fields[2]) is a lifecycle status; in Factory mode use claim, pause, handoff, review, advance, assign or done (append-log is for entries outside the lifecycle, like AUDIT)"
+    }
     $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
     $entry = (@(
         "",

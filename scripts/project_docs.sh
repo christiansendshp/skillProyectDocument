@@ -3949,6 +3949,14 @@ append_log() {
   files="$(clean_field "$5")"
   verify="$(clean_field "$6")"
   follow_up="$(clean_field "${7:-none}")"
+  # In Factory mode the statuses of the lifecycle belong to its commands: a hand-written entry
+  # would start, hold or close a task with no phase, spec, tests or review (BR-009, ADR-093).
+  if factory_on; then
+    case "$status" in
+      IN_PROGRESS|PAUSE|REVIEW|ASSIGNED|DONE)
+        die "append-log failed: $status is a lifecycle status; in Factory mode use claim, pause, handoff, review, advance, assign or done (append-log is for entries outside the lifecycle, like AUDIT)" ;;
+    esac
+  fi
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   {
     echo

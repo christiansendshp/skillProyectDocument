@@ -248,8 +248,8 @@ function Get-MinCooldown {
 
 # ---- time --------------------------------------------------------------------------------------------------------
 function Update-Clock {
-    $script:Now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     $d = Get-Date
+    $script:Now = ([DateTimeOffset]$d).ToUnixTimeSeconds()
     $script:Sod = [long]($d.Hour * 3600 + $d.Minute * 60 + $d.Second)
     $script:Today = $d.ToString("yyyy-MM-dd", [System.Globalization.CultureInfo]::InvariantCulture)
 }

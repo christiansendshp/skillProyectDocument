@@ -196,7 +196,7 @@ used. The next agent runs `claim`.
 
 `done` closes a task of the normal lane only from GREEN, which only `advance` reaches (BR-009); a fast-lane
 task starts in GREEN, and a task claimed before the project moved to Factory mode has no
-phase and is not held to it (a retake after a failed review or from a pause keeps it so, ADR-092). SPEC to GREEN (no RED) is only allowed when `Require TDD` is `NO`. GREEN to REVIEW is
+phase and is not held to it (a retake after a failed review or from a pause keeps it so, ADR-092). `append-log` refuses the statuses of the lifecycle in Factory mode (it still writes `AUDIT`), so a hand-written entry cannot make such a task (ADR-093). SPEC to GREEN (no RED) is only allowed when `Require TDD` is `NO`. GREEN to REVIEW is
 `handoff` and REVIEW to DONE is `done`. A spec review is the normal `handoff` to a
 reviewer and `review PASS`; the author then retakes the task with `claim`.
 Without git the RED to GREEN gate cannot check that the tests are committed: it

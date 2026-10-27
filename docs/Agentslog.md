@@ -64,3 +64,15 @@ segments live in `docs/history/`.
 - Summary: QA round: Level NONE tasks can close (advance RED to GREEN, ADR-091), stale numbers fixed; commit 21e3413
 - Verify: focused sh 115 and ps1 113 passed 0 failed incl. the new block; check . OK; full8 smoke of this commit is running; exit=0
 - Handoff: claude-qa
+
+## [2026-10-27T21:51:49Z] | claude-sonnet-5-5 | F06-E05-T03 | IN_PROGRESS | Dogfood a full factory lifecycle end to end
+- Summary: withdraw the code handoff: the task takes the normal lane through a retroactive Level NONE spec (ADR-091)
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-10-27T21:51:57Z] | claude-sonnet-5-5 | F06-E05-T03 | REVIEW | Dogfood a full factory lifecycle end to end
+- Summary: spec ready for review: one scenario of Level NONE with the Justification, no tests listed
+- Verify: check . OK; exit=0
+- Handoff: claude-qa
+- Spec-sha: 5e2b23b6bf36e92e99c1686e7ac3aa9c01458d319541d04e3c53d1a5c36d7490

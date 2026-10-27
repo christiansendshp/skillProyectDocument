@@ -113,10 +113,12 @@ state_min_cooldown() {
 }
 
 # ---- time ----------------------------------------------------------------------------------------------
-clock() {  # sets NOW (epoch), SOD (seconds of the local day) and TODAY (local date)
-  NOW="$(date +%s)"
-  SOD="$(date +%H:%M:%S | awk -F: '{ print $1 * 3600 + $2 * 60 + $3 }')"
-  TODAY="$(date +%Y-%m-%d)"
+clock() {  # sets NOW (epoch), SOD (seconds of the local day) and TODAY (local date), all from one reading of the clock
+  fd_clock="$(date '+%s %H:%M:%S %Y-%m-%d')"
+  NOW="${fd_clock%% *}"
+  fd_clock="${fd_clock#* }"
+  SOD="$(printf '%s' "${fd_clock%% *}" | awk -F: '{ print $1 * 3600 + $2 * 60 + $3 }')"
+  TODAY="${fd_clock#* }"
 }
 fmt_hm() {  # fmt_hm EPOCH: the local HH:MM of a moment after NOW
   awk -v e="$1" -v n="$NOW" -v s="$SOD" 'BEGIN { t = (s + e - n) % 86400; if (t < 0) t += 86400; printf "%02d:%02d", int(t / 3600), int((t % 3600) / 60) }'
