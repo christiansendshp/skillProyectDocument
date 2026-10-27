@@ -18,8 +18,15 @@ gets a short redirect block pointing at it, installed by `link`.
 
 Adapters intentionally contain only these operations: `init`, `context`,
 `link`, `migrate`, `claim`, `pause`, `handoff`, `review`, `assign`, `done`,
-`status`, `append-log`, and `rotate`, plus `check`. `SKILL.md` remains the canonical workflow; adapters
+`status`, `append-log`, and `rotate`, plus `check`; in Factory mode also `next`
+and `recall` at the start, and `checkpoint`, `advance`, `learn`, `retro` and
+`digest` as the task goes. `SKILL.md` remains the canonical workflow; adapters
 must not inline the full reference material.
+
+The dispatcher (`scripts/factory_dispatch.sh` or `.ps1`) is not an adapter: it
+runs the CLI of each agent listed in `.factory/dispatch.md` (for example `claude -p`
+and `gemini -p`, never `claude --bare`) so that CLIs that cannot call each other
+take turns through the ledger. Give each CLI the agent id of its row.
 
 ## One agent id per runtime
 
@@ -49,7 +56,8 @@ PowerShell:
 
 Use the same launcher for every other command (`link`, `migrate`, `claim`,
 `pause`, `handoff`, `review`, `assign`, `done`, `status`, `append-log`,
-`rotate`, `check`).
+`rotate`, `check`, and in Factory mode `mode`, `next`, `checkpoint`, `advance`,
+`recall`, `learn`, `retro`, `digest`).
 
 ## Merge, do not overwrite
 

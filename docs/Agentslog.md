@@ -507,3 +507,132 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 ## [2026-10-27T01:49:10Z] | claude-sonnet-5-5 | F06-E02-T06 | IN_PROGRESS | Fast lane with size limits and promotion to SPEC
 - Summary: Fast lane with size limits and promotion
 - Verify: pending
+
+## [2026-10-27T02:50:10Z] | claude-sonnet-5-5 | F06-E03-T03 | REVIEW | Recall command with deterministic ranking and budget
+- Summary: recall command with ranking and budget; implemented in sh and ps1 with the smoke cases listed in the commit
+- Verify: commit a711b68; full smoke sh 1069 passed 0 failed, ps1 1067 passed 0 failed (2136 cases, baseline 578); differential classic run vs master 9302b58 identical for sh and ps1 (fail=0); exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T02:50:12Z] | claude-sonnet-5-5 | F06-E03-T04 | REVIEW | Learn and retro commands with mandatory lessons
+- Summary: learn and retro commands, done integration; implemented in sh and ps1 with the smoke cases listed in the commit
+- Verify: commit a711b68; full smoke sh 1069 passed 0 failed, ps1 1067 passed 0 failed (2136 cases, baseline 578); differential classic run vs master 9302b58 identical for sh and ps1 (fail=0); exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T02:50:14Z] | claude-sonnet-5-5 | F06-E03-T05 | REVIEW | Brain garbage collection in rotate and promotion warning
+- Summary: brain gc in rotate, promotion warning; implemented in sh and ps1 with the smoke cases listed in the commit
+- Verify: commit a711b68; full smoke sh 1069 passed 0 failed, ps1 1067 passed 0 failed (2136 cases, baseline 578); differential classic run vs master 9302b58 identical for sh and ps1 (fail=0); exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T02:50:16Z] | claude-sonnet-5-5 | F06-E01-T04 | REVIEW | Add next command for autonomous task selection
+- Summary: next command; implemented in sh and ps1 with the smoke cases listed in the commit
+- Verify: commit a711b68; full smoke sh 1069 passed 0 failed, ps1 1067 passed 0 failed (2136 cases, baseline 578); differential classic run vs master 9302b58 identical for sh and ps1 (fail=0); exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T02:50:18Z] | claude-sonnet-5-5 | F06-E02-T06 | REVIEW | Fast lane with size limits and promotion to SPEC
+- Summary: fast lane; implemented in sh and ps1 with the smoke cases listed in the commit
+- Verify: commit a711b68; full smoke sh 1069 passed 0 failed, ps1 1067 passed 0 failed (2136 cases, baseline 578); differential classic run vs master 9302b58 identical for sh and ps1 (fail=0); exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T02:50:19Z] | claude-sonnet-5-5 | F06-E02-T04 | REVIEW | Exit markers and immutable tests from RED sha
+- Summary: exit markers and unchanged tests retake; implemented in sh and ps1 with the smoke cases listed in the commit
+- Verify: commit a711b68; full smoke sh 1069 passed 0 failed, ps1 1067 passed 0 failed (2136 cases, baseline 578); differential classic run vs master 9302b58 identical for sh and ps1 (fail=0); exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T02:50:46Z] | claude-sonnet-5-5 | F06-E04-T02 | IN_PROGRESS | Show phase in status output
+- Summary: status adds the phase and the lane in Factory mode
+- Verify: pending
+
+## [2026-10-27T02:50:47Z] | claude-sonnet-5-5 | F06-E04-T03 | IN_PROGRESS | Cross-model marker, default reviewers and audits
+- Summary: cross-model marker, default reviewers and audits
+- Verify: pending
+
+## [2026-10-27T02:50:49Z] | claude-sonnet-5-5 | F06-E04-T01 | IN_PROGRESS | Digest command for asynchronous human review
+- Summary: digest command
+- Verify: pending
+
+## [2026-10-27T02:50:51Z] | claude-sonnet-5-5 | F06-E01-T06 | IN_PROGRESS | Next returns a reviewed task to its holder
+- Summary: next gives a reviewed task back to its holder
+- Verify: pending
+
+## [2026-10-27T02:50:52Z] | claude-sonnet-5-5 | F06-E06-T01 | IN_PROGRESS | Dispatch config templates and gitignore block
+- Summary: init and migrate create .factory/dispatch.md and the gitignore block
+- Verify: pending
+
+## [2026-10-27T02:50:58Z] | claude-sonnet-5-5 | F06-E06-T02 | IN_PROGRESS | Dispatcher loop in PowerShell with limit detection
+- Summary: dispatcher loop in PowerShell with limit detection
+- Verify: pending
+
+## [2026-10-27T02:50:59Z] | claude-sonnet-5-5 | F06-E06-T03 | IN_PROGRESS | Dispatcher loop in sh with identical behavior
+- Summary: dispatcher loop in sh with the same behavior
+- Verify: pending
+
+## [2026-10-27T02:51:01Z] | claude-sonnet-5-5 | F06-E06-T04 | IN_PROGRESS | Fake CLIs and dispatcher smoke tests
+- Summary: fake CLIs and dispatcher smoke tests
+- Verify: pending
+
+## [2026-10-27T03:03:31Z] | claude-qa | F06-E03-T03 | REVIEW | Recall command with deterministic ranking and budget
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA review of commit a711b68 on a frozen copy (git archive); sh and ps1 compared; findings below
+- Review: FAIL - recall prints a wrong row in sh when a lesson holds a tab (brain_rows_tsv joins cells with tabs); learn accepts the tab; ps1 prints the full row
+
+## [2026-10-27T03:03:34Z] | claude-qa | F06-E03-T04 | REVIEW | Learn and retro commands with mandatory lessons
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA review of commit a711b68 on a frozen copy (git archive); sh and ps1 compared; findings below
+- Review: FAIL - done does not re-check the mandatory lesson: retro none none before a later FAIL stays valid, so the task closes with Learned: none after a FAIL; retro_read must check the struggled flag
+
+## [2026-10-27T03:03:36Z] | claude-qa | F06-E03-T05 | REVIEW | Brain garbage collection in rotate and promotion warning
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA review of commit a711b68 on a frozen copy (git archive); sh and ps1 compared; findings below
+- Review: FAIL - brain gc loses a row in sh when a lesson holds a tab (5 archived in the message, 4 rows in the archive; ps1 archives 5); rotate and brain_gc take no docs lock so gc can race learn
+
+## [2026-10-27T03:03:38Z] | claude-qa | F06-E02-T06 | REVIEW | Fast lane with size limits and promotion to SPEC
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA review of commit a711b68 on a frozen copy (git archive); sh and ps1 compared; findings below
+- Review: FAIL - a rename out of a protected path (git mv auth/x src/x) passes the size check because git reports only the new name (needs --no-renames); untracked files with spaces in the name are not counted in sh; git diff failures are ignored
+
+## [2026-10-27T03:03:40Z] | claude-qa | F06-E02-T04 | REVIEW | Exit markers and immutable tests from RED sha
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA review of commit a711b68 on a frozen copy (git archive); sh and ps1 compared; findings below
+- Review: FAIL - a recorded test renamed after RED passes the unchanged check (git diff needs --no-renames); pre_exit=1 counts as a marker because the underscore is not treated as part of a word
+
+## [2026-10-27T03:03:43Z] | claude-qa | F06-E01-T04 | REVIEW | Add next command for autonomous task selection
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA review of commit a711b68 on a frozen copy (git archive); sh and ps1 compared; findings below; exit=0
+- Review: PASS - next returns the right task for every role in sh and ps1 and skips BLOQUEO, RED-LINE and exhausted attempts; two remarks fixed under F06-E01-T06: a handoff addressed to a role (Handoff: QA) is not offered to a QA agent, and the template stub row (Name UNKNOWN) is offered as the first task
+
+## [2026-10-27T03:03:50Z] | claude-sonnet-5-5 | F06-E01-T04 | DONE | Add next command for autonomous task selection
+- Summary: next command: the task an agent should work on by role, phase and priority; reviewed by claude-qa (PASS)
+- Files: scripts/project_docs.sh, scripts/project_docs.ps1, scripts/smoke_test.sh, references/factory.md
+- Verify: commit a711b68; full smoke sh 1069 passed 0 failed, ps1 1067 passed 0 failed; QA PASS; exit=0
+
+## [2026-10-27T03:03:57Z] | claude-sonnet-5-5 | F06-E03-T03 | IN_PROGRESS | Recall command with deterministic ranking and budget
+- Summary: retake after the QA findings of a711b68
+- Verify: pending
+
+## [2026-10-27T03:03:59Z] | claude-sonnet-5-5 | F06-E03-T04 | IN_PROGRESS | Learn and retro commands with mandatory lessons
+- Summary: retake after the QA findings of a711b68
+- Verify: pending
+
+## [2026-10-27T03:04:01Z] | claude-sonnet-5-5 | F06-E03-T05 | IN_PROGRESS | Brain garbage collection in rotate and promotion warning
+- Summary: retake after the QA findings of a711b68
+- Verify: pending
+
+## [2026-10-27T03:04:04Z] | claude-sonnet-5-5 | F06-E02-T06 | IN_PROGRESS | Fast lane with size limits and promotion to SPEC
+- Summary: retake after the QA findings of a711b68
+- Verify: pending
+
+## [2026-10-27T03:04:06Z] | claude-sonnet-5-5 | F06-E02-T04 | IN_PROGRESS | Exit markers and immutable tests from RED sha
+- Summary: retake after the QA findings of a711b68
+- Verify: pending
+
+## [2026-10-27T03:24:30Z] | claude-sonnet-5-5 | F06-E05-T01 | IN_PROGRESS | Document factory mode across skill and references
+- Summary: document Factory mode across the skill and the references
+- Verify: pending
+
+## [2026-10-27T03:27:40Z] | claude-sonnet-5-5 | F06-E05-T02 | IN_PROGRESS | Add factory evals and adjust six-file evals
+- Summary: add Factory evals and adjust the six-file evals
+- Verify: pending
+
+## [2026-10-27T03:39:12Z] | claude-sonnet-5-5 | F06-E01-T07 | IN_PROGRESS | Context drops older log entries to fit in Factory mode
+- Summary: context drops older log entries to fit in Factory mode
+- Verify: pending

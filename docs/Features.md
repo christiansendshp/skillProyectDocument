@@ -2,8 +2,8 @@
 
 ## Operational summary
 
-- Verified capabilities: 37
-- Latest verification: `smoke 1700 pass 0 fail; QA PASS races, rotate, BLOQUEO reset` (2026-10-27)
+- Verified capabilities: 38
+- Latest verification: `commit a711b68; full smoke sh 1069 passed 0 failed, ps1 1067 passed 0 failed; QA PASS; exit=0` (2026-10-27)
 - Known limitation: the AGENTS.md/Agents.md case collision cannot be tested end to end on Windows or macOS.
 
 <!-- context:end -->
@@ -52,3 +52,4 @@ Use one row per stable capability. Link long specifications or runbooks from
 | F06-E02-T02 | advance command with SPEC and RED gates | smoke 1700 pass 0 fail; QA PASS retake: classic rotate identical | log:F06-E02-T02 | 2026-10-27 |
 | F06-E02-T05 | Review warnings are errors in Factory mode | smoke 1700 pass 0 fail; QA PASS factory 561 sh; classic flow identical | log:F06-E02-T05 | 2026-10-27 |
 | F06-E01-T05 | WIP per agent and fix attempts in claim | smoke 1700 pass 0 fail; QA PASS races, rotate, BLOQUEO reset | log:F06-E01-T05 | 2026-10-27 |
+| F06-E01-T04 | next command: the task an agent should work on by role, phase and priority; reviewed by claude-qa (PASS) | commit a711b68; full smoke sh 1069 passed 0 failed, ps1 1067 passed 0 failed; QA PASS; exit=0 | log:F06-E01-T04 | 2026-10-27 |

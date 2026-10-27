@@ -73,8 +73,10 @@ more rows than `Brain max entries`. In classic mode the file is ignored.
 
 `init <project>` creates a project the skill does not manage yet in Factory
 mode: the six contract files, `docs/Brain.md`, a `## Factory` section and the
-default roster in `AGENTS.md`, and the folders `docs/specs/` and
-`docs/brain/tasks/`. `init <project> --classic` (or `PROJECT_DOCS_MODE=classic`)
+default roster in `AGENTS.md`, the folders `docs/specs/` and
+`docs/brain/tasks/`, the dispatcher configuration `.factory/dispatch.md` and a
+block in `.gitignore` for the files the dispatcher generates (see "The
+dispatcher"). `init <project> --classic` (or `PROJECT_DOCS_MODE=classic`)
 creates the six-file project instead. A project the skill already manages
 never changes mode on its own: `init` leaves it as it is, even with
 `PROJECT_DOCS_MODE=factory`.
@@ -82,8 +84,9 @@ never changes mode on its own: `init` leaves it as it is, even with
 `migrate <project> --factory` brings an existing project to Factory mode and is
 idempotent. It adds the `## Factory` section before `## Agent identity`, adds
 the section or fills an empty roster with the default one, and creates
-`docs/Brain.md`, `docs/specs/` and `docs/brain/tasks/` when missing. Nothing
-the project wrote is replaced. If a `Mode` row already says anything other than
+`docs/Brain.md`, `docs/specs/`, `docs/brain/tasks/` and `.factory/dispatch.md`
+when missing, and appends the `.gitignore` block once. Nothing the project wrote
+is replaced. If a `Mode` row already says anything other than
 `FACTORY`, the command keeps it and tells you to edit it. `migrate` without the
 flag never adds Factory files.
 
@@ -100,7 +103,12 @@ bullet was reworded).
 
 The `## Factory` section of `templates/AGENTS.factory.md` stays under 1.5 KiB
 and a fresh Factory project's `context` stays at or below 6912 bytes, which
-leaves room for the active work of a real project.
+leaves room for the active work of a real project. When the five latest ledger
+entries would take `context` past 8192 bytes, Factory mode shows fewer (four, three,
+two or one) and says so in the heading (`the latest 3 of 5, to stay within 8192
+bytes`) instead of failing; it fails, as classic mode does, only when the rules, the
+summaries, the active work and the open tasks do not fit, and then the summaries are
+what has to be compacted.
 
 ## Specs
 
@@ -192,7 +200,9 @@ warns and records no `Red` sha. `rotate` carries the phase and the spec reviewer
 **Exit markers.** In Factory mode every `verify` that closes a step carries
 `exit=N`, the exit code of the command that was run. `advance` from RED to GREEN
 needs an `exit=` other than 0 (the tests must fail first); `handoff`, `review
-PASS` and `done` need `exit=0`. The first `exit=` in the text counts.
+PASS` and `done` need `exit=0`. A marker is `exit=` and digits with no letter,
+digit or underscore right before or after (`pre_exit=0` and `exit=0x2` are not
+markers); the first valid marker in the text counts.
 
 **Tests do not change in GREEN.** `handoff` of a GREEN task compares the test
 files recorded at RED (the `- Tests:` line, with the `- Red: <sha>` of the commit)
@@ -249,7 +259,9 @@ is never reused), `Evidence` `log:<task-id>`, `Status` `HYPOTHESIS` and `Hits`
 0. It refuses a `|` in any argument, an unknown kind, a name over 10 words, an
 empty name, trigger or lesson, the trigger `*` for a kind other than `DEFAULT`,
 a name the brain already has, an unknown task and a brain that already holds
-`Brain max entries` rows (run `rotate`). The trigger is stored in lower case.
+`Brain max entries` rows (run `rotate`). The trigger is stored in lower case, and a
+tab in the text is written as a space (every command reads a tab in `Brain.md` as a
+space).
 
 `retro <project> <agent> <task-id> <used-ids|none> <learned-ids|none>` records in
 the `## Retro` of the working memory which lessons the task used and which it
@@ -259,7 +271,9 @@ brain; learned ids must have been written for this task. A task that had a
 `learned none`: it must `learn` what went wrong first. `rotate` carries that fact
 (`- Struggled: yes`).
 
-In Factory mode `done` needs the retro. It adds `- Brain: used ...; learned ...`
+In Factory mode `done` needs the retro, and applies the rule of `retro` again: a
+task that struggled after it recorded `learned none` must `learn` and run `retro` again
+before it can close. It adds `- Brain: used ...; learned ...`
 to the `DONE` entry, adds one hit and today's date to each used lesson and
 deletes the working memory (git keeps its history).
 
@@ -280,7 +294,10 @@ the brain records the count and the archive (`- Last gc:`). `check` warns about
 or `none`. An agent never asks which task to take and never idles: it runs `next`,
 then `claim`. The answer is the first of:
 
-1. a task the agent already holds (`IN_PROGRESS`), so a crashed run resumes;
+1. a task the agent already holds: `IN_PROGRESS`, so a crashed run resumes, or
+   `REVIEW` with an answer (`PASS` or `FAIL`), which is the holder's to close with
+   `retro` and `done`, to retake with `claim`, or to pause with `BLOQUEO`; the
+   answered review is returned even when no fix attempts are left;
 2. a task assigned to it (`ASSIGNED`) in a phase of its role;
 3. a review waiting for it: a `REVIEW` task without an answer, handed to it or to
    nobody, that it did not develop, when its role can review that phase;
@@ -290,7 +307,10 @@ then `claim`. The answer is the first of:
 6. the first `TODO` row of `## Active work`, `## Near term`, `## Plan` and then
    `## Gaps, Bugs & Technical Debt`, in file order, whose `Depends on` ids are all
    closed (no longer in the Roadmap) and whose lane fits the role (SPEC for the
-   normal lane, DEV for FAST; `BOTH` takes either).
+   normal lane, DEV for FAST; `BOTH` takes either);
+7. only for the `Preferred reviewer`, when nothing else is left: the first closed
+   normal-lane task marked `Cross-model: NO` that has no audit yet (see "Who
+   reviews").
 
 Tasks with no fix attempts left, `PAUSE` with `BLOQUEO` or a `RED-LINE`, and
 tasks that are not yours are skipped. An agent that is not in the roster gets an
@@ -311,8 +331,10 @@ change, and small. The task is DEV work in phase GREEN from the start:
   under `Fast lane protected paths` (a prefix matches at any directory), and for
   a `Fxx-BUG-xx` row at least one test file (`.spec.`, `.test.`, `/test/`,
   `/tests/`, `/e2e/`). The ledger, Roadmap, Features, Brain, working memory,
-  `docs/history/` and `docs/specs/` do not count. Without git it only warns, and
-  the reviewer has to write `fast lane ok` in the note.
+  `docs/history/` and `docs/specs/` do not count. A rename counts as a delete and
+  an add, so moving a file out of a protected path is seen. If git fails the
+  handoff stops. Without git it only warns, and the reviewer has to write `fast
+  lane ok` in the note.
 - Review, `retro` and `done` are the same as in the normal lane; a FAST task
   with a `Review: FAIL` also has to `learn` something.
 
@@ -322,3 +344,112 @@ go back to the `Base` sha and run `advance <agent> <task-id> SPEC "..."`; the
 SPEC agent claims it and the normal lane starts. `advance` takes a FAST task
 only back to SPEC. `check` requires a spec without `UNKNOWN` fields for every
 task in RED or GREEN of the normal lane, and none for a FAST task.
+
+## Status with the phase and the lane
+
+In Factory mode `status` adds a last field to every open task: the phase and the
+lane, for example `F03-E01-T02 | Parse the invoice | claude-dev | IN_PROGRESS | 2h | - | GREEN NORMAL`.
+A task that waits for a review or has an answer shows `REVIEW`; a task with no
+recorded phase shows `SPEC`. In classic mode the output is the one it always was.
+
+## Who reviews: cross-model marker, default reviewer, audits
+
+- `handoff` with no reviewer in Factory mode addresses the review to `Preferred
+  reviewer` (normal lane) or to `Fallback reviewer` (FAST). A setting that is
+  empty, or names the agent that is handing off, leaves the handoff with no
+  addressee: any QA agent takes it through `next`.
+- `review` writes `- Cross-model: NO` when the first word of the `Model` column
+  of the reviewer and of the holder is the same (lower case). A review by
+  another model has no marker. `done` copies the marker to the DONE entry and
+  `rotate` carries it.
+- The `Preferred reviewer` is offered the audit of every closed normal-lane task
+  marked `Cross-model: NO` that has no audit yet, but only when `next` has nothing
+  else for it. It records the audit with `append-log <agent> <task-id> AUDIT
+  "<summary>" "<files>" "<verify>"`. An `AUDIT` entry is valid only in Factory
+  mode, never reopens a task and takes the task out of the audit queue. A problem
+  found by the audit goes in as a new `Fxx-BUG-xx` row.
+
+## digest: what a person reads
+
+`digest [since]` (`since` is `YYYY-MM-DD` or a UTC timestamp) prints at most 4 KiB
+for the human who looks in from time to time: business rules and decisions
+still `HYPOTHESIS` that an agent wrote, open red lines (`PAUSE` with a `RED-LINE:`
+detail), open `Fxx-GAP-xx` rows, lessons still `HYPOTHESIS`, tasks closed per
+lane, failed reviews and the normal-lane tasks reviewed by one model, with how
+many the preferred reviewer already audited. A longer digest is cut on a whole
+line and ends with `digest: truncated, N more lines, read the ledger and the Roadmap`.
+
+## The dispatcher: passing the turn between CLIs
+
+`scripts/factory_dispatch.sh` and `scripts/factory_dispatch.ps1` (same behavior, same
+log) keep a Factory project moving when the agents are CLIs that cannot call each
+other, such as Claude Code and Gemini CLI on their own subscriptions. The ledger is
+the channel: the dispatcher asks `next <agent>` for each agent, in the order of
+`.factory/dispatch.md`, runs the command of the first one that has work and, when
+the run ends, asks again at once. It uses no API key and no network call of its own,
+and it is not part of the `project_docs` core: it only calls the core commands and
+the CLIs written in `.factory/dispatch.md`.
+
+```
+factory_dispatch.sh  <project> [--watch] [--once]
+factory_dispatch.ps1 <project> [--watch] [--once]
+```
+
+- `--once` makes one run and stops. `--watch` keeps looking for new work every `Idle
+  seconds` instead of ending when there is none. Creating `.factory/STOP` ends the
+  loop after the run in progress.
+- `init` and `migrate --factory` create `.factory/dispatch.md` from
+  `templates/dispatch.md` (never over an existing file) and add a block to
+  `.gitignore` for `.factory/state.md` and `.factory/runs/`, which the dispatcher
+  generates. Commit `dispatch.md`, not those two.
+
+### The configuration
+
+`.factory/dispatch.md` has two tables. `## Settings`: `Run timeout minutes`
+(default 60) and `Idle seconds` (default 300). `## Agents`, one row per agent id of
+the roster, in the order they are asked:
+
+| Column | Meaning |
+|---|---|
+| Agent id | The id in the roster |
+| Plan | Agents that share a quota share a plan: when one hits the limit, the whole plan cools down |
+| Command | The non-interactive command, in backticks; `{PROMPT_FILE}` is replaced by the prompt of the run |
+| Limit text | Substrings, separated by a semicolon, that a failed run prints when the quota is out |
+| Cooldown minutes | How long the plan waits when the output gives no reset time |
+| Max runs per day | A cap per agent and local day; a dash means none |
+| Covers for | The agent whose reviews this one takes while the covered plan cools down or the covered agent failed that review twice |
+
+Confirm each flag with the CLI's own `--help` before fixing it. Never use `claude
+--bare`: it does not read the subscription login. Shell commands other than file edits
+need `--allowedTools` or `permissions.allow` rules in the project's
+`.claude/settings.json`.
+
+### What a run does
+
+1. State: expired cooldowns and the counters of other days are dropped.
+2. The first agent whose plan is not cooling down, that has runs left today and whose
+   `next` is a task is chosen. A task where the agent failed three times is skipped,
+   and a review where it failed twice is left to the agent that covers it.
+3. The prompt (`templates/dispatch-prompt.md` filled with the agent, role, task, phase
+   and lane) is written to `.factory/runs/<run-id>.prompt.md`, the command runs in the
+   project with `FACTORY_AGENT`, `FACTORY_TASK`, `FACTORY_PROJECT` and
+   `FACTORY_PROMPT_FILE` in its environment, and its output is saved next to the prompt.
+4. A run that exits with 0 and changed the ledger is good. A run that fails and prints
+   one of the limit texts puts its plan in cooldown until the `resets 3:45pm` time of
+   the output, or for `Cooldown minutes`; if the agent held the task, the dispatcher
+   runs `checkpoint` and `pause <agent> <task> LIMITE "limit until HH:MM"` for it. Any
+   other result is a failure of that agent on that task; the third one on a task it
+   holds is a `pause BLOQUEO "dispatcher: 3 runs without progress"`.
+5. With no one to run and a cooldown open, the dispatcher prints `sleep until HH:MM`
+   and waits (`PROJECT_DOCS_DISPATCH_NO_SLEEP=1` prints it and stops, for tests).
+
+Log lines all start with `dispatch:`. To retry a pair that failed three times without
+a pause, delete its `fails:` row from `.factory/state.md`.
+
+### Tests with fake CLIs
+
+`scripts/tests/fake_cli.sh` and `fake_cli.ps1` stand in for the real CLIs. They read
+from the file in `FAKE_CLI_SCRIPT` the first line that starts with `<agent>: ` (and
+remove it) and run its actions separated by ` ;; `: `ok:<core command>` (the project is
+added), `write:<path>=<text>`, `git:<args>`, `limit:<text>` and `fail:<text>`. The
+smoke test drives the dispatcher with them, so no real quota is ever spent.

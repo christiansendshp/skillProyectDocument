@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "assign", "done", "status", "mode", "checkpoint", "advance", "recall", "learn", "retro", "next", "help")]
+    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "assign", "done", "status", "mode", "checkpoint", "advance", "recall", "learn", "retro", "next", "digest", "help")]
     [string]$Command = "help",
 
     [Parameter(Position = 1)]
@@ -273,9 +273,46 @@ function Invoke-InitRun([string]$Kind) {
     if ($Kind -eq "factory") {
         New-Item -ItemType Directory -Path (Join-Path $DocsDir "specs") -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path (Join-Path $DocsDir "brain") "tasks") -Force | Out-Null
+        Add-FactoryDispatchSetup
     }
     Write-Output "project_docs init: $created file(s) created"
     Invoke-LinkAll $Project ""
+}
+
+# .factory/dispatch.md from the template, and the .gitignore block for the files the dispatcher
+# generates. Additive and idempotent; says only what it adds and leaves the number of changes in
+# $script:DispatchChanges.
+function Add-FactoryDispatchSetup {
+    $changes = 0
+    $tpl = Join-Path $TemplatesDir "dispatch.md"
+    if (-not (Test-Path -LiteralPath $tpl -PathType Leaf)) { throw "template missing: dispatch.md" }
+    $cfg = Join-Path (Join-Path $Project ".factory") "dispatch.md"
+    if (-not (Test-Path -LiteralPath $cfg -PathType Leaf)) {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $cfg) -Force | Out-Null
+        Copy-Item -LiteralPath $tpl -Destination $cfg
+        Write-Output "+ created: .factory/dispatch.md"
+        $changes++
+    }
+    $gi = Join-Path $Project ".gitignore"
+    $mark = "# project-documentation dispatcher (generated files)"
+    $has = $false
+    if (Test-Path -LiteralPath $gi -PathType Leaf) {
+        foreach ($l in @(Get-ContentUtf8 -LiteralPath $gi)) {
+            if (([string]$l).TrimEnd([char]13) -ceq $mark) { $has = $true; break }
+        }
+    }
+    if (-not $has) {
+        $prefix = ""
+        if ((Test-Path -LiteralPath $gi -PathType Leaf) -and (Get-Item -LiteralPath $gi).Length -gt 0) {
+            $bytes = [System.IO.File]::ReadAllBytes($gi)
+            if ($bytes[$bytes.Length - 1] -ne 10) { $prefix = "`n" }
+            $prefix += "`n"
+        }
+        [System.IO.File]::AppendAllText($gi, $prefix + $mark + "`n.factory/state.md`n.factory/runs/`n", $Utf8)
+        Write-Output "+ added: .gitignore block for .factory/state.md and .factory/runs/"
+        $changes++
+    }
+    $script:DispatchChanges = $changes
 }
 
 # The heading line and everything up to (not including) the next "## " heading.
@@ -403,6 +440,8 @@ function Add-FactoryAdditions {
             $changes++
         }
     }
+    Add-FactoryDispatchSetup
+    $changes += $script:DispatchChanges
     $script:FactoryChanges = $changes
 }
 
@@ -474,7 +513,7 @@ function Get-ContextBlock([string]$Path, [string]$Heading) {
     return $result
 }
 
-function Get-LatestEntries {
+function Get-LatestEntries([int]$Keep = 5) {
     $lines = @(Get-ContentUtf8 -LiteralPath (Join-Path $DocsDir "Agentslog.md"))
     $entriesSection = [Array]::IndexOf($lines, "## Entries")
     if ($entriesSection -lt 0) { return @() }
@@ -484,7 +523,7 @@ function Get-LatestEntries {
         }
     )
     if ($starts.Count -eq 0) { return @() }
-    $first = $starts[[Math]::Max(0, $starts.Count - 5)]
+    $first = $starts[[Math]::Max(0, $starts.Count - $Keep)]
     return $lines[$first..($lines.Count - 1)]
 }
 
@@ -509,7 +548,7 @@ function Get-TaskStates {
     $inEntries = $false
     $order = [System.Collections.Generic.List[string]]::new()
     $lastStatus = @{}; $lastAgent = @{}; $lastTs = @{}; $lastPause = @{}; $everDone = @{}; $conflict = @{}; $lastName = @{}
-    $hold = @{}; $lastHandoff = @{}; $lastReview = @{}; $lastPhase = @{}; $specPass = @{}; $redSha = @{}; $testPaths = @{}; $attempts = @{}; $struggled = @{}; $laneOf = @{}; $baseSha = @{}
+    $hold = @{}; $lastHandoff = @{}; $lastReview = @{}; $lastPhase = @{}; $specPass = @{}; $redSha = @{}; $testPaths = @{}; $attempts = @{}; $struggled = @{}; $laneOf = @{}; $baseSha = @{}; $crossOf = @{}; $auditedOf = @{}; $pauseDetail = @{}
     # The Factory lines of the ledger (Phase, Spec-pass, Red, Tests, Attempts) are read and
     # derived from only in Factory mode (BR-008).
     $fac = Test-FactoryOn
@@ -523,6 +562,7 @@ function Get-TaskStates {
             $tid = $Matches[3].Trim()
             $status = $Matches[4].Trim()
             $name = if ($Matches[5]) { $Matches[5].Trim() } else { "" }
+            if ($fac -and $status -ceq "AUDIT") { $auditedOf[$tid] = $true; $cur = $null; continue }
             if (-not $lastStatus.ContainsKey($tid)) { $order.Add($tid) }
             if ($status -eq "IN_PROGRESS") {
                 if ($lastStatus[$tid] -eq "IN_PROGRESS" -and $lastAgent[$tid] -cne $agent) {
@@ -539,6 +579,7 @@ function Get-TaskStates {
             $lastAgent[$tid] = $agent
             $lastTs[$tid] = $ts
             $lastPause[$tid] = ""
+            $pauseDetail[$tid] = ""
             $lastReview[$tid] = ""
             if ($name -ne "") { $lastName[$tid] = $name }
             $cur = $tid
@@ -561,6 +602,10 @@ function Get-TaskStates {
         }
         if ($fac -and $cur -and $line -cmatch '^- Tests:\s*(.*?)\s*$') {
             $testPaths[$cur] = $Matches[1]
+            continue
+        }
+        if ($fac -and $cur -and $line -cmatch '^- Cross-model:\s*(.*?)\s*$') {
+            $crossOf[$cur] = $Matches[1]
             continue
         }
         if ($fac -and $cur -and $line -cmatch '^- Lane:\s*(.*?)\s*$') {
@@ -597,6 +642,7 @@ function Get-TaskStates {
             $rbody = $Matches[1]
             $rdash = $rbody.IndexOf(" - ")
             if ($rdash -ge 0) { $lastReview[$cur] = $rbody.Substring(0, $rdash).TrimEnd() } else { $lastReview[$cur] = $rbody.TrimEnd() }
+            if ($fac) { $crossOf[$cur] = "" }
             $reviewPhase = "SPEC"
             if ($lastPhase.ContainsKey($cur) -and $lastPhase[$cur]) { $reviewPhase = $lastPhase[$cur] }
             if ($fac -and $reviewPhase -ceq "SPEC") {
@@ -609,6 +655,7 @@ function Get-TaskStates {
             $body = $Matches[1]
             $dashIdx = $body.IndexOf(" - ")
             if ($dashIdx -ge 0) { $lastPause[$cur] = $body.Substring(0, $dashIdx) } else { $lastPause[$cur] = $body }
+            if ($fac -and $dashIdx -ge 0) { $pauseDetail[$cur] = $body.Substring($dashIdx + 3) }
             if ($fac -and $lastPause[$cur] -ceq "BLOQUEO") { $attempts[$cur] = 0; $struggled[$cur] = $true }
             continue
         }
@@ -635,6 +682,9 @@ function Get-TaskStates {
             Struggled = [bool]$struggled[$t]
             Lane = $(if ($laneOf.ContainsKey($t)) { $laneOf[$t] } else { "" })
             Base = $(if ($baseSha.ContainsKey($t)) { $baseSha[$t] } else { "" })
+            Cross = $(if ($crossOf.ContainsKey($t)) { $crossOf[$t] } else { "" })
+            Audited = [bool]$auditedOf[$t]
+            PauseDetail = $(if ($pauseDetail.ContainsKey($t)) { $pauseDetail[$t] } else { "" })
         })
     }
     return $result
@@ -974,14 +1024,22 @@ function Get-HotContext {
     $parts.Add("## Open tasks")
     foreach ($line in @(Get-OpenTasksLines)) { $parts.Add([string]$line) }
     $parts.Add("")
-    $parts.Add("## Latest agent entries")
-    foreach ($line in @(Get-LatestEntries)) { $parts.Add([string]$line) }
-    $content = ($parts -join "`n") + "`n"
-    $bytes = $Utf8.GetByteCount($content)
-    if ($bytes -gt $ContextLimit) {
+    $base = $parts.ToArray()
+    $keep = 5
+    while ($true) {
+        $all = [System.Collections.Generic.List[string]]::new()
+        $all.AddRange([string[]]$base)
+        if ($keep -lt 5) { $all.Add("## Latest agent entries (the latest $keep of 5, to stay within $ContextLimit bytes)") }
+        else { $all.Add("## Latest agent entries") }
+        foreach ($line in @(Get-LatestEntries $keep)) { $all.Add([string]$line) }
+        $content = ($all -join "`n") + "`n"
+        $bytes = $Utf8.GetByteCount($content)
+        if ($bytes -le $ContextLimit) { return $content }
+        # In Factory mode older entries give way before the command fails, so an agent that
+        # starts with context always gets it; the summaries above are what has to be compacted.
+        if ((Test-FactoryOn) -and $keep -gt 1) { $keep--; continue }
         throw "hot context is $bytes bytes; compact summaries below $ContextLimit"
     }
-    return $content
 }
 
 # ---------------------------------------------------------------------------
@@ -1381,7 +1439,7 @@ function Assert-TestsUnchanged([string]$Task, $State) {
     if ($State.Red -and (Test-GitReady)) {
         $c = Invoke-GitProbe @("cat-file", "-e", "$($State.Red)^{commit}")
         if ($c.Code -ne 0) { throw "handoff failed: the Red sha $($State.Red) is not in this repository" }
-        $d = Invoke-GitProbe @("-c", "core.quotepath=false", "diff", "--relative", "--name-only", $State.Red)
+        $d = Invoke-GitProbe @("-c", "core.quotepath=false", "diff", "--no-renames", "--relative", "--name-only", $State.Red)
         if ($d.Code -ne 0) { throw "handoff failed: git could not compare the files with the Red sha $($State.Red)" }
         $want = @{}
         foreach ($p in @($State.Tests -split ' ' | Where-Object { $_ })) { $want[$p] = $true }
@@ -1412,7 +1470,8 @@ function Get-BrainRows {
     $path = Join-Path $DocsDir "Brain.md"
     $rows = [System.Collections.Generic.List[object]]::new()
     $insec = $false
-    foreach ($line in @(Get-ContentUtf8 -LiteralPath $path)) {
+    foreach ($raw in @(Get-ContentUtf8 -LiteralPath $path)) {
+        $line = ([string]$raw).Replace([string][char]9, " ")
         if ($line -ceq "## Entries") { $insec = $true; continue }
         if ($insec -and $line.StartsWith("## ")) { $insec = $false }
         if (-not ($insec -and $line.StartsWith("|"))) { continue }
@@ -1565,9 +1624,9 @@ function Invoke-Learn {
     $agent = Get-CanonicalAgent (ConvertTo-CleanField $Arguments[0])
     $task = ConvertTo-CleanField $Arguments[1]
     $kind = ConvertTo-CleanField $Arguments[2]
-    $lname = ConvertTo-CleanField $Arguments[3]
-    $trigger = ConvertTo-AsciiLower (ConvertTo-CleanField $Arguments[4])
-    $lesson = ConvertTo-CleanField $Arguments[5]
+    $lname = ConvertTo-CleanField ($Arguments[3].Replace([string][char]9, " "))
+    $trigger = ConvertTo-AsciiLower (ConvertTo-CleanField ($Arguments[4].Replace([string][char]9, " ")))
+    $lesson = ConvertTo-CleanField ($Arguments[5].Replace([string][char]9, " "))
     if ($kind -cnotin @("PITFALL", "PATTERN", "RECIPE", "DEFAULT", "MAP")) { throw "learn failed: kind must be PITFALL, PATTERN, RECIPE, DEFAULT or MAP" }
     if (-not $lname) { throw "learn failed: the name is empty" }
     $words = Get-WordCount $lname
@@ -1704,6 +1763,12 @@ function Read-TaskRetro([string]$Task) {
     if (-not $script:DoneUsed -or $script:DoneUsed -eq $EmDash -or -not $script:DoneLearned -or $script:DoneLearned -eq $EmDash) {
         throw "done failed: $Task has no retro yet; run retro first"
     }
+    if ($script:DoneLearned -ceq "none") {
+        $st = Get-TaskState $Task
+        if ($st -and $st.Struggled) {
+            throw "done failed: $Task had a Review: FAIL, a BLOQUEO or a move back to RED, so its retro cannot say learned none; run learn and retro again"
+        }
+    }
 }
 
 # Adds one hit and the date to every lesson of the list (done in Factory mode).
@@ -1740,8 +1805,12 @@ function Set-BrainHits([string]$Ids, [string]$Day) {
 function Invoke-BrainGc {
     $script:BrainGcDone = $false
     if (-not (Test-FactoryOn)) { return }
+    if (-not (Test-Path -LiteralPath (Join-Path $DocsDir "Brain.md") -PathType Leaf)) { return }
+    Enter-DocsLock
+    try { Invoke-BrainGcLocked } finally { Exit-DocsLock }
+}
+function Invoke-BrainGcLocked {
     $brain = Join-Path $DocsDir "Brain.md"
-    if (-not (Test-Path -LiteralPath $brain -PathType Leaf)) { return }
     $max = [int](Get-FactoryNumber "Brain max entries")
     $rows = @(Get-BrainRows)
     if ($rows.Count -le $max) { return }
@@ -1828,16 +1897,19 @@ function Assert-FastSize([string]$Task, $State) {
     if ($c.Code -ne 0) { throw "handoff failed: the Base sha $($State.Base) is not in this repository" }
     $spec = @(".", ":(exclude)docs/Agentslog.md", ":(exclude)docs/Roadmap.md", ":(exclude)docs/Features.md", ":(exclude)docs/Brain.md", ":(exclude)docs/brain", ":(exclude)docs/history", ":(exclude)docs/specs", ":(exclude)docs/.lock")
     $names = [System.Collections.Generic.List[string]]::new()
-    $d = Invoke-GitProbe (@("-c", "core.quotepath=false", "diff", "--relative", "--name-only", $State.Base, "--") + $spec)
+    $d = Invoke-GitProbe (@("-c", "core.quotepath=false", "diff", "--no-renames", "--relative", "--name-only", $State.Base, "--") + $spec)
+    if ($d.Code -ne 0) { throw "handoff failed: git could not compare the change with the Base sha $($State.Base)" }
     foreach ($l in @($d.Out -split "`n")) { if ($l.Trim()) { $names.Add($l.Trim()) } }
     $u = Invoke-GitProbe (@("-c", "core.quotepath=false", "ls-files", "--others", "--exclude-standard", "--") + $spec)
+    if ($u.Code -ne 0) { throw "handoff failed: git could not list the new files" }
     $untracked = @($u.Out -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     foreach ($l in $untracked) { if (-not $names.Contains($l)) { $names.Add($l) } }
     $sortedNames = $names.ToArray()
     [System.Array]::Sort($sortedNames, [System.StringComparer]::Ordinal)
     $files = $sortedNames.Count
     $lines = [decimal]0
-    $ns = Invoke-GitProbe (@("diff", "--relative", "--numstat", $State.Base, "--") + $spec)
+    $ns = Invoke-GitProbe (@("diff", "--no-renames", "--relative", "--numstat", $State.Base, "--") + $spec)
+    if ($ns.Code -ne 0) { throw "handoff failed: git could not count the lines changed since the Base sha $($State.Base)" }
     foreach ($l in @($ns.Out -split "`n")) {
         $f = $l.Split([char]9)
         if ($f.Count -ge 2 -and $f[0] -match '^[0-9]+$') { $lines += [decimal]$f[0] + [decimal]$f[1] }
@@ -1913,8 +1985,9 @@ function Invoke-Next {
         $canReview = ($role -ceq "QA" -or $role -ceq "BOTH" -or (($ph -ceq "" -or $ph -ceq "SPEC") -and $role -ceq "SPEC"))
         $p = 99
         if ($s.Status -eq "IN_PROGRESS" -and $s.Agent -ceq $agent) { $p = 0 }
+        elseif ($s.Status -eq "REVIEW" -and $s.Review -and $s.Holder -ceq $agent) { $p = 0 }
         elseif ($s.Status -eq "ASSIGNED" -and $s.Holder -ceq $agent -and $canWork -and $s.Attempts -lt $maxAtt) { $p = 1 }
-        elseif ($s.Status -eq "REVIEW" -and -not $s.Review -and $canReview -and (-not $indep -or $s.Holder -cne $agent) -and ($s.Handoff -ceq $agent -or -not $s.Handoff)) { $p = 2 }
+        elseif ($s.Status -eq "REVIEW" -and -not $s.Review -and $canReview -and (-not $indep -or $s.Holder -cne $agent) -and ($s.Handoff -ceq $agent -or -not $s.Handoff -or $s.Handoff.ToUpperInvariant() -ceq $role -or ($role -ceq "BOTH" -and $s.Handoff.ToUpperInvariant() -ceq "QA"))) { $p = 2 }
         elseif ($s.Status -eq "PAUSE" -and $s.PauseCat -ceq "LIMITE" -and $canWork -and $s.Attempts -lt $maxAtt) { $p = 3 }
         elseif ($s.Status -eq "ASSIGNED" -and $s.Holder -cne $agent -and $canWork -and $s.Attempts -lt $maxAtt) { $p = 4 }
         if ($p -lt $bestP) { $best = $s.Task; $bestP = $p }
@@ -1926,7 +1999,7 @@ function Invoke-Next {
     $allIds = @{}
     $rank = 0
     $hdr = $false
-    $si = -1; $di = -1; $ei = -1
+    $si = -1; $di = -1; $ei = -1; $ni = -1
     foreach ($line in @(Get-ContentUtf8 -LiteralPath (Join-Path $DocsDir "Roadmap.md"))) {
         if ($line.StartsWith("## ")) {
             $rank = 0
@@ -1940,8 +2013,9 @@ function Invoke-Next {
         if (-not $line.StartsWith("|")) { continue }
         $c = @(Split-TableCells $line)
         if ($c.Count -ge 1 -and $c[0] -ceq "ID") {
-            $si = -1; $di = -1; $ei = -1
+            $si = -1; $di = -1; $ei = -1; $ni = -1
             for ($i = 0; $i -lt $c.Count; $i++) {
+                if ($c[$i] -ceq "Name") { $ni = $i }
                 if ($c[$i] -ceq "Status") { $si = $i }
                 if ($c[$i] -ceq "Depends on") { $ei = $i }
                 if ($c[$i] -ceq "Description") { $di = $i }
@@ -1951,7 +2025,8 @@ function Invoke-Next {
         }
         if ($c.Count -lt 1 -or $c[0] -match '^-+$' -or -not $hdr) { continue }
         $allIds[$c[0]] = $true
-        if ($rank -gt 0 -and $c[0] -match '^[A-Za-z0-9]') {
+        $stub = ($ni -ge 0 -and $ni -lt $c.Count -and $c[$ni] -ceq "UNKNOWN")
+        if ($rank -gt 0 -and $c[0] -match '^[A-Za-z0-9]' -and -not $stub) {
             $rows.Add([PSCustomObject]@{
                 Id = $c[0]
                 Status = $(if ($si -ge 0 -and $si -lt $c.Count) { $c[$si] } else { "" })
@@ -1974,7 +2049,122 @@ function Invoke-Next {
             if ($ok) { Write-Output $r.Id; return }
         }
     }
+    $pref = Get-FactorySetting "Preferred reviewer"
+    if ($pref -and $agent -ceq $pref) {
+        foreach ($s in $states) {
+            if ($s.Status -eq "DONE" -and $s.Lane -cne "FAST" -and $s.Cross -ceq "NO" -and -not $s.Audited) { Write-Output $s.Task; return }
+        }
+    }
     Write-Output "none"
+}
+
+# The Model cell of a roster id.
+function Get-RosterModel([string]$Id) {
+    foreach ($r in @(Get-RosterRows)) { if ($r.Id -ceq $Id) { return $r.Model } }
+    return ""
+}
+
+# digest <project> [since]: what a human has to read, in at most 4 KiB: product guesses and
+# decisions still HYPOTHESIS, open red lines, open gaps, new lessons, what closed, and the
+# reviews (failures, reviews of one model, audits).
+function Invoke-Digest {
+    Assert-FactoryMode "digest"
+    $since = ""
+    if ($Arguments.Count -ge 1) { $since = ConvertTo-CleanField $Arguments[0] }
+    if ($since -and $since -cnotmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9:]+Z?)?$') {
+        throw "digest requires an ISO date like 2026-10-27 or a timestamp like 2026-10-27T14:00:00Z"
+    }
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "run init first" }
+    $day = ""
+    if ($since) { $day = $since.Substring(0, 10) }
+    $states = @(Get-TaskStates)
+    $out = [System.Collections.Generic.List[string]]::new()
+    $out.Add("digest since $(if ($since) { $since } else { 'the start of the ledger' })")
+    $out.Add("## Product guesses")
+    $guesses = [System.Collections.Generic.List[string]]::new()
+    $pd = Join-Path $DocsDir "ProductDescription.md"
+    if (Test-Path -LiteralPath $pd -PathType Leaf) {
+        foreach ($l in @(Get-ContentUtf8 -LiteralPath $pd)) {
+            if (-not $l.StartsWith("|")) { continue }
+            $c = @(Split-TableCells $l)
+            if ($c.Count -ge 4 -and $c[0] -cmatch '^BR-[0-9]+$' -and $c[2] -ceq "HYPOTHESIS" -and $c[3].StartsWith("agent:")) {
+                $t = $c[1]; if ($t.Length -gt 80) { $t = $t.Substring(0, 80) }
+                $guesses.Add("$($c[0]) | $t | $($c[3])")
+            }
+        }
+    }
+    $stack = Join-Path $DocsDir "Stack_Tecnologies.md"
+    if (Test-Path -LiteralPath $stack -PathType Leaf) {
+        foreach ($l in @(Get-ContentUtf8 -LiteralPath $stack)) {
+            if (-not $l.StartsWith("|")) { continue }
+            $c = @(Split-TableCells $l)
+            if ($c.Count -ge 5 -and $c[0] -cmatch '^ADR-[0-9]+$' -and $c[3] -ceq "HYPOTHESIS" -and (-not $day -or [string]::CompareOrdinal($c[4], $day) -ge 0)) {
+                $t = $c[1]; if ($t.Length -gt 80) { $t = $t.Substring(0, 80) }
+                $guesses.Add("$($c[0]) | $t | $($c[4])")
+            }
+        }
+    }
+    if ($guesses.Count -gt 0) { foreach ($g in $guesses) { $out.Add($g) } } else { $out.Add("(none)") }
+    $out.Add("## Red lines")
+    $red = @($states | Where-Object { $_.Status -eq "PAUSE" -and $_.PauseDetail.StartsWith("RED-LINE:", [System.StringComparison]::Ordinal) })
+    if ($red.Count -gt 0) { foreach ($r in $red) { $out.Add("$($r.Task) | $($r.Agent) | $($r.PauseDetail)") } } else { $out.Add("(none)") }
+    $out.Add("## Open gaps")
+    $gaps = [System.Collections.Generic.List[string]]::new()
+    $insec = $false; $hdr = $false; $ni = -1; $si = -1
+    foreach ($l in @(Get-ContentUtf8 -LiteralPath (Join-Path $DocsDir "Roadmap.md"))) {
+        if ($l.StartsWith("## ")) { $insec = $l.StartsWith("## Gaps"); $hdr = $false; continue }
+        if (-not ($insec -and $l.StartsWith("|"))) { continue }
+        $c = @(Split-TableCells $l)
+        if ($c[0] -ceq "ID") {
+            $ni = -1; $si = -1
+            for ($i = 0; $i -lt $c.Count; $i++) { if ($c[$i] -ceq "Name") { $ni = $i }; if ($c[$i] -ceq "Status") { $si = $i } }
+            $hdr = $true; continue
+        }
+        if (-not $hdr -or $c[0] -match '^-+$') { continue }
+        if ($c[0].Contains("-GAP-") -and ($si -lt 0 -or $c[$si] -cne "DONE")) {
+            $gn = ""; if ($ni -ge 0 -and $ni -lt $c.Count) { $gn = $c[$ni] }
+            $gs = ""; if ($si -ge 0 -and $si -lt $c.Count) { $gs = $c[$si] }
+            $gaps.Add("$($c[0]) | $gn | $gs")
+        }
+    }
+    if ($gaps.Count -gt 0) { foreach ($g in $gaps) { $out.Add($g) } } else { $out.Add("(none)") }
+    $out.Add("## New lessons")
+    $lessons = @()
+    if (Test-Path -LiteralPath (Join-Path $DocsDir "Brain.md") -PathType Leaf) { $lessons = @(Get-BrainRows | Where-Object { $_.Cells[6] -ceq "HYPOTHESIS" }) }
+    if ($lessons.Count -gt 0) { foreach ($r in $lessons) { $out.Add("$($r.Cells[0]) | $($r.Cells[1]) | $($r.Cells[5])") } } else { $out.Add("(none)") }
+    $out.Add("## Closed")
+    $normal = 0; $fast = 0
+    foreach ($s in $states) {
+        if ($s.Status -eq "DONE" -and (-not $since -or [string]::CompareOrdinal($s.Ts, $since) -ge 0)) {
+            if ($s.Lane -ceq "FAST") { $fast++ } else { $normal++ }
+        }
+    }
+    $out.Add("NORMAL: $normal, FAST: $fast")
+    $out.Add("## Reviews")
+    $failed = 0; $on = $false
+    foreach ($l in @(Get-ContentUtf8 -LiteralPath $log)) {
+        if ($l.StartsWith("## [")) { $ts = $l.Substring(4, [Math]::Min(20, $l.Length - 4)); $on = (-not $since -or [string]::CompareOrdinal($ts, $since) -ge 0); continue }
+        if ($on -and $l.StartsWith("- Review: FAIL")) { $failed++ }
+    }
+    $same = 0; $audited = 0
+    foreach ($s in $states) {
+        if ($s.Status -eq "DONE" -and $s.Lane -cne "FAST" -and $s.Cross -ceq "NO") { $same++; if ($s.Audited) { $audited++ } }
+    }
+    $out.Add("Failed reviews: $failed; NORMAL tasks closed with the same model reviewing: $same; audited by the preferred reviewer: $audited")
+    $max = 4096
+    $total = 0
+    foreach ($l in $out) { $total += $Utf8.GetByteCount($l) + 1 }
+    if ($total -le $max) { foreach ($l in $out) { Write-Output $l }; return }
+    $bytes = 0; $k = 0
+    for ($i = 0; $i -lt $out.Count; $i++) {
+        $foot = "digest: truncated, $($out.Count - ($i + 1)) more lines, read the ledger and the Roadmap"
+        if (($bytes + $Utf8.GetByteCount($out[$i]) + 1 + $Utf8.GetByteCount($foot) + 1) -gt $max) { break }
+        $bytes += $Utf8.GetByteCount($out[$i]) + 1
+        $k = $i + 1
+    }
+    for ($i = 0; $i -lt $k; $i++) { Write-Output $out[$i] }
+    Write-Output "digest: truncated, $($out.Count - $k) more lines, read the ledger and the Roadmap"
 }
 
 # Commands that exist only in Factory mode refuse to run in classic mode.
@@ -2155,6 +2345,10 @@ function Invoke-Handoff {
             if ($state.Lane -ceq "FAST") { Assert-FastSize $task $state }
             if ($handoffPhase -ceq "GREEN") { Assert-TestsUnchanged $task $state }
         }
+        if ((Test-FactoryOn) -and -not $reviewer) {
+            if ($state.Lane -ceq "FAST") { $reviewer = Get-FactorySetting "Fallback reviewer" } else { $reviewer = Get-FactorySetting "Preferred reviewer" }
+            if ($reviewer -ceq $agent) { $reviewer = "" }
+        }
         $name = Assert-ValidName $task "handoff"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         $entryLines = @(
@@ -2237,6 +2431,11 @@ function Invoke-Review {
         )
         if ($verify) { $entryLines += "- Verify: $verify" }
         $entryLines += "- Review: $result - $note"
+        if (Test-FactoryOn) {
+            $holderWord = ((Get-RosterModel $state.Holder) -split '\s+' | Where-Object { $_ } | Select-Object -First 1)
+            $agentWord = ((Get-RosterModel $agent) -split '\s+' | Where-Object { $_ } | Select-Object -First 1)
+            if ("$holderWord".ToLowerInvariant() -ceq "$agentWord".ToLowerInvariant()) { $entryLines += "- Cross-model: NO" }
+        }
         $entry = ($entryLines -join "`n") + "`n"
         [System.IO.File]::AppendAllText($log, $entry, $Utf8)
         Write-Output "project_docs review: $task $result by $agent"
@@ -2271,7 +2470,7 @@ function Test-GitReady {
 
 # The number after the first exit= marker of a verify string, or "".
 function Get-VerifyExit([string]$Text) {
-    if ($Text -cmatch '(?<![A-Za-z0-9])exit=([0-9]+)(?![A-Za-z0-9])') { return $Matches[1] }
+    if ($Text -cmatch '(?<![A-Za-z0-9_])exit=([0-9]+)(?![A-Za-z0-9_])') { return $Matches[1] }
     return ""
 }
 
@@ -2516,7 +2715,11 @@ function Invoke-Done {
         }
         $script:DoneUsed = ""
         $script:DoneLearned = ""
-        if (Test-FactoryOn) { Read-TaskRetro $task }
+        $script:DoneCross = ""
+        if (Test-FactoryOn) {
+            Read-TaskRetro $task
+            if ($state) { $script:DoneCross = $state.Cross }
+        }
         $name = Assert-ValidName $task "done"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         $claimTs = Get-FirstClaimTs $task
@@ -2537,6 +2740,7 @@ function Invoke-Done {
             "- Verify: $verify"
         )
         if (Test-FactoryOn) { $doneLines += "- Brain: used $($script:DoneUsed); learned $($script:DoneLearned)" }
+        if ((Test-FactoryOn) -and $script:DoneCross -ceq "NO") { $doneLines += "- Cross-model: NO" }
         $entry = ($doneLines -join "`n") + "`n"
         [System.IO.File]::AppendAllText($log, $entry, $Utf8)
         Remove-RoadmapRow $task
@@ -2562,7 +2766,14 @@ function Invoke-Status {
         $stale = ""
         if ($s.Status -ne "PAUSE" -and $s.Status -ne "ASSIGNED" -and $null -ne $hrs -and $hrs -ge $StaleHours) { $stale = " (stale)" }
         $shown = if ($s.Status -eq "REVIEW") { $s.Holder } else { $s.Agent }
-        Write-Output "$($s.Task) | $($s.Name) | $shown | $(Get-StageLabel $s.Status $s.Review $s.Handoff) | ${hrsStr}h$stale | $reason"
+        if (Test-FactoryOn) {
+            $sphase = if ($s.Phase) { $s.Phase } else { "SPEC" }
+            if ($s.Status -eq "REVIEW") { $sphase = "REVIEW" }
+            $slane = if ($s.Lane) { $s.Lane } else { "NORMAL" }
+            Write-Output "$($s.Task) | $($s.Name) | $shown | $(Get-StageLabel $s.Status $s.Review $s.Handoff) | ${hrsStr}h$stale | $reason | $sphase $slane"
+        } else {
+            Write-Output "$($s.Task) | $($s.Name) | $shown | $(Get-StageLabel $s.Status $s.Review $s.Handoff) | ${hrsStr}h$stale | $reason"
+        }
     }
 }
 
@@ -3086,7 +3297,7 @@ function Test-LogEntries {
             [Console]::Error.WriteLine($e.ConflictMsg)
             $script:CheckFail = $true
         }
-        if ($e.Status -notin @("IN_PROGRESS", "PAUSE", "DONE", "REVIEW", "ASSIGNED")) {
+        if ($e.Status -notin @("IN_PROGRESS", "PAUSE", "DONE", "REVIEW", "ASSIGNED") -and -not ($e.Status -ceq "AUDIT" -and (Test-FactoryOn))) {
             [Console]::Error.WriteLine("ERROR: invalid status in entry (expected IN_PROGRESS, PAUSE, REVIEW, ASSIGNED or DONE): $($e.Hdr)")
             $script:CheckFail = $true
         }
@@ -3897,7 +4108,7 @@ function Invoke-Rotate {
         if ($s.Status -ne "REVIEW" -and $s.Lane) { $lines.Add("- Lane: $($s.Lane)") }
         if ($s.Status -ne "REVIEW" -and $s.Base) { $lines.Add("- Base: $($s.Base)") }
         if ($s.Status -eq "PAUSE") {
-            $lines.Add("- Pause: $($s.PauseCat) - see docs/history/$name for detail")
+            if ($s.PauseDetail) { $lines.Add("- Pause: $($s.PauseCat) - $($s.PauseDetail)") } else { $lines.Add("- Pause: $($s.PauseCat) - see docs/history/$name for detail") }
         }
         if ($s.Status -eq "ASSIGNED") {
             $lines.Add("- Assign: $($s.Holder)")
@@ -3906,6 +4117,7 @@ function Invoke-Rotate {
             $lines.Add("- Verify: carried forward from docs/history/$name")
             if ($s.Handoff) { $lines.Add("- Handoff: $($s.Handoff)") }
             if ($s.Review) { $lines.Add("- Review: $($s.Review) - carried forward from docs/history/$name") }
+            if ($s.Cross) { $lines.Add("- Cross-model: $($s.Cross)") }
         }
     }
     Write-Utf8File $log (ConvertTo-JoinedLines ([string[]]$lines))
@@ -3931,11 +4143,12 @@ switch ($Command) {
     "learn" { Invoke-Learn }
     "retro" { Invoke-Retro }
     "next" { Invoke-Next }
+    "digest" { Invoke-Digest }
     "advance" { Invoke-Advance }
     "assign" { Invoke-Assign }
     "done" { Invoke-Done }
     "status" { Invoke-Status }
     default {
-        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint|advance|recall|learn|retro|next} <project> [args]"
+        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint|advance|recall|learn|retro|next|digest} <project> [args]"
     }
 }

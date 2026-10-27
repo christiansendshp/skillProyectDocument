@@ -9,7 +9,9 @@ description: >-
   documentation is not requested. Create missing project documents before
   coding, load only the bounded task-relevant context, claim work before
   starting it, record each logical change, and validate the documentation
-  before closing the task.
+  before closing the task. New projects start in Factory mode: a spec-first,
+  test-first production line with independent review, a brain of lessons and
+  a dispatcher that lets several CLIs take turns without asking a human.
 ---
 
 # Project Documentation
@@ -56,6 +58,14 @@ always names a task the same way the Roadmap does.
 **No agent writes a single line of code before checking the `BR-xxx` rules
 in `ProductDescription.md` and the constraints in `Stack_Tecnologies.md`.**
 
+In **Factory mode** (what `init` creates by default; `init --classic` makes the
+six-file project) the contract also has `docs/Brain.md` (lessons learned),
+`docs/specs/<TASK-ID>.md` (an executable spec per task), `docs/brain/tasks/<TASK-ID>.md`
+(the working memory of a task in progress) and `.factory/` (the dispatcher
+configuration). `AGENTS.md` gains a `## Factory` section and the
+`## Agent identity` roster gives each agent a role. Detail:
+`references/factory.md`.
+
 Projects may contain any additional files. Put cold history under
 `docs/history/` and detailed feature material under `docs/features/`; do not
 load those folders unless the current task needs them.
@@ -68,14 +78,19 @@ load those folders unless the current task needs them.
    `init` also runs `link`, which points other agent files (`CLAUDE.md`,
    `.cursorrules`, etc.) at `AGENTS.md` without overwriting their content. If
    the project still has `docs/Agents.md` or a Roadmap in the old per-entry
-   YAML format, run `migrate` first.
+   YAML format, run `migrate` first. A project that has no `## Factory` section
+   in `AGENTS.md` gets `migrate --factory` once, unless the user wants it
+   classic (`Mode | CLASSIC` in the section keeps it so).
 2. Run `context` with the same launcher. Keep its output at or below 8 KiB.
 3. Read the complete `AGENTS.md`, the `## Active work` table, every open task
    (`IN_PROGRESS`/`PAUSE`), and the five latest log entries — all included by
-   `context`.
+   `context`. In Factory mode ask `next <agent>` which task to take instead of
+   asking a person.
 4. `claim <agent> <task-id> <summary>` the task before your first edit, so the
    board can show the work while it happens (documenting afterwards is
    allowed, it just cannot). It fails if another agent already owns the task.
+   In Factory mode run `recall <task-id>` next: it prints the task, its spec, its
+   working memory and the lessons that apply, in a bounded size.
 5. Develop, reading full Product, Stack, `Roadmap.md`'s `## Plan`, or
    Features beyond their short summaries only when the task changes or
    depends on functional, technical, or verification details.
@@ -119,6 +134,27 @@ Do not duplicate implementation detail already discoverable in code, tests,
 commits, or issues. Record stable facts, decisions, verification commands,
 task state, and pointers to authoritative artifacts.
 
+## Factory mode
+
+Read `references/factory.md` once. The cycle needs no question to a person:
+
+1. `next <agent>` names the task (never idle, never ask); `claim` it; `recall` it.
+2. Normal lane: SPEC (write `docs/specs/<TASK-ID>.md`, `handoff` it to a reviewer)
+   -> `advance ... RED` (tests written, they fail: `exit=N`, N not 0) ->
+   `advance ... GREEN` -> implement without touching the tests -> `handoff ...
+   exit=0` -> `review` by another agent -> `retro` -> `done`.
+   Fast lane (`Lane: FAST` in the row Description): no spec and no RED, still
+   tested and reviewed; a task that outgrows the lane goes back to SPEC.
+3. `checkpoint` before each long step so another agent can resume. `learn` what
+   went wrong (mandatory after a `Review: FAIL`, a `BLOQUEO` or a move back to
+   RED) and record the lessons used and learned with `retro` before `done`.
+4. When undecided choose the most reversible option and record it as an ADR. If
+   it is irreversible or breaks a rule, add an `Fxx-GAP` row and `pause BLOQUEO`.
+   Never wait for an answer.
+5. A person reads `digest` now and then. CLIs that cannot call each other
+   (Claude Code, Gemini CLI) take turns through `scripts/factory_dispatch.sh` or
+   `.ps1`, which read the ledger with `next` and need no API key.
+
 ## Agent identity
 
 Use one stable id per agent, always the same text, as the `<agent>` argument
@@ -139,5 +175,6 @@ installation folder `skillProyectDocument` during transition. Do not create two
 active copies of the skill.
 
 Use `references/workflow.md` for edge cases and command details,
-`references/intake.md` when starting a new app or product, and
+`references/factory.md` for Factory mode, `references/intake.md` when starting a
+new app or product, and
 `references/adapters.md` only when installing or updating a runtime adapter.

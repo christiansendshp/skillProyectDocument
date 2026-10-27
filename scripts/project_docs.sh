@@ -255,6 +255,7 @@ init_run() {
   done
   if [ "$init_kind_v" = "factory" ]; then
     mkdir -p "$DOCS_DIR/specs" "$DOCS_DIR/brain/tasks"
+    factory_dispatch_setup
   fi
   echo "project_docs init: $created file(s) created"
   link_docs "$PROJECT" ""
@@ -291,6 +292,37 @@ insert_section() {
     }
   ' "$1" > "$is_tmp"
   mv "$is_tmp" "$1"
+}
+
+# factory_dispatch_setup: .factory/dispatch.md from the template, and the .gitignore block for
+# the files the dispatcher generates. Additive and idempotent; says only what it adds and leaves the
+# number of changes in FDS_CHANGED.
+FDS_CHANGED=0
+factory_dispatch_setup() {
+  FDS_CHANGED=0
+  fds_tpl="$TEMPLATES_DIR/dispatch.md"
+  [ -f "$fds_tpl" ] || die "template missing: dispatch.md"
+  if [ ! -f "$PROJECT/.factory/dispatch.md" ]; then
+    mkdir -p "$PROJECT/.factory"
+    cp "$fds_tpl" "$PROJECT/.factory/dispatch.md"
+    echo "+ created: .factory/dispatch.md"
+    FDS_CHANGED=$((FDS_CHANGED + 1))
+  fi
+  fds_gi="$PROJECT/.gitignore"
+  fds_mark='# project-documentation dispatcher (generated files)'
+  if ! { [ -f "$fds_gi" ] && tr -d '\r' < "$fds_gi" | grep -qxF -- "$fds_mark"; }; then
+    {
+      if [ -s "$fds_gi" ]; then
+        if [ -n "$(tail -c 1 "$fds_gi")" ]; then echo; fi
+        echo
+      fi
+      echo "$fds_mark"
+      echo ".factory/state.md"
+      echo ".factory/runs/"
+    } >> "$fds_gi"
+    echo "+ added: .gitignore block for .factory/state.md and .factory/runs/"
+    FDS_CHANGED=$((FDS_CHANGED + 1))
+  fi
 }
 
 # migrate_factory_additions: what migrate --factory adds to an existing project.
@@ -376,6 +408,8 @@ migrate_factory_additions() {
       mf_changed=$((mf_changed + 1))
     fi
   done
+  factory_dispatch_setup
+  mf_changed=$((mf_changed + FDS_CHANGED))
 }
 
 link_target_path() {
@@ -457,7 +491,7 @@ count_log_entries() {
 }
 
 latest_log_entries() {
-  awk '
+  awk -v keep="${1:-5}" '
     $0 == "## Entries" {
       entries_section = 1
       next
@@ -470,7 +504,7 @@ latest_log_entries() {
     }
     active { entry[count] = entry[count] $0 ORS }
     END {
-      start = count - 4
+      start = count - (keep - 1)
       if (start < 1) start = 1
       for (i = start; i <= count; i++) printf "%s", entry[i]
     }
@@ -508,6 +542,7 @@ all_task_states() {
       gsub(/ \| /,"|",line)
       split(line,f,"|")
       ts=f[1]; agent=f[2]; tid=f[3]; status=f[4]; name=f[5]
+      if (fac && status == "AUDIT") { audited[tid]=1; cur=""; next }
       if (!(tid in seen)) { seen[tid]=1; order[++cnt]=tid }
       if (status=="IN_PROGRESS") {
         if (last_status[tid]=="IN_PROGRESS" && last_agent[tid]!=agent) {
@@ -522,6 +557,7 @@ all_task_states() {
       if (status=="DONE") { ever_done[tid]=1 }
       last_status[tid]=status; last_agent[tid]=agent; last_ts[tid]=ts; last_pause[tid]=""
       last_review[tid]=""
+      pdetail[tid]=""
       if (name!="") last_name[tid]=name
       cur=tid
       next
@@ -532,6 +568,7 @@ all_task_states() {
       dash=index(line," - ")
       if (dash>0) p=substr(line,1,dash-1); else p=line
       last_pause[cur]=p
+      if (fac && dash > 0) pdetail[cur]=substr(line, dash + 3)
       if (fac && p == "BLOQUEO") { att[cur]=0; struggled[cur]=1 }
       next
     }
@@ -557,6 +594,12 @@ all_task_states() {
       line=$0
       sub(/^- Tests:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
       tests[cur]=line
+      next
+    }
+    in_entries && cur!="" && fac && /^- Cross-model:/ {
+      line=$0
+      sub(/^- Cross-model:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
+      cross[cur]=line
       next
     }
     in_entries && cur!="" && fac && /^- Lane:/ {
@@ -604,6 +647,7 @@ all_task_states() {
       if (dash>0) p=substr(line,1,dash-1); else p=line
       gsub(/[ \t]+$/,"",p)
       last_review[cur]=p
+      if (fac) cross[cur]=""
       ph=last_phase[cur]; if (ph == "") ph="SPEC"
       if (fac && ph == "SPEC") { if (p ~ /^PASS/) spec_pass[cur]=last_agent[cur]; else spec_pass[cur]="" }
       if (fac && p ~ /^FAIL/) { att[cur]++; struggled[cur]=1 }
@@ -612,7 +656,7 @@ all_task_states() {
     END {
       for (i=1;i<=cnt;i++) {
         t=order[i]
-        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t], (t in hold ? hold[t] : last_agent[t]), last_handoff[t], last_review[t], last_phase[t], spec_pass[t], red[t], tests[t], att[t] + 0, struggled[t] + 0, lane[t], base[t]
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t], (t in hold ? hold[t] : last_agent[t]), last_handoff[t], last_review[t], last_phase[t], spec_pass[t], red[t], tests[t], att[t] + 0, struggled[t] + 0, lane[t], base[t], cross[t], audited[t] + 0, pdetail[t]
       }
     }
   ' "$DOCS_DIR/Agentslog.md"
@@ -886,7 +930,7 @@ stage_label() {
 open_tasks_line() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
   open_task_states | tr '\t' '\037' |
-  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base rest; do
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base cross audited pdetail rest; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -901,26 +945,36 @@ build_context() {
   [ -f "$PROJECT/AGENTS.md" ] || die "run init first"
   tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-context.XXXXXX")"
   trap 'rm -f "$tmp"' EXIT HUP INT TERM
-  {
-    cat "$PROJECT/AGENTS.md"
-    echo
-    extract_context_block "$DOCS_DIR/ProductDescription.md" "## Operational summary"
-    echo
-    extract_context_block "$DOCS_DIR/Stack_Tecnologies.md" "## Operational summary"
-    echo
-    extract_context_block "$DOCS_DIR/Features.md" "## Operational summary"
-    echo
-    extract_context_block "$DOCS_DIR/Roadmap.md" "## Active work"
-    echo
-    echo "## Open tasks"
-    open_tasks_line
-    echo
-    echo "## Latest agent entries"
-    latest_log_entries
-  } > "$tmp"
-  bytes="$(wc -c < "$tmp" | tr -d ' ')"
-  [ "$bytes" -le "$CONTEXT_LIMIT" ] ||
+  bc_keep=5
+  while :; do
+    {
+      cat "$PROJECT/AGENTS.md"
+      echo
+      extract_context_block "$DOCS_DIR/ProductDescription.md" "## Operational summary"
+      echo
+      extract_context_block "$DOCS_DIR/Stack_Tecnologies.md" "## Operational summary"
+      echo
+      extract_context_block "$DOCS_DIR/Features.md" "## Operational summary"
+      echo
+      extract_context_block "$DOCS_DIR/Roadmap.md" "## Active work"
+      echo
+      echo "## Open tasks"
+      open_tasks_line
+      echo
+      if [ "$bc_keep" -lt 5 ]; then
+        echo "## Latest agent entries (the latest $bc_keep of 5, to stay within $CONTEXT_LIMIT bytes)"
+      else
+        echo "## Latest agent entries"
+      fi
+      latest_log_entries "$bc_keep"
+    } > "$tmp"
+    bytes="$(wc -c < "$tmp" | tr -d ' ')"
+    [ "$bytes" -le "$CONTEXT_LIMIT" ] && break
+    # In Factory mode older entries give way before the command fails, so an agent that
+    # starts with context always gets it; the summaries above are what has to be compacted.
+    if factory_on && [ "$bc_keep" -gt 1 ]; then bc_keep=$((bc_keep - 1)); continue; fi
     die "hot context is ${bytes} bytes; compact summaries below ${CONTEXT_LIMIT}"
+  done
   cat "$tmp"
 }
 
@@ -1306,7 +1360,7 @@ require_tests_unchanged() {
   rt_red="$(printf '%s' "$2" | cut -f14)"
   if [ -n "$rt_red" ] && git_ready; then
     git -C "$PROJECT" cat-file -e "$rt_red^{commit}" 2>/dev/null || die "handoff failed: the Red sha $rt_red is not in this repository"
-    rt_diff="$(git -C "$PROJECT" -c core.quotepath=false diff --relative --name-only "$rt_red" 2>/dev/null)" || die "handoff failed: git could not compare the files with the Red sha $rt_red"
+    rt_diff="$(git -C "$PROJECT" -c core.quotepath=false diff --no-renames --relative --name-only "$rt_red" 2>/dev/null)" || die "handoff failed: git could not compare the files with the Red sha $rt_red"
     rt_list="$(mktemp "${TMPDIR:-/tmp}/project-docs-tests.XXXXXX")"
     printf '%s\n' "$rt_tests" | tr ' ' '\n' > "$rt_list"
     rt_changed="$(printf '%s\n' "$rt_diff" | awk -v tf="$rt_list" 'BEGIN { while ((getline p < tf) > 0) if (p != "") want[p] = 1 } ($0 in want) { printf "%s%s", sep, $0; sep = " " }')"
@@ -1335,7 +1389,7 @@ require_tests_note() {
 # then the row as written, separated by tabs.
 brain_rows_tsv() {
   [ -f "$DOCS_DIR/Brain.md" ] || return 0
-  clean_stream < "$DOCS_DIR/Brain.md" | awk '
+  clean_stream < "$DOCS_DIR/Brain.md" | tr '\t' ' ' | awk '
     $0 == "## Entries" { insec=1; next }
     insec && /^## / { insec=0 }
     insec && /^\|/ {
@@ -1473,9 +1527,9 @@ cmd_learn() {
   ln_agent="$(canonical_agent "$(clean_field_text "$1")")"
   ln_task="$(clean_field_text "$2")"
   ln_kind="$(clean_field_text "$3")"
-  ln_name="$(clean_field_text "$4")"
-  ln_trigger="$(clean_field_text "$5" | LC_ALL=C tr 'A-Z' 'a-z')"
-  ln_lesson="$(clean_field_text "$6")"
+  ln_name="$(clean_field_text "$(printf '%s' "$4" | tr '\t' ' ')")"
+  ln_trigger="$(clean_field_text "$(printf '%s' "$5" | tr '\t' ' ')" | LC_ALL=C tr 'A-Z' 'a-z')"
+  ln_lesson="$(clean_field_text "$(printf '%s' "$6" | tr '\t' ' ')")"
   case "$ln_kind" in
     PITFALL|PATTERN|RECIPE|DEFAULT|MAP) ;;
     *) die "learn failed: kind must be PITFALL, PATTERN, RECIPE, DEFAULT or MAP" ;;
@@ -1600,6 +1654,12 @@ retro_read() {
   if [ -z "$DONE_USED" ] || [ "$DONE_USED" = "—" ] || [ -z "$DONE_LEARNED" ] || [ "$DONE_LEARNED" = "—" ]; then
     die "done failed: $1 has no retro yet; run retro first"
   fi
+  if [ "$DONE_LEARNED" = "none" ]; then
+    rr_s="$(task_state "$1" 2>/dev/null | cut -f17)" || true
+    if [ "${rr_s:-0}" = "1" ]; then
+      die "done failed: $1 had a Review: FAIL, a BLOQUEO or a move back to RED, so its retro cannot say learned none; run learn and retro again"
+    fi
+  fi
 }
 
 # brain_apply_hits IDS DATE: adds one hit and the date to every listed lesson (done in Factory mode).
@@ -1633,6 +1693,7 @@ brain_apply_hits() {
 brain_gc() {
   factory_on || return 1
   [ -f "$DOCS_DIR/Brain.md" ] || return 1
+  with_lock
   bg_max="$(factory_number "Brain max entries")"
   bg_rows="$(brain_rows_tsv)"
   bg_count="$(printf '%s\n' "$bg_rows" | awk 'length($0) > 0 { n++ } END { print n + 0 }')"
@@ -1689,6 +1750,11 @@ brain_gc() {
   return 0
 }
 
+# fast_git ARGS...: git in the project with the files the scripts maintain left out of the change.
+fast_git() {
+  git -C "$PROJECT" -c core.quotepath=false "$@" -- . ':(exclude)docs/Agentslog.md' ':(exclude)docs/Roadmap.md' ':(exclude)docs/Features.md' ':(exclude)docs/Brain.md' ':(exclude)docs/brain' ':(exclude)docs/history' ':(exclude)docs/specs' ':(exclude)docs/.lock'
+}
+
 # require_fast_size TASK STATE: handoff of a FAST task. The change since the Base sha must
 # stay inside the lane: at most Fast lane max files files and Fast lane max lines lines,
 # nothing under Fast lane protected paths, and for a BUG row at least one test file. The
@@ -1701,14 +1767,20 @@ require_fast_size() {
     return 0
   fi
   git -C "$PROJECT" cat-file -e "$rf_base^{commit}" 2>/dev/null || die "handoff failed: the Base sha $rf_base is not in this repository"
-  rf_names="$( { git -C "$PROJECT" -c core.quotepath=false diff --relative --name-only "$rf_base" -- . ':(exclude)docs/Agentslog.md' ':(exclude)docs/Roadmap.md' ':(exclude)docs/Features.md' ':(exclude)docs/Brain.md' ':(exclude)docs/brain' ':(exclude)docs/history' ':(exclude)docs/specs' ':(exclude)docs/.lock' 2>/dev/null; git -C "$PROJECT" -c core.quotepath=false ls-files --others --exclude-standard -- . ':(exclude)docs/Agentslog.md' ':(exclude)docs/Roadmap.md' ':(exclude)docs/Features.md' ':(exclude)docs/Brain.md' ':(exclude)docs/brain' ':(exclude)docs/history' ':(exclude)docs/specs' ':(exclude)docs/.lock' 2>/dev/null; } | LC_ALL=C sort -u | awk 'length($0) > 0')"
+  rf_tracked="$(fast_git diff --no-renames --relative --name-only "$rf_base" 2>/dev/null)" || die "handoff failed: git could not compare the change with the Base sha $rf_base"
+  rf_untracked="$(fast_git ls-files --others --exclude-standard 2>/dev/null)" || die "handoff failed: git could not list the new files"
+  rf_names="$(printf '%s\n%s\n' "$rf_tracked" "$rf_untracked" | LC_ALL=C sort -u | awk 'length($0) > 0')"
   rf_files="$(printf '%s\n' "$rf_names" | awk 'length($0) > 0 { n++ } END { print n + 0 }')"
-  rf_lines="$(git -C "$PROJECT" diff --relative --numstat "$rf_base" -- . ':(exclude)docs/Agentslog.md' ':(exclude)docs/Roadmap.md' ':(exclude)docs/Features.md' ':(exclude)docs/Brain.md' ':(exclude)docs/brain' ':(exclude)docs/history' ':(exclude)docs/specs' ':(exclude)docs/.lock' 2>/dev/null | awk -F'\t' '$1 ~ /^[0-9]+$/ { n += $1 + $2 } END { print n + 0 }')"
+  rf_numstat="$(fast_git diff --no-renames --relative --numstat "$rf_base" 2>/dev/null)" || die "handoff failed: git could not count the lines changed since the Base sha $rf_base"
+  rf_lines="$(printf '%s\n' "$rf_numstat" | awk -F'\t' '$1 ~ /^[0-9]+$/ { n += $1 + $2 } END { print n + 0 }')"
   rf_untracked_lines=0
-  for rf_u in $(git -C "$PROJECT" -c core.quotepath=false ls-files --others --exclude-standard -- . ':(exclude)docs/Agentslog.md' ':(exclude)docs/Roadmap.md' ':(exclude)docs/Features.md' ':(exclude)docs/Brain.md' ':(exclude)docs/brain' ':(exclude)docs/history' ':(exclude)docs/specs' ':(exclude)docs/.lock' 2>/dev/null); do
+  while IFS= read -r rf_u; do
+    [ -n "$rf_u" ] || continue
     rf_n="$(awk 'END { print NR }' "$PROJECT/$rf_u" 2>/dev/null)" || rf_n=0
     rf_untracked_lines=$((rf_untracked_lines + ${rf_n:-0}))
-  done
+  done <<EOF
+$rf_untracked
+EOF
   rf_lines=$((rf_lines + rf_untracked_lines))
   rf_max_files="$(factory_number "Fast lane max files")"
   rf_max_lines="$(factory_number "Fast lane max lines")"
@@ -1753,7 +1825,8 @@ cmd_next() {
   nx_indep=1
   if ! factory_yes "Independent review"; then nx_indep=0; fi
   nx_states="$(all_task_states)"
-  nx_best="$(printf '%s\n' "$nx_states" | awk -F'\t' -v agent="$nx_agent" -v role="$nx_role" -v maxatt="$nx_max" -v indep="$nx_indep" '
+  nx_pref="$(factory_setting "Preferred reviewer")"
+  nx_best="$(printf '%s\n' "$nx_states" | awk -F'\t' -v agent="$nx_agent" -v role="$nx_role" -v maxatt="$nx_max" -v indep="$nx_indep" -v pref="$nx_pref" '
     function prole(ph) { if (ph == "" || ph == "SPEC") return "SPEC"; if (ph == "RED") return "TEST"; if (ph == "GREEN") return "DEV"; if (ph == "REVIEW") return "QA"; return "" }
     function can_work(ph,   r) { r = prole(ph); return (r != "" && (role == "BOTH" || role == r)) }
     function can_review(ph) { return (role == "QA" || role == "BOTH" || ((ph == "" || ph == "SPEC") && role == "SPEC")) }
@@ -1762,8 +1835,9 @@ cmd_next() {
     {
       t = $1; st = $2; ag = $3; pc = $5; hold = $9; hand = $10; rev = $11; ph = $12; att = $16 + 0
       if (st == "IN_PROGRESS" && ag == agent) cand(0, t)
+      else if (st == "REVIEW" && rev != "" && hold == agent) cand(0, t)
       else if (st == "ASSIGNED" && hold == agent && can_work(ph) && att < maxatt) cand(1, t)
-      else if (st == "REVIEW" && rev == "" && can_review(ph) && (indep == 0 || hold != agent) && (hand == agent || hand == "")) cand(2, t)
+      else if (st == "REVIEW" && rev == "" && can_review(ph) && (indep == 0 || hold != agent) && (hand == agent || hand == "" || toupper(hand) == role || (role == "BOTH" && toupper(hand) == "QA"))) cand(2, t)
       else if (st == "PAUSE" && pc == "LIMITE" && can_work(ph) && att < maxatt) cand(3, t)
       else if (st == "ASSIGNED" && hold != agent && can_work(ph) && att < maxatt) cand(4, t)
     }
@@ -1786,10 +1860,10 @@ cmd_next() {
       line = $0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line)
       cn = split(line, c, "|")
       for (i = 1; i <= cn; i++) c[i] = trim(c[i])
-      if (c[1] == "ID") { si = di = ei = 0; for (i = 1; i <= cn; i++) { if (c[i] == "Status") si = i; if (c[i] == "Depends on") ei = i; if (c[i] == "Description") di = i } hdr = 1; next }
+      if (c[1] == "ID") { si = di = ei = ni = 0; for (i = 1; i <= cn; i++) { if (c[i] == "Status") si = i; if (c[i] == "Depends on") ei = i; if (c[i] == "Description") di = i; if (c[i] == "Name") ni = i } hdr = 1; next }
       if (c[1] ~ /^-+$/ || !hdr) next
       allid[c[1]] = 1
-      if (rank > 0 && c[1] ~ /^[A-Za-z0-9]/) { rn++; RID[rn] = c[1]; RST[rn] = (si ? c[si] : ""); RDEP[rn] = (ei ? c[ei] : ""); RDESC[rn] = (di ? c[di] : ""); RK[rn] = rank }
+      if (rank > 0 && c[1] ~ /^[A-Za-z0-9]/ && !(ni && c[ni] == "UNKNOWN")) { rn++; RID[rn] = c[1]; RST[rn] = (si ? c[si] : ""); RDEP[rn] = (ei ? c[ei] : ""); RDESC[rn] = (di ? c[di] : ""); RK[rn] = rank }
     }
     END {
       for (k = 1; k <= 4; k++) for (r = 1; r <= rn; r++) {
@@ -1803,7 +1877,102 @@ cmd_next() {
       }
     }
   ' "$DOCS_DIR/Roadmap.md")"
-  if [ -n "$nx_todo" ]; then printf '%s\n' "$nx_todo"; else printf 'none\n'; fi
+  if [ -n "$nx_todo" ]; then printf '%s\n' "$nx_todo"; return 0; fi
+  if [ -n "$nx_pref" ] && [ "$nx_agent" = "$nx_pref" ]; then
+    nx_audit="$(printf '%s\n' "$nx_states" | awk -F'\t' '$2 == "DONE" && $18 != "FAST" && $20 == "NO" && $21 + 0 == 0 { print $1; exit }')"
+    if [ -n "$nx_audit" ]; then printf '%s\n' "$nx_audit"; return 0; fi
+  fi
+  printf 'none\n'
+}
+
+# roster_model ID: the Model cell of a roster id.
+roster_model() {
+  roster_rows | awk -F'\t' -v id="$1" '$1 == id { print $3; exit }'
+}
+
+# digest <project> [since]: what a human has to read, in at most 4 KiB: product guesses
+# and decisions still HYPOTHESIS, open red lines, open gaps, new lessons, what closed,
+# and the reviews (failures, reviews of one model, audits).
+cmd_digest() {
+  shift 2
+  require_factory digest
+  dg_since="${1:-}"
+  if [ -n "$dg_since" ]; then
+    printf '%s' "$dg_since" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9:]+Z?)?$' || die "digest requires an ISO date like 2026-10-27 or a timestamp like 2026-10-27T14:00:00Z"
+  fi
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  dg_day="$(printf '%s' "$dg_since" | cut -c1-10)"
+  dg_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-digest.XXXXXX")"
+  dg_states="$(all_task_states)"
+  {
+    echo "digest since ${dg_since:-the start of the ledger}"
+    echo "## Product guesses"
+    if [ -f "$DOCS_DIR/ProductDescription.md" ]; then
+      clean_stream < "$DOCS_DIR/ProductDescription.md" | awk '
+        /^\|/ {
+          line=$0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line); n=split(line, c, "|")
+          for (i=1; i<=n; i++) gsub(/^[ \t]+|[ \t]+$/, "", c[i])
+          if (c[1] ~ /^BR-[0-9]+$/ && c[3] == "HYPOTHESIS" && c[4] ~ /^agent:/) printf "%s | %s | %s\n", c[1], substr(c[2], 1, 80), c[4]
+        }
+      '
+    fi > "$dg_tmp.part"
+    if [ -f "$DOCS_DIR/Stack_Tecnologies.md" ]; then
+      clean_stream < "$DOCS_DIR/Stack_Tecnologies.md" | awk -v since="$dg_day" '
+        /^\|/ {
+          line=$0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line); n=split(line, c, "|")
+          for (i=1; i<=n; i++) gsub(/^[ \t]+|[ \t]+$/, "", c[i])
+          if (c[1] ~ /^ADR-[0-9]+$/ && c[4] == "HYPOTHESIS" && (since == "" || c[5] >= since)) printf "%s | %s | %s\n", c[1], substr(c[2], 1, 80), c[5]
+        }
+      ' >> "$dg_tmp.part"
+    fi
+    if [ -s "$dg_tmp.part" ]; then cat "$dg_tmp.part"; else echo "(none)"; fi
+    echo "## Red lines"
+    dg_red="$(printf '%s\n' "$dg_states" | awk -F'\t' '$2 == "PAUSE" && index($22, "RED-LINE:") == 1 { printf "%s | %s | %s\n", $1, $3, $22 }')"
+    if [ -n "$dg_red" ]; then printf '%s\n' "$dg_red"; else echo "(none)"; fi
+    echo "## Open gaps"
+    dg_gaps="$(awk -F'|' '
+      function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+      /^## / { insec = ($0 ~ /^## Gaps/); hdr = 0; next }
+      insec && /^\|/ {
+        line=$0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line); n=split(line, c, "|")
+        for (i=1; i<=n; i++) c[i] = trim(c[i])
+        if (c[1] == "ID") { ni = si = 0; for (i=1; i<=n; i++) { if (c[i] == "Name") ni = i; if (c[i] == "Status") si = i } hdr = 1; next }
+        if (!hdr || c[1] ~ /^-+$/) next
+        if (c[1] ~ /-GAP-/ && (si == 0 || c[si] != "DONE")) printf "%s | %s | %s\n", c[1], (ni ? c[ni] : ""), (si ? c[si] : "")
+      }
+    ' "$DOCS_DIR/Roadmap.md")"
+    if [ -n "$dg_gaps" ]; then printf '%s\n' "$dg_gaps"; else echo "(none)"; fi
+    echo "## New lessons"
+    dg_les="$(brain_rows_tsv | awk -F'\t' '$7 == "HYPOTHESIS" { printf "%s | %s | %s\n", $1, $2, $6 }')"
+    if [ -n "$dg_les" ]; then printf '%s\n' "$dg_les"; else echo "(none)"; fi
+    echo "## Closed"
+    printf '%s\n' "$dg_states" | awk -F'\t' -v since="$dg_since" '$2 == "DONE" && (since == "" || $4 >= since) { if ($18 == "FAST") f++; else n++ } END { print "NORMAL: " n + 0 ", FAST: " f + 0 }'
+    echo "## Reviews"
+    dg_fail="$(clean_stream < "$DOCS_DIR/Agentslog.md" | awk -v since="$dg_since" '
+      /^## \[/ { ts = substr($0, 5, 20); on = (since == "" || ts >= since); next }
+      on && /^- Review: FAIL/ { n++ }
+      END { print n + 0 }
+    ')"
+    dg_cross="$(printf '%s\n' "$dg_states" | awk -F'\t' '$2 == "DONE" && $18 != "FAST" && $20 == "NO" { n++; if ($21 + 0 > 0) a++ } END { print n + 0 " " a + 0 }')"
+    echo "Failed reviews: $dg_fail; NORMAL tasks closed with the same model reviewing: ${dg_cross% *}; audited by the preferred reviewer: ${dg_cross#* }"
+  } > "$dg_tmp"
+  rm -f "$dg_tmp.part"
+  LC_ALL=C awk -v max=4096 '
+    { L[NR] = $0 }
+    END {
+      total = 0; for (i = 1; i <= NR; i++) total += length(L[i]) + 1
+      if (total <= max) { for (i = 1; i <= NR; i++) print L[i]; exit }
+      bytes = 0; k = 0
+      for (i = 1; i <= NR; i++) {
+        foot = "digest: truncated, " (NR - i) " more lines, read the ledger and the Roadmap"
+        if (bytes + length(L[i]) + 1 + length(foot) + 1 > max) break
+        bytes += length(L[i]) + 1; k = i
+      }
+      for (i = 1; i <= k; i++) print L[i]
+      print "digest: truncated, " (NR - k) " more lines, read the ledger and the Roadmap"
+    }
+  ' "$dg_tmp"
+  rm -f "$dg_tmp"
 }
 
 # Commands that exist only in Factory mode refuse to run in classic mode.
@@ -1967,6 +2136,14 @@ cmd_handoff() {
     if [ "$(printf '%s' "$state" | cut -f18)" = "FAST" ]; then require_fast_size "$task" "$state"; fi
     if [ "$handoff_phase" = "GREEN" ]; then require_tests_unchanged "$task" "$state"; fi
   fi
+  if factory_on && [ -z "$reviewer" ]; then
+    if [ "$(printf '%s' "$state" | cut -f18)" = "FAST" ]; then
+      reviewer="$(factory_setting "Fallback reviewer")"
+    else
+      reviewer="$(factory_setting "Preferred reviewer")"
+    fi
+    if [ "$reviewer" = "$agent" ]; then reviewer=""; fi
+  fi
   name="$(require_valid_name "$task" handoff)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   {
@@ -2046,12 +2223,19 @@ cmd_review() {
   fi
   name="$(require_valid_name "$task" review)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  review_cross=0
+  if factory_on; then
+    rv_hw="$(roster_model "$holder" | awk '{ print tolower($1) }')"
+    rv_rw="$(roster_model "$agent" | awk '{ print tolower($1) }')"
+    if [ "$rv_hw" = "$rv_rw" ]; then review_cross=1; fi
+  fi
   {
     echo
     echo "## [$timestamp] | $agent | $task | REVIEW | $name"
     echo "- Summary: Review of the handoff from $holder"
     if [ -n "$verify" ]; then echo "- Verify: $verify"; fi
     echo "- Review: $result - $note"
+    if [ "$review_cross" -eq 1 ]; then echo "- Cross-model: NO"; fi
   } >> "$DOCS_DIR/Agentslog.md"
   echo "project_docs review: $task $result by $agent"
 }
@@ -2075,7 +2259,7 @@ verify_exit() {
         abs = start + RSTART - 1; len = RLENGTH
         pre = (abs > 1) ? substr($0, abs - 1, 1) : ""
         post = substr($0, abs + len, 1)
-        if (pre !~ /[A-Za-z0-9]/ && post !~ /[A-Za-z0-9]/) { print substr($0, abs + 5, len - 5); exit }
+        if (pre !~ /[A-Za-z0-9_]/ && post !~ /[A-Za-z0-9_]/) { print substr($0, abs + 5, len - 5); exit }
         start = abs + len
       }
     }
@@ -2325,7 +2509,11 @@ cmd_done() {
   esac
   DONE_USED=""
   DONE_LEARNED=""
-  if factory_on; then retro_read "$task"; fi
+  DONE_CROSS=""
+  if factory_on; then
+    retro_read "$task"
+    DONE_CROSS="$(task_state "$task" 2>/dev/null | cut -f20)" || DONE_CROSS=""
+  fi
   name="$(require_valid_name "$task" done)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   claim_ts="$(first_claim_ts "$task")"
@@ -2342,6 +2530,7 @@ cmd_done() {
     echo "- Files: $files"
     echo "- Verify: $verify"
     if factory_on; then echo "- Brain: used $DONE_USED; learned $DONE_LEARNED"; fi
+    if factory_on && [ "$DONE_CROSS" = "NO" ]; then echo "- Cross-model: NO"; fi
   } >> "$DOCS_DIR/Agentslog.md"
   roadmap_remove_row_file "$task"
   features_add_capability "$task" "$summary" "$verify" "$timestamp"
@@ -2355,7 +2544,7 @@ cmd_done() {
 cmd_status() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
   open_task_states | tr '\t' '\037' |
-  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base rest; do
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base cross audited pdetail rest; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -2366,7 +2555,14 @@ cmd_status() {
     fi
     shown="$agent"
     if [ "$status" = "REVIEW" ]; then shown="$holder"; fi
-    printf '%s | %s | %s | %s | %sh%s | %s\n' "$tid" "$name" "$shown" "$(stage_label "$status" "$review" "$handoff")" "$hrs" "$stale" "$reason"
+    if factory_on; then
+      sphase="${phase:-SPEC}"
+      if [ "$status" = "REVIEW" ]; then sphase="REVIEW"; fi
+      slane="${lane:-NORMAL}"
+      printf '%s | %s | %s | %s | %sh%s | %s | %s %s\n' "$tid" "$name" "$shown" "$(stage_label "$status" "$review" "$handoff")" "$hrs" "$stale" "$reason" "$sphase" "$slane"
+    else
+      printf '%s | %s | %s | %s | %sh%s | %s\n' "$tid" "$name" "$shown" "$(stage_label "$status" "$review" "$handoff")" "$hrs" "$stale" "$reason"
+    fi
   done
 }
 
@@ -2868,7 +3064,9 @@ check_log_rotation() {
 
 check_log_entries() {
   log="$DOCS_DIR/Agentslog.md"
-  out="$(awk -v stale_s="$((STALE_HOURS * 3600))" "$AWK_EPOCH"'
+  cle_fac=0
+  if factory_on; then cle_fac=1; fi
+  out="$(awk -v stale_s="$((STALE_HOURS * 3600))" -v fac="$cle_fac" "$AWK_EPOCH"'
     $0 == "## Entries" { in_entries=1; next }
     in_entries && /^## \[/ {
       if (hdr != "") { validate() }
@@ -2907,7 +3105,7 @@ check_log_entries() {
     in_entries && /^- Assign:/ { assignline=$0; next }
     END { if (hdr != "") validate() }
     function validate(   body,dash,cat,detail,rres,rdetail) {
-      if (status!="IN_PROGRESS" && status!="PAUSE" && status!="DONE" && status!="REVIEW" && status!="ASSIGNED") {
+      if (status!="IN_PROGRESS" && status!="PAUSE" && status!="DONE" && status!="REVIEW" && status!="ASSIGNED" && !(fac && status=="AUDIT")) {
         print "ERROR: invalid status in entry (expected IN_PROGRESS, PAUSE, REVIEW, ASSIGNED or DONE): " hdr
       }
       if (status=="ASSIGNED") {
@@ -3729,7 +3927,7 @@ rotate_log() {
     echo
     echo "## Entries"
     if [ -n "$open_summary" ]; then
-      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base rest; do
+      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base cross audited pdetail rest; do
         [ -n "$tid" ] || continue
         att_carry="${attempts:-0}"
         case "$review" in
@@ -3764,7 +3962,7 @@ rotate_log() {
         if [ "$status" != "REVIEW" ] && [ -n "$lane" ]; then echo "- Lane: $lane"; fi
         if [ "$status" != "REVIEW" ] && [ -n "$base" ]; then echo "- Base: $base"; fi
         if [ "$status" = "PAUSE" ]; then
-          echo "- Pause: $pausecat - see docs/history/$archive_name for detail"
+          if [ -n "$pdetail" ]; then echo "- Pause: $pausecat - $pdetail"; else echo "- Pause: $pausecat - see docs/history/$archive_name for detail"; fi
         fi
         if [ "$status" = "ASSIGNED" ]; then
           echo "- Assign: $holder"
@@ -3773,6 +3971,7 @@ rotate_log() {
           echo "- Verify: carried forward from docs/history/$archive_name"
           if [ -n "$handoff" ]; then echo "- Handoff: $handoff"; fi
           if [ -n "$review" ]; then echo "- Review: $review - carried forward from docs/history/$archive_name"; fi
+          if [ -n "$cross" ]; then echo "- Cross-model: $cross"; fi
         fi
       done
     fi
@@ -3799,12 +3998,13 @@ case "$COMMAND" in
   recall) cmd_recall "$@" ;;
   learn) cmd_learn "$@" ;;
   retro) cmd_retro "$@" ;;
+  digest) cmd_digest "$@" ;;
   next) cmd_next "$@" ;;
   advance) cmd_advance "$@" ;;
   assign) cmd_assign "$@" ;;
   done) cmd_done "$@" ;;
   status) cmd_status ;;
   *)
-    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint|advance|recall|learn|retro|next} <project> [args]"
+    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint|advance|recall|learn|retro|next|digest} <project> [args]"
     ;;
 esac

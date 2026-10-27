@@ -960,7 +960,7 @@ run_factory_suite() {
   grep -q '^+ added: default agent roster in AGENTS.md$' "$WORK/.out" && ok "$label migrate --factory fills an empty roster" || bad "$label roster not filled: $(cat "$WORK/.out")"
   grep -q '^+ created: docs/Brain.md$' "$WORK/.out" && ok "$label migrate --factory creates docs/Brain.md" || bad "$label Brain.md not created"
   grep -q '^+ created: docs/specs/$' "$WORK/.out" && grep -q '^+ created: docs/brain/tasks/$' "$WORK/.out" && ok "$label migrate --factory creates the folders" || bad "$label folders not reported"
-  grep -q '^project_docs migrate: 6 change(s)$' "$WORK/.out" && ok "$label migrate --factory counts six changes" || bad "$label change count wrong: $(grep 'project_docs migrate' "$WORK/.out")"
+  grep -q '^project_docs migrate: 8 change(s)$' "$WORK/.out" && ok "$label migrate --factory counts eight changes" || bad "$label change count wrong: $(grep 'project_docs migrate' "$WORK/.out")"
   [ -f "$ip/docs/Brain.md" ] && [ -d "$ip/docs/specs" ] && [ -d "$ip/docs/brain/tasks" ] && ok "$label the brain and the folders exist on disk" || bad "$label migrate files missing on disk"
   lines_kept "$WORK/.agents_before" "$ip/AGENTS.md" && ok "$label migrate --factory removes nothing from AGENTS.md" || bad "$label migrate --factory removed lines"
   fl="$(grep -n '^## Factory$' "$ip/AGENTS.md" | cut -d: -f1)"; al="$(grep -n '^## Agent identity$' "$ip/AGENTS.md" | cut -d: -f1)"; el="$(grep -n 'project-documentation:end' "$ip/AGENTS.md" | cut -d: -f1)"
@@ -2060,13 +2060,17 @@ SPEC
   drop_template_row() { seed_replace "$1/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO |" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | DONE |"; }
 
   nx_proj n_fresh
-  nx_is "next gives a SPEC agent the first TODO row" claude-spec F01-E01-T01
+  nx_is "next does not offer the template stub row (its Name is UNKNOWN) to a SPEC agent" claude-spec none
   nx_is "next gives a DEV agent nothing when there is no FAST row" claude-dev none
   nx_is "next gives a TEST agent nothing" claude-test none
   nx_is "next gives a QA agent nothing" claude-qa none
   nx_is "next gives the other QA agent nothing" gemini-qa none
   add_agent "$nx" "| claude-all | AI | Claude | BOTH | — |"
-  nx_is "next gives a BOTH agent the first TODO row" claude-all F01-E01-T01
+  nx_is "the stub row is not offered to a BOTH agent either" claude-all none
+  drop_template_row "$nx"
+  seed_plan_row "$nx" F09-E01-T01 "A real task"
+  nx_is "next gives a SPEC agent the first real TODO row" claude-spec F09-E01-T01
+  nx_is "next gives a BOTH agent the first real TODO row" claude-all F09-E01-T01
   assert_failure "$label next refuses an agent that is not in the roster" run next "$nx" nobody
   out_has "next failed: nobody is not in the Agent identity table; Factory mode needs a role for each agent" && ok "$label the unknown agent is named" || bad "$label unknown agent text: $(cat "$WORK/.out")"
   assert_failure "$label next needs an agent" run next "$nx"
@@ -2262,7 +2266,585 @@ SPEC
   seed_entry "$ps" "$(now_ts)" claude-dev F09-E01-T01 IN_PROGRESS "A normal task" '- Summary: fix\n- Verify: pending\n- Phase: GREEN\n- Lane: FAST\n'
   assert_success "$label a FAST task in GREEN needs no spec" run check "$ps"
 
+  echo "== $label: status phases, cross-model reviews, audits and the digest (F06-E04-T01 to T03) =="
+  # ---- status with phase and lane -------------------------------------------------------------------
+  st_proj() { st="$WORK/${label}_st_$1"; rm -rf "$st"; mkdir -p "$st"; run init "$st" >/dev/null 2>&1; drop_template_row "$st"; }
+  st_proj main
+  seed_entry "$st" "$(now_ts)" claude-dev F09-E01-T01 IN_PROGRESS "Fast fix" '- Summary: fix\n- Verify: pending\n- Phase: GREEN\n- Lane: FAST\n'
+  seed_entry "$st" "$(now_ts)" claude-dev F09-E01-T02 IN_PROGRESS "Reviewed work" '- Summary: work\n- Verify: pending\n- Phase: GREEN\n'
+  seed_entry "$st" "$(now_ts)" claude-dev F09-E01-T02 REVIEW "Reviewed work" '- Summary: ready\n- Verify: exit=0\n- Handoff: claude-qa\n'
+  seed_entry "$st" "$(now_ts)" claude-spec F09-E01-T03 IN_PROGRESS "Paused work" '- Summary: spec\n- Verify: pending\n'
+  seed_entry "$st" "$(now_ts)" claude-spec F09-E01-T03 PAUSE "Paused work" '- Pause: LIMITE - limit until later\n'
+  seed_entry "$st" "$(now_ts)" claude-spec F09-E01-T04 ASSIGNED "Assigned work" '- Assign: claude-test\n- Phase: RED\n'
+  assert_success "$label status runs on a Factory project" run status "$st"
+  printf '%s\n' "F09-E01-T01 | Fast fix | claude-dev | IN_PROGRESS | 0h | - | GREEN FAST" \
+    "F09-E01-T02 | Reviewed work | claude-dev | REVIEW->claude-qa | 0h | - | REVIEW NORMAL" \
+    "F09-E01-T03 | Paused work | claude-spec | PAUSE | 0h | LIMITE | SPEC NORMAL" \
+    "F09-E01-T04 | Assigned work | claude-spec | ASSIGNED->claude-test | 0h | - | RED NORMAL" > "$WORK/.golden"
+  golden_eq "$WORK/.out" && ok "$label status adds the phase and the lane to every open task in Factory mode" || { bad "$label Factory status differs"; diff "$WORK/.golden" "$WORK/.out" | head -8; }
+  run_env PROJECT_DOCS_MODE=classic status "$st" > "$WORK/.out" 2>&1
+  printf '%s\n' "F09-E01-T01 | Fast fix | claude-dev | IN_PROGRESS | 0h | -" \
+    "F09-E01-T02 | Reviewed work | claude-dev | REVIEW->claude-qa | 0h | -" \
+    "F09-E01-T03 | Paused work | claude-spec | PAUSE | 0h | LIMITE" \
+    "F09-E01-T04 | Assigned work | claude-spec | ASSIGNED->claude-test | 0h | -" > "$WORK/.golden"
+  golden_eq "$WORK/.out" && ok "$label the same ledger in classic mode prints no phase and no lane" || { bad "$label classic status changed"; diff "$WORK/.golden" "$WORK/.out" | head -8; }
+
+  # ---- the cross-model marker, the default reviewer and the audits -----------------------------------------------
+  cm_proj() {
+    cm="$WORK/${label}_cm_$1"; rm -rf "$cm"; mkdir -p "$cm"; run init "$cm" >/dev/null 2>&1; drop_template_row "$cm"
+    seed_plan_row "$cm" F09-E01-T01 "Cross model task"
+    run claim "$cm" claude-spec F09-E01-T01 "work" >/dev/null 2>&1
+    run checkpoint "$cm" claude-spec F09-E01-T01 "spec" "review" >/dev/null 2>&1
+  }
+  cm_proj same
+  assert_success "$label handoff without a reviewer works" run handoff "$cm" claude-spec F09-E01-T01 "ready" "exit=0"
+  grep -q '^project_docs handoff: F09-E01-T01 handed to review$' "$WORK/.out" && [ "$(last_entry_of "$cm" | grep -c '^- Handoff:')" -eq 0 ] && ok "$label with no Preferred reviewer the handoff has no addressee" || bad "$label handoff output: $(cat "$WORK/.out")"
+  assert_success "$label a review by an agent of the same model" run review "$cm" claude-qa F09-E01-T01 PASS "fine" "exit=0"
+  last_entry_of "$cm" > "$WORK/.last"
+  grep -q '^- Cross-model: NO$' "$WORK/.last" && ok "$label the review is marked Cross-model: NO" || bad "$label no marker: $(cat "$WORK/.last")"
+  run retro "$cm" claude-spec F09-E01-T01 none none >/dev/null 2>&1
+  assert_success "$label done closes it" run done "$cm" claude-spec F09-E01-T01 "spec" "docs/" "exit=0"
+  last_entry_of "$cm" > "$WORK/.last"
+  grep -q '^- Cross-model: NO$' "$WORK/.last" && ok "$label the DONE entry keeps the marker for the audit" || bad "$label DONE without the marker: $(cat "$WORK/.last")"
+
+  cm_proj other
+  run handoff "$cm" claude-spec F09-E01-T01 "ready" "exit=0" gemini-qa >/dev/null 2>&1
+  run review "$cm" gemini-qa F09-E01-T01 PASS "fine" "exit=0" >/dev/null 2>&1
+  last_entry_of "$cm" > "$WORK/.last"
+  ! grep -q '^- Cross-model:' "$WORK/.last" && ok "$label a review by another model has no marker" || bad "$label marker on a cross-model review: $(cat "$WORK/.last")"
+
+  cm_proj pref
+  set_setting "$cm" "Preferred reviewer | gemini-qa"
+  set_setting "$cm" "Fallback reviewer | claude-qa"
+  assert_success "$label handoff of a normal task goes to the Preferred reviewer" run handoff "$cm" claude-spec F09-E01-T01 "ready" "exit=0"
+  grep -q '^project_docs handoff: F09-E01-T01 handed to review (gemini-qa)$' "$WORK/.out" && last_entry_of "$cm" | grep -q '^- Handoff: gemini-qa$' && ok "$label the Preferred reviewer is the default addressee" || bad "$label default reviewer wrong: $(cat "$WORK/.out")"
+  cm_proj pref_explicit
+  set_setting "$cm" "Preferred reviewer | gemini-qa"
+  assert_success "$label an explicit reviewer beats the setting" run handoff "$cm" claude-spec F09-E01-T01 "ready" "exit=0" claude-qa
+  grep -q 'handed to review (claude-qa)' "$WORK/.out" && ok "$label the addressee is the one given" || bad "$label explicit reviewer ignored: $(cat "$WORK/.out")"
+  cm_proj pref_self
+  set_setting "$cm" "Preferred reviewer | claude-spec"
+  assert_success "$label a Preferred reviewer that holds the task is not used" run handoff "$cm" claude-spec F09-E01-T01 "ready" "exit=0"
+  grep -q '^project_docs handoff: F09-E01-T01 handed to review$' "$WORK/.out" && ok "$label the handoff has no addressee then" || bad "$label self reviewer used: $(cat "$WORK/.out")"
+  ft_proj cm_fast git
+  set_setting "$ft" "Preferred reviewer | gemini-qa"
+  set_setting "$ft" "Fallback reviewer | claude-qa"
+  run claim "$ft" claude-dev F09-E01-T01 "fix" >/dev/null 2>&1
+  run checkpoint "$ft" claude-dev F09-E01-T01 "started" "fix" >/dev/null 2>&1
+  printf 'a\n' > "$ft/src/a.sh"
+  assert_success "$label a FAST handoff goes to the Fallback reviewer" run handoff "$ft" claude-dev F09-E01-T01 "fixed" "exit=0"
+  grep -q 'handed to review (claude-qa)' "$WORK/.out" && ok "$label FAST work never uses the Preferred reviewer" || bad "$label FAST reviewer wrong: $(cat "$WORK/.out")"
+
+  au_proj() {
+    au="$WORK/${label}_au_$1"; rm -rf "$au"; mkdir -p "$au"; run init "$au" >/dev/null 2>&1; drop_template_row "$au"
+    set_setting "$au" "Preferred reviewer | gemini-qa"
+    seed_plan_row "$au" F09-E01-T10 "Same model normal"; seed_plan_row "$au" F09-E01-T11 "Other model normal"; seed_plan_row "$au" F09-E01-T12 "Same model fast"
+    seed_entry "$au" "$(now_ts)" claude-dev F09-E01-T10 IN_PROGRESS "Same model normal" '- Summary: w\n- Verify: pending\n- Phase: GREEN\n- Lane: NORMAL\n'
+    seed_entry "$au" "$(now_ts)" claude-qa F09-E01-T10 REVIEW "Same model normal" '- Summary: r\n- Verify: exit=0\n- Review: PASS - ok\n- Cross-model: NO\n'
+    seed_entry "$au" "$(now_ts)" claude-dev F09-E01-T10 DONE "Same model normal" '- Summary: d\n- Files: x\n- Verify: exit=0\n- Cross-model: NO\n'
+    seed_entry "$au" "$(now_ts)" claude-dev F09-E01-T11 IN_PROGRESS "Other model normal" '- Summary: w\n- Verify: pending\n- Phase: GREEN\n- Lane: NORMAL\n'
+    seed_entry "$au" "$(now_ts)" gemini-qa F09-E01-T11 REVIEW "Other model normal" '- Summary: r\n- Verify: exit=0\n- Review: PASS - ok\n'
+    seed_entry "$au" "$(now_ts)" claude-dev F09-E01-T11 DONE "Other model normal" '- Summary: d\n- Files: x\n- Verify: exit=0\n'
+    seed_entry "$au" "$(now_ts)" claude-dev F09-E01-T12 IN_PROGRESS "Same model fast" '- Summary: w\n- Verify: pending\n- Phase: GREEN\n- Lane: FAST\n'
+    seed_entry "$au" "$(now_ts)" claude-qa F09-E01-T12 REVIEW "Same model fast" '- Summary: r\n- Verify: exit=0\n- Review: PASS - ok\n- Cross-model: NO\n'
+    seed_entry "$au" "$(now_ts)" claude-dev F09-E01-T12 DONE "Same model fast" '- Summary: d\n- Files: x\n- Verify: exit=0\n- Cross-model: NO\n'
+  }
+  au_proj main
+  runo next "$au" gemini-qa
+  [ "$(head -n 1 "$WORK/.out" | tr -d '\r')" = "F09-E01-T10" ] && ok "$label the Preferred reviewer is offered a closed normal task reviewed by one model" || bad "$label audit candidate wrong: $(cat "$WORK/.out")"
+  runo next "$au" claude-qa
+  [ "$(head -n 1 "$WORK/.out" | tr -d '\r')" = "none" ] && ok "$label other agents are not offered audits" || bad "$label audit offered to claude-qa: $(cat "$WORK/.out")"
+  assert_success "$label an audit is recorded with append-log" run append-log "$au" gemini-qa F09-E01-T10 AUDIT "audited, nothing wrong" "src/" "exit=0"
+  runo next "$au" gemini-qa
+  [ "$(head -n 1 "$WORK/.out" | tr -d '\r')" = "none" ] && ok "$label an audited task is not offered again (the FAST and the cross-model ones never were)" || bad "$label audit offered twice: $(cat "$WORK/.out")"
+  assert_success "$label the AUDIT status is valid in Factory mode" run check "$au"
+  runo status "$au"
+  ! grep -q 'F09-E01-T10' "$WORK/.out" && ok "$label an audit does not reopen the task" || bad "$label task reopened by the audit: $(cat "$WORK/.out")"
+  ip_new au_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  run append-log "$ip" a F01-E01-T01 AUDIT "x" "y" "z" >/dev/null 2>&1
+  assert_failure "$label classic check still rejects the AUDIT status" run check "$ip"
+  out_has "invalid status in entry" && ok "$label classic vocabulary is unchanged" || bad "$label classic AUDIT text: $(cat "$WORK/.out")"
+
+  # ---- digest ---------------------------------------------------------------------------------------------------------
+  dg_proj() {
+    dg="$WORK/${label}_dg_$1"; rm -rf "$dg"; mkdir -p "$dg"; run init "$dg" >/dev/null 2>&1; drop_template_row "$dg"
+    seed_replace "$dg/docs/ProductDescription.md" "| BR-001 | UNKNOWN | UNKNOWN | UNKNOWN |" "| BR-001 | Invoices round half up | HYPOTHESIS | agent:claude-dev F09-E01-T01 |"
+    seed_replace "$dg/docs/Stack_Tecnologies.md" "| ADR-001 | UNKNOWN | UNKNOWN | HYPOTHESIS | UNKNOWN |" "| ADR-001 | Use CSV for exports | Simple | HYPOTHESIS | 2026-10-26 |"
+    awk '{ print } /^\| ID \| Name \| Severity/ { getline; print; print "| F09-GAP-01 | Which payment provider | High | F09 | Text | TODO | — | — | — |" }' "$dg/docs/Roadmap.md" > "$dg/docs/Roadmap.md.tmp" && mv "$dg/docs/Roadmap.md.tmp" "$dg/docs/Roadmap.md"
+    seed_plan_row "$dg" F09-E01-T01 "A paused task"
+    seed_entry "$dg" "$(now_ts)" claude-dev F09-E01-T01 IN_PROGRESS "A paused task" '- Summary: w\n- Verify: pending\n- Phase: GREEN\n'
+    seed_entry "$dg" "$(now_ts)" claude-dev F09-E01-T01 PAUSE "A paused task" '- Pause: ESPERA_RESPUESTA - RED-LINE: production deploy\n'
+    run learn "$dg" claude-dev F09-E01-T01 PITFALL "Invoice totals drift" "invoice rounding" "Round once" >/dev/null 2>&1
+    seed_entry "$dg" "2026-10-26T10:00:00Z" claude-dev F09-E01-T10 IN_PROGRESS "Normal one" '- Summary: w\n- Verify: pending\n- Phase: GREEN\n- Lane: NORMAL\n'
+    seed_entry "$dg" "2026-10-26T10:05:00Z" claude-qa F09-E01-T10 REVIEW "Normal one" '- Summary: r\n- Verify: exit=0\n- Review: FAIL - not yet\n'
+    seed_entry "$dg" "2026-10-26T10:10:00Z" claude-qa F09-E01-T10 REVIEW "Normal one" '- Summary: r\n- Verify: exit=0\n- Review: PASS - ok\n- Cross-model: NO\n'
+    seed_entry "$dg" "2026-10-26T10:15:00Z" claude-dev F09-E01-T10 DONE "Normal one" '- Summary: d\n- Files: x\n- Verify: exit=0\n- Cross-model: NO\n'
+    seed_entry "$dg" "2026-10-26T10:20:00Z" gemini-qa F09-E01-T10 AUDIT "Normal one" '- Summary: a\n- Files: x\n- Verify: exit=0\n'
+    seed_entry "$dg" "2026-10-26T11:00:00Z" claude-dev F09-E01-T11 IN_PROGRESS "Normal two" '- Summary: w\n- Verify: pending\n- Phase: GREEN\n- Lane: NORMAL\n'
+    seed_entry "$dg" "2026-10-26T11:05:00Z" claude-qa F09-E01-T11 REVIEW "Normal two" '- Summary: r\n- Verify: exit=0\n- Review: PASS - ok\n- Cross-model: NO\n'
+    seed_entry "$dg" "2026-10-26T11:10:00Z" claude-dev F09-E01-T11 DONE "Normal two" '- Summary: d\n- Files: x\n- Verify: exit=0\n- Cross-model: NO\n'
+    seed_entry "$dg" "2026-10-26T12:00:00Z" claude-dev F09-E01-T12 IN_PROGRESS "Fast one" '- Summary: w\n- Verify: pending\n- Phase: GREEN\n- Lane: FAST\n'
+    seed_entry "$dg" "2026-10-26T12:10:00Z" claude-dev F09-E01-T12 DONE "Fast one" '- Summary: d\n- Files: x\n- Verify: exit=0\n'
+  }
+  dg_proj main
+  assert_success "$label digest lists every kind of item" run digest "$dg"
+  printf '%s\n' "digest since the start of the ledger" "## Product guesses" "BR-001 | Invoices round half up | agent:claude-dev F09-E01-T01" "ADR-001 | Use CSV for exports | 2026-10-26" \
+    "## Red lines" "F09-E01-T01 | claude-dev | RED-LINE: production deploy" "## Open gaps" "F09-GAP-01 | Which payment provider | TODO" \
+    "## New lessons" "LRN-004 | Invoice totals drift | log:F09-E01-T01" "## Closed" "NORMAL: 2, FAST: 1" "## Reviews" \
+    "Failed reviews: 1; NORMAL tasks closed with the same model reviewing: 2; audited by the preferred reviewer: 1" > "$WORK/.golden"
+  golden_eq "$WORK/.out" && ok "$label the digest has every section, in order" || { bad "$label digest differs"; diff "$WORK/.golden" "$WORK/.out" | head -12; }
+  assert_success "$label digest takes a date" run digest "$dg" 2026-10-26T11:00:00Z
+  tr -d '\r' < "$WORK/.out" > "$WORK/.norm"
+  grep -q '^digest since 2026-10-26T11:00:00Z$' "$WORK/.norm" && grep -q '^NORMAL: 1, FAST: 1$' "$WORK/.norm" && grep -q '^Failed reviews: 0;' "$WORK/.norm" && ok "$label the date keeps only what happened since" || bad "$label digest since wrong: $(cat "$WORK/.norm")"
+  assert_success "$label digest since a later day drops the old decisions" run digest "$dg" 2099-01-01
+  tr -d '\r' < "$WORK/.out" > "$WORK/.norm"
+  ! grep -q '^ADR-001' "$WORK/.norm" && grep -q '^BR-001' "$WORK/.norm" && grep -q '^NORMAL: 0, FAST: 0$' "$WORK/.norm" && ok "$label ADRs and closed tasks are filtered by date, open guesses are not" || bad "$label digest 2099: $(cat "$WORK/.norm")"
+  assert_failure "$label digest refuses a date that is not one" run digest "$dg" yesterday
+  out_has "digest requires an ISO date like 2026-10-27 or a timestamp like 2026-10-27T14:00:00Z" && ok "$label the date format is named" || bad "$label digest date text: $(cat "$WORK/.out")"
+  dg_proj big
+  awk 'BEGIN { for (i = 5; i <= 80; i++) printf "| LRN-%03d | A lesson that is still a guess number %d | PATTERN | zeta%d | Lesson text %d | log:F09-E01-T01 | HYPOTHESIS | 0 | — |\n", i, i, i, i }' > "$WORK/.lessons"
+  { cat "$dg/docs/Brain.md"; cat "$WORK/.lessons"; } > "$dg/docs/Brain.md.tmp" && mv "$dg/docs/Brain.md.tmp" "$dg/docs/Brain.md"
+  assert_success "$label digest of a big brain still succeeds" run digest "$dg"
+  dgb="$(tr -d '\r' < "$WORK/.out" | wc -c | tr -d ' ')"
+  [ "$dgb" -le 4096 ] && ok "$label the digest is $dgb bytes, at most 4 KiB" || bad "$label digest is $dgb bytes"
+  tr -d '\r' < "$WORK/.out" | tail -n 1 | grep -q '^digest: truncated, [0-9]* more lines, read the ledger and the Roadmap$' && ok "$label what does not fit is said, not cut silently" || bad "$label truncation line missing: $(tail -n 2 "$WORK/.out")"
+  assert_failure "$label digest does not run in classic mode" run_env PROJECT_DOCS_MODE=classic digest "$dg"
+  out_has "digest needs Factory mode" && ok "$label classic mode says so" || bad "$label classic digest text: $(cat "$WORK/.out")"
+
+  echo "== $label: next gives a reviewed task back to its holder (F06-E01-T06) =="
+  rv_task() {  # rv_task <name> <verdict line or none> [rounds]: a GREEN task of claude-dev handed to claude-qa and answered
+    nx_proj "$1"; drop_template_row "$nx"
+    seed_plan_row "$nx" F09-E01-T01 "Reviewed task"
+    rv_n="${3:-1}"; rv_i=0
+    while [ "$rv_i" -lt "$rv_n" ]; do
+      seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T01 IN_PROGRESS "Reviewed task" '- Summary: work\n- Verify: pending\n- Phase: GREEN\n'
+      seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T01 REVIEW "Reviewed task" '- Summary: ready\n- Verify: exit=0\n- Handoff: claude-qa\n'
+      if [ "$2" != "none" ]; then
+        seed_entry "$nx" "$(now_ts)" claude-qa F09-E01-T01 REVIEW "Reviewed task" "- Summary: review\n- Verify: exit=0\n- Review: $2\n"
+      fi
+      rv_i=$((rv_i + 1))
+    done
+  }
+  rv_task waiting none
+  nx_is "a task waiting for its review is not offered to its holder" claude-dev none
+  nx_is "a task waiting for its review is offered to the reviewer" claude-qa F09-E01-T01
+  rv_task passed "PASS - fine"
+  nx_is "after a PASS the holder is given the task to close it" claude-dev F09-E01-T01
+  nx_is "the reviewer is not offered a task it already answered" claude-qa none
+  nx_is "another QA agent is not offered it either" gemini-qa none
+  nx_is "a spec agent is not offered it" claude-spec none
+  nx_is "a test agent is not offered it" claude-test none
+  rv_task failed "FAIL - fix the rounding"
+  nx_is "after a FAIL the holder is given the task to retake it" claude-dev F09-E01-T01
+  nx_is "the reviewer is not offered a failed task" claude-qa none
+  rv_task exhausted "FAIL - still wrong" 3
+  nx_is "with no attempts left the holder still gets the task, to pause it with BLOQUEO" claude-dev F09-E01-T01
+  rv_task first_wins "PASS - fine"
+  seed_plan_row "$nx" F09-E01-T02 "Another task"
+  nx_is "a task the agent holds comes before a TODO row" claude-dev F09-E01-T01
+  nx_is "a TODO row is still offered to the agents that hold nothing" claude-spec F09-E01-T02
+
+  echo "== $label: init and migrate add the dispatcher configuration (F06-E06-T01) =="
+  GI_MARK='# project-documentation dispatcher (generated files)'
+  ip_new dsp_init
+  assert_success "$label init creates the dispatcher configuration" run init "$ip"
+  grep -q '^+ created: .factory/dispatch.md$' "$WORK/.out" && ok "$label init says it created .factory/dispatch.md" || bad "$label init output: $(cat "$WORK/.out")"
+  cmp -s "$ip/.factory/dispatch.md" "$SCRIPT_DIR/../templates/dispatch.md" && ok "$label .factory/dispatch.md is the template" || bad "$label dispatch.md differs from the template"
+  grep -q '^project_docs init: 7 file(s) created$' "$WORK/.out" && ok "$label the count of files created stays the contract files" || bad "$label init count: $(grep 'project_docs init' "$WORK/.out")"
+  grep -qxF -- "$GI_MARK" "$ip/.gitignore" && grep -qx '.factory/state.md' "$ip/.gitignore" && grep -qx '.factory/runs/' "$ip/.gitignore" && ok "$label .gitignore ignores the state and the runs of the dispatcher" || bad "$label .gitignore: $(cat "$ip/.gitignore" 2>&1)"
+  grep -qx '.factory/dispatch.md' "$ip/.gitignore" && bad "$label the configuration must be committed, not ignored" || ok "$label the configuration is not ignored"
+  cp "$ip/.gitignore" "$WORK/.gi_before"; cp "$ip/.factory/dispatch.md" "$WORK/.dsp_before"
+  assert_success "$label a second init" run init "$ip"
+  ! grep -q '^+ created: .factory/dispatch.md$' "$WORK/.out" && ! grep -q 'gitignore' "$WORK/.out" && ok "$label a second init adds nothing" || bad "$label second init output: $(cat "$WORK/.out")"
+  cmp -s "$WORK/.gi_before" "$ip/.gitignore" && [ "$(grep -cF -- "$GI_MARK" "$ip/.gitignore")" -eq 1 ] && ok "$label the .gitignore block is not duplicated" || bad "$label .gitignore changed: $(cat "$ip/.gitignore")"
+  printf 'my own command\n' > "$ip/.factory/dispatch.md"
+  run init "$ip" >/dev/null 2>&1
+  [ "$(tr -d '\r' < "$ip/.factory/dispatch.md")" = "my own command" ] && ok "$label init never overwrites an existing .factory/dispatch.md" || bad "$label dispatch.md overwritten"
+
+  ip_new dsp_gitignore
+  printf 'node_modules\nbuild/' > "$ip/.gitignore"
+  run init "$ip" >/dev/null 2>&1
+  [ "$(sed -n '1,2p' "$ip/.gitignore" | tr -d '\r' | tr '\n' ',')" = "node_modules,build/," ] && ok "$label an existing .gitignore keeps its lines (a missing final newline is added)" || bad "$label .gitignore start: $(cat "$ip/.gitignore")"
+  [ "$(sed -n '3p' "$ip/.gitignore" | tr -d '\r')" = "" ] && [ "$(sed -n '4p' "$ip/.gitignore" | tr -d '\r')" = "$GI_MARK" ] && ok "$label the block comes after a blank line" || bad "$label .gitignore block: $(cat "$ip/.gitignore")"
+  [ "$(tail -n 2 "$ip/.gitignore" | tr -d '\r' | tr '\n' ',')" = ".factory/state.md,.factory/runs/," ] && ok "$label the block ends with the two generated paths" || bad "$label .gitignore tail: $(cat "$ip/.gitignore")"
+  ip_new dsp_crlf
+  printf 'dist\r\n%s\r\n.factory/state.md\r\n.factory/runs/\r\n' "$GI_MARK" > "$ip/.gitignore"
+  cp "$ip/.gitignore" "$WORK/.gi_before"
+  run init "$ip" >/dev/null 2>&1
+  cmp -s "$WORK/.gi_before" "$ip/.gitignore" && ok "$label a .gitignore with the block and CRLF endings is left alone" || bad "$label CRLF .gitignore changed"
+
+  ip_new dsp_classic
+  assert_success "$label init --classic" run init "$ip" --classic
+  [ ! -e "$ip/.factory" ] && [ ! -e "$ip/.gitignore" ] && ok "$label a classic project gets no .factory folder and no .gitignore" || bad "$label classic init created dispatcher files"
+
+  ip_new dsp_migrate
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  assert_success "$label migrate --factory on a classic project" run migrate "$ip" --factory
+  grep -q '^+ created: .factory/dispatch.md$' "$WORK/.out" && grep -q '^+ added: .gitignore block for .factory/state.md and .factory/runs/$' "$WORK/.out" && ok "$label migrate --factory reports the configuration and the .gitignore block" || bad "$label migrate output: $(cat "$WORK/.out")"
+  grep -q '^project_docs migrate: 8 change(s)$' "$WORK/.out" && ok "$label the two dispatcher changes count" || bad "$label migrate count: $(grep 'project_docs migrate' "$WORK/.out")"
+  cmp -s "$ip/.factory/dispatch.md" "$SCRIPT_DIR/../templates/dispatch.md" && ok "$label migrate --factory writes the template" || bad "$label migrated dispatch.md differs"
+  cp "$ip/.gitignore" "$WORK/.gi_before"
+  assert_success "$label a second migrate --factory" run migrate "$ip" --factory
+  grep -q '^project_docs migrate: 0 change(s)$' "$WORK/.out" && cmp -s "$WORK/.gi_before" "$ip/.gitignore" && [ "$(grep -cF -- "$GI_MARK" "$ip/.gitignore")" -eq 1 ] && ok "$label a second migrate --factory changes nothing and adds no second block" || bad "$label second migrate: $(cat "$WORK/.out")"
+  assert_success "$label check passes on the migrated project" run check "$ip"
+
+  echo "== $label: fixes after the QA of a711b68 (F06-E03-T03 to T05, F06-E02-T04, F06-E02-T06, F06-E01-T06) =="
+  TAB="$(printf '\t')"
+  # ---- a tab inside a lesson is a space -----------------------------------------------------------------
+  bn_proj tab
+  assert_success "$label learn accepts a lesson with a tab in it" run learn "$bn" claude-dev F09-E01-T01 RECIPE "Tab row" invoice "before${TAB}after the tab"
+  [ "$(grep -c "$TAB" "$bnb")" -eq 0 ] && grep -q '^| LRN-004 | Tab row | RECIPE | invoice | before after the tab | log:F09-E01-T01 |' "$bnb" && ok "$label the tab became a space in the brain row" || bad "$label brain row: $(grep LRN-004 "$bnb")"
+  assert_success "$label recall on that brain" run recall "$bn" F09-E01-T01
+  out_has "Tab row" && out_has "before after the tab" && ok "$label recall prints the row whole" || bad "$label recall row: $(cat "$WORK/.out")"
+  sedi "s/after the tab/after${TAB}the tab/" "$bnb"
+  assert_success "$label recall on a row edited by hand to hold a tab" run recall "$bn" F09-E01-T01
+  out_has "Tab row" && out_has "before after the tab" && out_has "recall: 3 of 4 brain entries shown" && ok "$label a tab typed into the file reads as a space and the count stays right" || bad "$label recall after the edit: $(cat "$WORK/.out")"
+  gc_proj g_tab 8
+  sedi "s/Lesson three/Lesson${TAB}three/" "$bnb"
+  assert_success "$label rotate with a tab in a lesson" run rotate "$bn"
+  gcname="$(ls "$bn/docs/history" | grep '^brain-archive-' | head -n 1)"
+  out_has "brain archived 6 entries to $gcname" && [ "$(grep -c '^| LRN-' "$bn/docs/history/$gcname")" -eq 6 ] && grep -q '^| LRN-003 ' "$bn/docs/history/$gcname" && ok "$label every archived row reaches the archive, the tab one included" || bad "$label archive rows: $(grep -c '^| LRN-' "$bn/docs/history/$gcname") $(cat "$WORK/.out")"
+  [ "$(grep -c '^| LRN-' "$bnb")" -eq 6 ] && ok "$label six rows stay in the brain" || bad "$label rows left: $(grep -c '^| LRN-' "$bnb")"
+
+  # ---- done asks for the lesson again when the task struggled after its retro ----------------------------
+  rt_proj r_stale
+  assert_success "$label retro none none while the task has no trouble yet" run retro "$bn" claude-spec F09-E01-T01 none none
+  run handoff "$bn" claude-spec F09-E01-T01 "spec ready" "exit=0" claude-qa >/dev/null 2>&1
+  assert_success "$label the reviewer fails it" run review "$bn" claude-qa F09-E01-T01 FAIL "not yet"
+  run claim "$bn" claude-spec F09-E01-T01 "again" >/dev/null 2>&1
+  run handoff "$bn" claude-spec F09-E01-T01 "spec ready again" "exit=0" claude-qa >/dev/null 2>&1
+  assert_success "$label the second review passes" run review "$bn" claude-qa F09-E01-T01 PASS "fine" "exit=0"
+  brain_refused "done refuses a task that struggled after its retro said learned none" "done failed: F09-E01-T01 had a Review: FAIL, a BLOQUEO or a move back to RED, so its retro cannot say learned none; run learn and retro again" done "$bn" claude-spec F09-E01-T01 "spec" "docs/" "exit=0"
+  assert_success "$label retro again with the lesson learned" run retro "$bn" claude-spec F09-E01-T01 none LRN-004
+  assert_success "$label done then closes the task" run done "$bn" claude-spec F09-E01-T01 "spec" "docs/" "exit=0"
+
+  # ---- the exit marker: an underscore is part of a word ---------------------------------------------------
+  gr_proj y_exit git
+  refused "pre_exit=0 is not a marker" "handoff failed: the verify needs exit=N (exit=0 when the checks pass)" handoff "$av" claude-dev F09-E01-T01 "impl" "pre_exit=0 or exit_0=1" claude-qa
+  assert_success "$label exit=0 next to punctuation is still a marker" run handoff "$av" claude-dev F09-E01-T01 "impl" "suite (exit=0)." claude-qa
+
+  # ---- a rename is a delete and an add --------------------------------------------------------------------
+  gr_proj y_rename git
+  git -C "$av" mv tests/billing/export.spec.sh tests/billing/export2.spec.sh
+  printf 'exit 0\n' > "$av/tests/billing/export2.spec.sh"
+  refused "a recorded test renamed after RED counts as changed" "handoff failed: test file(s) changed since RED ($red_sha): tests/billing/export.spec.sh" handoff "$av" claude-dev F09-E01-T01 "impl" "exit=0" claude-qa
+
+  ft_proj y_rename git
+  mkdir -p "$ft/auth"; printf 'secret\n' > "$ft/auth/login.sh"; git_commit "$ft" "auth"
+  run claim "$ft" claude-dev F09-E01-T01 "fix it" >/dev/null 2>&1
+  run checkpoint "$ft" claude-dev F09-E01-T01 "started" "fix" >/dev/null 2>&1
+  git -C "$ft" mv auth/login.sh src/login.sh
+  ft_refused "a rename out of a protected path touches that path" "task outgrew FAST lane (it touches the protected path auth/login.sh)" handoff "$ft" claude-dev F09-E01-T01 "fixed" "exit=0" claude-qa
+
+  ft_proj y_space git
+  run claim "$ft" claude-dev F09-E01-T01 "fix it" >/dev/null 2>&1
+  run checkpoint "$ft" claude-dev F09-E01-T01 "started" "fix" >/dev/null 2>&1
+  awk 'BEGIN { for (i = 1; i <= 20; i++) print i }' > "$ft/src/big file.sh"
+  ft_refused "the lines of an untracked file with a space in its name are counted" "task outgrew FAST lane (20 lines, the limit is 10)" handoff "$ft" claude-dev F09-E01-T01 "fixed" "exit=0" claude-qa
+
+  ft_proj y_gitfail git
+  run claim "$ft" claude-dev F09-E01-T01 "fix it" >/dev/null 2>&1
+  run checkpoint "$ft" claude-dev F09-E01-T01 "started" "fix" >/dev/null 2>&1
+  printf 'not an index' > "$ft/.git/index"
+  ft_refused "a git failure stops the handoff of a FAST task" "handoff failed: git could not" handoff "$ft" claude-dev F09-E01-T01 "fixed" "exit=0" claude-qa
+
+  # ---- next: a handoff addressed to a role, and the stub row -------------------------------------------------
+  nx_proj y_role
+  drop_template_row "$nx"
+  seed_plan_row "$nx" F09-E01-T01 "Reviewed by role"
+  add_agent "$nx" "| claude-all | AI | Claude | BOTH | — |"
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T01 IN_PROGRESS "Reviewed by role" '- Summary: work\n- Verify: pending\n- Phase: GREEN\n'
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T01 REVIEW "Reviewed by role" '- Summary: ready\n- Verify: exit=0\n- Handoff: QA\n'
+  nx_is "a review addressed to the role QA is offered to a QA agent" claude-qa F09-E01-T01
+  nx_is "a review addressed to the role QA is offered to the other QA agent" gemini-qa F09-E01-T01
+  nx_is "a review addressed to the role QA is offered to a BOTH agent" claude-all F09-E01-T01
+  nx_is "a review addressed to the role QA is not offered to its developer" claude-dev none
+  nx_is "a review addressed to the role QA is not offered to a SPEC agent" claude-spec none
+  nx_proj y_role_dev
+  drop_template_row "$nx"
+  seed_plan_row "$nx" F09-E01-T01 "Reviewed by a role"
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T01 IN_PROGRESS "Reviewed by a role" '- Summary: work\n- Verify: pending\n- Phase: GREEN\n'
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T01 REVIEW "Reviewed by a role" '- Summary: ready\n- Verify: exit=0\n- Handoff: claude-qa\n'
+  nx_is "a review addressed to one agent is not offered to the other QA agent" gemini-qa none
+
+  echo "== $label: context gives up older entries before it fails in Factory mode (F06-E01-T07) =="
+  cx_fill() {  # cx_fill <project>: five DONE entries with long summaries
+    cx_words="$(awk 'BEGIN { for (i = 0; i < 90; i++) printf "word%02d ", i }')"
+    for cx_i in 1 2 3 4 5; do
+      seed_entry "$1" "$(now_ts)" claude-dev "F09-FILL-0$cx_i" DONE "Filler $cx_i" "- Summary: $cx_words\n- Files: x\n- Verify: exit=0\n"
+    done
+  }
+  cx_bytes() { tr -d '\r' < "$WORK/.out" | wc -c | tr -d ' '; }
+  ip_new cx_fresh
+  run init "$ip" >/dev/null 2>&1
+  assert_success "$label context of a fresh Factory project" run context "$ip"
+  grep -q '^## Latest agent entries$' "$WORK/.out" && ok "$label a context that fits keeps its heading and its five entries" || bad "$label fresh heading: $(grep 'Latest agent' "$WORK/.out")"
+  ip_new cx_big
+  run init "$ip" >/dev/null 2>&1
+  cx_fill "$ip"
+  assert_success "$label context of a Factory project whose five entries would not fit" run context "$ip"
+  [ "$(cx_bytes)" -le 8192 ] && ok "$label the output is within 8192 bytes ($(cx_bytes))" || bad "$label context is $(cx_bytes) bytes"
+  tr -d '\r' < "$WORK/.out" | grep -q '^## Latest agent entries (the latest [1-4] of 5, to stay within 8192 bytes)$' && ok "$label the heading says how many entries are shown" || bad "$label heading: $(grep 'Latest agent' "$WORK/.out")"
+  cx_n="$(tr -d '\r' < "$WORK/.out" | sed -n 's/^## Latest agent entries (the latest \([1-4]\) of 5.*/\1/p')"
+  [ "$(tr -d '\r' < "$WORK/.out" | grep -c '^## \[')" = "$cx_n" ] && ok "$label that many entries are printed" || bad "$label entries printed: $(grep -c '^## \[' "$WORK/.out") instead of $cx_n"
+  tr -d '\r' < "$WORK/.out" | grep -q '| F09-FILL-05 | DONE |' && ok "$label the entries kept are the latest ones" || bad "$label the latest entry is missing"
+  ip_new cx_classic
+  run init "$ip" --classic >/dev/null 2>&1
+  cx_fill "$ip"
+  assert_failure "$label the same ledger in a classic project still fails" run context "$ip"
+  out_has "hot context is " && out_has "bytes; compact summaries below 8192" && ok "$label the classic error is the one it always was" || bad "$label classic context text: $(cat "$WORK/.out")"
+  ip_new cx_huge
+  run init "$ip" >/dev/null 2>&1
+  cx_pad="$(awk 'BEGIN { for (i = 0; i < 900; i++) printf "abcdefghi " }')"
+  awk -v pad="$cx_pad" '$0 == "| — | — | — | — | — | — | — | — |" && !done { print "| F09-E01-T01 | A task with a very long text | " pad " | Done | TODO | — | — | — |"; done = 1; next } { print }' "$ip/docs/Roadmap.md" > "$ip/docs/Roadmap.md.tmp" && mv "$ip/docs/Roadmap.md.tmp" "$ip/docs/Roadmap.md"
+  assert_failure "$label context still fails when what is above the entries does not fit" run context "$ip"
+  out_has "hot context is " && out_has "bytes; compact summaries below 8192" && ok "$label the error asks to compact the summaries" || bad "$label huge context text: $(cat "$WORK/.out")"
+
 #FACTORY_CASES
+}
+
+# The dispatcher (F06-E06-T02 to T04), with fake CLIs: scripts/tests/fake_cli.sh and .ps1 read one
+# line of a script file per run and call project_docs, so no real quota is ever spent. The suite
+# runs the dispatcher of the launcher (factory_dispatch.sh or .ps1) over the project_docs of the
+# same launcher.
+run_dispatch_suite() {
+  label="$1"
+  run() { "$RUNNER" "$@"; }
+  unset PROJECT_DOCS_MODE
+  echo "== $label: the dispatcher passes the turn between fake CLIs (F06-E06-T04) =="
+  dp_cmd() {  # the command cell that starts the fake CLI of this launcher
+    if [ "$label" = "sh" ]; then
+      printf 'sh "%s" "{PROMPT_FILE}"' "$SCRIPT_DIR/tests/fake_cli.sh"
+    else
+      printf 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%s" "{PROMPT_FILE}"' "$(to_native_path "$SCRIPT_DIR/tests/fake_cli.ps1")"
+    fi
+  }
+  dp_config() {  # dp_config <project>: the template's tables with the fake CLI as every command
+    DP_CMD="$(dp_cmd)" awk -F'|' '
+      /^\| (gemini-qa|claude-spec|claude-test|claude-dev|claude-qa) \|/ {
+        n = split($0, c, "|")
+        printf "|%s|%s| `%s` |", c[2], c[3], ENVIRON["DP_CMD"]
+        for (i = 5; i < n; i++) printf "%s|", c[i]
+        printf "\n"
+        next
+      }
+      { print }
+    ' "$SCRIPT_DIR/../templates/dispatch.md" > "$1/.factory/dispatch.md"
+  }
+  dp_proj() {  # dp_proj <name>: a Factory project whose dispatcher runs the fake CLI, no task yet
+    dp="$WORK/${label}_dp_$1"; rm -rf "$dp"; mkdir -p "$dp"
+    run init "$dp" >/dev/null 2>&1
+    seed_replace "$dp/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO |" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | DONE |"
+    dp_config "$dp"
+    : > "$dp/fake.txt"
+  }
+  dp_fast() {  # dp_fast <project> <TASK-ID> <title>: a TODO row for a FAST task
+    seed_plan_row "$1" "$2" "$3"
+    seed_replace "$1/docs/Roadmap.md" "| $2 | $3 | details |" "| $2 | $3 | Lane: FAST $3 |"
+  }
+  dp_script() {  # dp_script <agent> <actions...>: adds one line to the script of the current project
+    dps_a="$1"; shift
+    printf '%s: %s\n' "$dps_a" "$*" >> "$dp/fake.txt"
+  }
+  dp_take() {  # dp_take <TASK> <reviewer>: the run of the developer that takes a FAST task and hands it off
+    dp_script claude-dev "ok:claim claude-dev $1 \"fix\" ;; write:src/$1.txt=fixed ;; ok:checkpoint claude-dev $1 \"fixed\" \"hand off\" ;; ok:handoff claude-dev $1 \"fixed\" exit=0 $2"
+  }
+  dp_close() {  # dp_close <TASK>: the run of the developer that closes a reviewed task
+    dp_script claude-dev "ok:retro claude-dev $1 none none ;; ok:done claude-dev $1 \"fixed\" src/$1.txt exit=0"
+  }
+  dp_run() {  # dp_run [options]: runs the dispatcher of this launcher on $dp; the output stays in $WORK/.out
+    if [ "$label" = "sh" ]; then
+      ( FAKE_CLI_SCRIPT="$dp/fake.txt"; FAKE_CLI_LOG="$dp/fake.log"; PROJECT_DOCS_DISPATCH_NO_SLEEP=1
+        export FAKE_CLI_SCRIPT FAKE_CLI_LOG PROJECT_DOCS_DISPATCH_NO_SLEEP
+        sh "$SCRIPT_DIR/factory_dispatch.sh" "$dp" "$@" ) > "$WORK/.out" 2>&1
+    else
+      ( FAKE_CLI_SCRIPT="$(to_native_path "$dp/fake.txt")"; FAKE_CLI_LOG="$(to_native_path "$dp/fake.log")"; PROJECT_DOCS_DISPATCH_NO_SLEEP=1
+        export FAKE_CLI_SCRIPT FAKE_CLI_LOG PROJECT_DOCS_DISPATCH_NO_SLEEP
+        "$PWSH" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(to_native_path "$SCRIPT_DIR/factory_dispatch.ps1")" "$(to_native_path "$dp")" "$@" ) > "$WORK/.out" 2>&1
+    fi
+    dp_rc=$?
+  }
+  dp_out() { tr -d '\r' < "$WORK/.out"; }
+  dp_has() {  # dp_has <description> <text>: the dispatcher output has the text
+    if dp_out | grep -qF -- "$2"; then ok "$label $1"; else bad "$label $1: missing [$2] in: $(dp_out | head -n 14 | tr '\n' '~' | cut -c1-600)"; fi
+  }
+  dp_lacks() {  # dp_lacks <description> <text>
+    if dp_out | grep -qF -- "$2"; then bad "$label $1: found [$2]"; else ok "$label $1"; fi
+  }
+  dp_last_entry() { awk '/^## \[/ { buf="" } { buf = buf $0 "\n" } END { printf "%s", buf }' "$dp/docs/Agentslog.md" | tr -d '\r'; }
+  dp_review_entry() {  # the last entry that holds a review verdict
+    awk '/^## \[/ { if (hasrev) keep = buf; buf = ""; hasrev = 0 } { buf = buf $0 "\n" } /^- Review: / { hasrev = 1 } END { if (hasrev) keep = buf; printf "%s", keep }' "$dp/docs/Agentslog.md" | tr -d '\r'
+  }
+  dp_order() { awk '{ print $1 }' "$dp/fake.log" | tr '\n' ' '; }
+  dp_left() { grep -c '' "$dp/fake.txt" | tr -d ' '; }
+  dp_next() {  # dp_next <agent>: the first line of next for the agent
+    run next "$dp" "$1" 2>&1 | head -n 1 | tr -d '\r'
+  }
+  dp_sedi() { sed "$1" "$2" > "$2.tmp" && mv "$2.tmp" "$2"; }
+  dp_status_line() { run status "$dp" 2>&1 | tr -d '\r' | grep "^$1 |" | head -n 1; }
+
+  # ---- case 22: the turn passes from the developer to the reviewer and back, with nobody in between ----
+  dp_proj turn
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  dp_take F09-E01-T01 gemini-qa
+  dp_script gemini-qa "ok:review gemini-qa F09-E01-T01 PASS \"fast lane ok\" exit=0"
+  dp_close F09-E01-T01
+  dp_run
+  [ "$dp_rc" -eq 0 ] && ok "$label the dispatcher ends with exit 0" || bad "$label dispatcher exit $dp_rc: $(dp_out | head -n 8 | tr '\n' '~')"
+  dp_has "the developer runs first" "dispatch: run 1: claude-dev on F09-E01-T01"
+  dp_has "the reviewer is launched on the same task" "dispatch: run 2: gemini-qa on F09-E01-T01"
+  dp_has "the developer is called back to close the reviewed task" "dispatch: run 3: claude-dev on F09-E01-T01"
+  dp_has "the summary counts three good runs" "dispatch: summary: runs=3 ok=3 limits=0 failures=0"
+  dp_has "the dispatcher stops when there is nothing left to do" "dispatch: nothing to do"
+  [ "$(dp_order)" = "claude-dev gemini-qa claude-dev " ] && ok "$label the fake CLIs ran in that order" || bad "$label order: $(dp_order)"
+  dp_last_entry > "$WORK/.last"
+  grep -q '^## \[.*\] | claude-dev | F09-E01-T01 | DONE | ' "$WORK/.last" && ok "$label the ledger ends with the task DONE" || bad "$label last entry: $(cat "$WORK/.last")"
+  [ -f "$dp/.factory/state.md" ] && [ -d "$dp/.factory/runs" ] && ok "$label the dispatcher keeps its state and its run folder under .factory" || bad "$label no state or no runs folder"
+  [ "$(ls "$dp/.factory/runs"/*.prompt.md 2>/dev/null | wc -l | tr -d ' ')" = "3" ] && [ "$(ls "$dp/.factory/runs"/*.out 2>/dev/null | wc -l | tr -d ' ')" = "3" ] && ok "$label every run left its prompt and its output" || bad "$label run files: $(ls "$dp/.factory/runs")"
+  grep -q 'You are claude-dev (role DEV) in ' "$dp"/.factory/runs/*-001-claude-dev.prompt.md && grep -q 'Task F09-E01-T01, phase GREEN, lane FAST\.' "$dp"/.factory/runs/*-001-claude-dev.prompt.md && ok "$label the prompt names the agent, its role, the task, the phase and the lane" || bad "$label prompt: $(cat "$dp"/.factory/runs/*-001-claude-dev.prompt.md)"
+
+  # ---- --once, options and the guards ---------------------------------------------------------------------------
+  dp_proj once
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  dp_take F09-E01-T01 gemini-qa
+  dp_script gemini-qa "ok:review gemini-qa F09-E01-T01 PASS \"fast lane ok\" exit=0"
+  dp_run --once
+  dp_has "--once makes a single run" "dispatch: summary: runs=1 ok=1 limits=0 failures=0"
+  [ "$(dp_left)" = "1" ] && ok "$label the second script line is left for the next run" || bad "$label script lines left: $(dp_left)"
+  dp_run --bogus
+  [ "$dp_rc" -eq 2 ] && dp_has "an unknown option is refused" "factory_dispatch: unknown option --bogus" || bad "$label unknown option exit $dp_rc: $(dp_out | head -n 3)"
+  dp_proj noconfig
+  rm -f "$dp/.factory/dispatch.md"
+  dp_run
+  [ "$dp_rc" -ne 0 ] && dp_has "a project with no .factory/dispatch.md is refused" "dispatch.md does not exist (run init or migrate --factory)" || bad "$label no config accepted"
+  dp="$WORK/${label}_dp_classic"; rm -rf "$dp"; mkdir -p "$dp"
+  run init "$dp" --classic >/dev/null 2>&1
+  mkdir -p "$dp/.factory"; cp "$SCRIPT_DIR/../templates/dispatch.md" "$dp/.factory/dispatch.md"; : > "$dp/fake.txt"
+  dp_run
+  [ "$dp_rc" -ne 0 ] && dp_has "a classic project is refused" "the project is not in Factory mode" || bad "$label classic project accepted"
+
+  # ---- case 23: Gemini runs out of quota, Claude QA covers the review and the marker says so -------------------
+  dp_proj gemini_limit
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  dp_take F09-E01-T01 gemini-qa
+  dp_script gemini-qa "limit:RESOURCE_EXHAUSTED: quota exceeded for this model"
+  dp_script claude-qa "ok:review claude-qa F09-E01-T01 PASS \"fast lane ok\" exit=0"
+  dp_close F09-E01-T01
+  dp_run
+  dp_has "the Gemini run is launched first" "dispatch: run 2: gemini-qa on F09-E01-T01"
+  dp_has "its quota text puts the gemini plan in cooldown" "dispatch: run 2 limit: gemini-qa hit its limit, plan gemini in cooldown until "
+  dp_has "claude-qa takes the review in its place" "dispatch: run 3: claude-qa on F09-E01-T01 (covers gemini-qa)"
+  dp_has "the dispatcher then waits for the cooldown" "dispatch: sleep until "
+  dp_lacks "no pause is written for an agent that held nothing" "(LIMITE) for gemini-qa"
+  dp_review_entry > "$WORK/.last"
+  grep -q '^- Review: PASS - fast lane ok$' "$WORK/.last" && grep -q '^- Cross-model: NO$' "$WORK/.last" && ok "$label the covered review carries Cross-model: NO" || bad "$label covered review: $(cat "$WORK/.last")"
+  dp_last_entry > "$WORK/.last"
+  grep -q '^- Cross-model: NO$' "$WORK/.last" && ok "$label the DONE entry keeps the marker for the audit" || bad "$label DONE entry: $(cat "$WORK/.last")"
+  grep -q '^| cooldown:gemini | [0-9][0-9]* |$' "$dp/.factory/state.md" && ok "$label the cooldown of the plan is in the state file" || bad "$label state: $(cat "$dp/.factory/state.md")"
+  grep -q 'cooldown:claude' "$dp/.factory/state.md" && bad "$label the claude plan must not be cooling down" || ok "$label the claude plan keeps working while gemini waits"
+
+  # ---- case 24: Claude runs out of quota: every claude agent waits, the owner's task is paused, then resumed -------
+  dp_proj claude_limit
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  dp_script claude-dev "ok:claim claude-dev F09-E01-T01 \"fix\" ;; ok:checkpoint claude-dev F09-E01-T01 \"started\" \"continue\" ;; limit:You've hit your session limit · resets 3:45pm"
+  dp_run
+  dp_has "the limit text puts the claude plan in cooldown until the reset time" "dispatch: run 1 limit: claude-dev hit its limit, plan claude in cooldown until 15:45"
+  dp_has "the dispatcher writes the pause for the owner" "dispatch: run 1 paused F09-E01-T01 (LIMITE) for claude-dev"
+  dp_has "with nothing else to run it sleeps until the reset" "dispatch: sleep until 15:45"
+  dp_status_line F09-E01-T01 > "$WORK/.line"
+  grep -q 'PAUSE' "$WORK/.line" && grep -q 'LIMITE' "$WORK/.line" && ok "$label the task is paused with the LIMITE category" || bad "$label status: $(cat "$WORK/.line")"
+  dp_last_entry > "$WORK/.last"
+  grep -q '^- Pause: LIMITE - limit until 15:45$' "$WORK/.last" && ok "$label the pause says until when" || bad "$label pause entry: $(cat "$WORK/.last")"
+  [ -f "$dp/docs/brain/tasks/F09-E01-T01.md" ] && grep -q 'limit reached' "$dp/docs/brain/tasks/F09-E01-T01.md" && ok "$label the working memory says where the work stopped" || bad "$label working memory missing"
+  [ "$(dp_next claude-dev)" = "F09-E01-T01" ] && ok "$label after the cooldown next gives the paused task back to the claude agent" || bad "$label next after the limit: $(dp_next claude-dev)"
+  dp_run
+  dp_has "while the cooldown lasts nothing runs" "dispatch: sleep until 15:45"
+  dp_has "a second pass starts no run" "dispatch: summary: runs=0 ok=0 limits=0 failures=0"
+  dp_sedi 's/^| cooldown:claude | [0-9]* |$/| cooldown:claude | 1 |/' "$dp/.factory/state.md"
+  dp_script claude-dev "ok:claim claude-dev F09-E01-T01 \"fix\" ;; ok:checkpoint claude-dev F09-E01-T01 \"resumed\" \"hand off\" ;; ok:handoff claude-dev F09-E01-T01 \"fixed\" exit=0 claude-qa"
+  dp_script claude-qa "ok:review claude-qa F09-E01-T01 PASS \"fast lane ok\" exit=0"
+  dp_close F09-E01-T01
+  dp_run
+  dp_has "an expired cooldown is dropped and the paused task is resumed" "dispatch: run 1: claude-dev on F09-E01-T01"
+  dp_has "the reviewer follows" "dispatch: run 2: claude-qa on F09-E01-T01"
+  grep -q 'cooldown:claude' "$dp/.factory/state.md" && bad "$label the expired cooldown stayed in the state file" || ok "$label the expired cooldown left the state file"
+
+  # ---- case 25: failures, fallback, block, the daily cap, the stop file and the audit -----------------------------
+  dp_proj two_failures
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  dp_take F09-E01-T01 gemini-qa
+  dp_script gemini-qa "fail:the model said no"
+  dp_script gemini-qa "fail:the model said no again"
+  dp_script claude-qa "ok:review claude-qa F09-E01-T01 PASS \"fast lane ok\" exit=0"
+  dp_close F09-E01-T01
+  dp_run
+  dp_has "the first failure of the reviewer is counted" "dispatch: run 2 failed (exit 1), 1 failure(s) for gemini-qa on F09-E01-T01"
+  dp_has "the second failure of the same review is counted" "dispatch: run 3 failed (exit 1), 2 failure(s) for gemini-qa on F09-E01-T01"
+  dp_has "after two failures the fallback reviewer takes the review" "dispatch: run 4: claude-qa on F09-E01-T01 (covers gemini-qa)"
+  dp_review_entry > "$WORK/.last"
+  grep -q '^- Cross-model: NO$' "$WORK/.last" && ok "$label the fallback review is marked Cross-model: NO" || bad "$label fallback review: $(cat "$WORK/.last")"
+
+  dp_proj blocked
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  dp_script claude-dev "ok:claim claude-dev F09-E01-T01 \"fix\" ;; ok:checkpoint claude-dev F09-E01-T01 \"started\" \"continue\" ;; fail:the model crashed"
+  dp_script claude-dev "fail:the model crashed"
+  dp_script claude-dev "fail:the model crashed"
+  dp_run
+  dp_has "the third failure on a task of its own blocks it" "dispatch: run 3 blocked F09-E01-T01 after 3 failures"
+  dp_status_line F09-E01-T01 > "$WORK/.line"
+  grep -q 'PAUSE' "$WORK/.line" && grep -q 'BLOQUEO' "$WORK/.line" && ok "$label the task is paused with BLOQUEO" || bad "$label status: $(cat "$WORK/.line")"
+  dp_last_entry > "$WORK/.last"
+  grep -q '^- Pause: BLOQUEO - dispatcher: 3 runs without progress$' "$WORK/.last" && ok "$label the pause explains what happened" || bad "$label block entry: $(cat "$WORK/.last")"
+  dp_has "after the block there is nothing to do" "dispatch: nothing to do"
+  [ "$(dp_next claude-dev)" = "none" ] && ok "$label next skips the blocked task" || bad "$label next after the block: $(dp_next claude-dev)"
+
+  dp_proj daily_cap
+  dp_fast "$dp" F09-E01-T02 "Second fix"
+  dp_fast "$dp" F09-E01-T01 "First fix"
+  awk -F'|' '
+    $2 ~ /^ claude-dev / { n = split($0, c, "|"); printf "|%s|%s|%s|%s|%s| 1 |%s|\n", c[2], c[3], c[4], c[5], c[6], c[8]; next }
+    { print }
+  ' "$dp/.factory/dispatch.md" > "$dp/.factory/dispatch.md.tmp" && mv "$dp/.factory/dispatch.md.tmp" "$dp/.factory/dispatch.md"
+  dp_take F09-E01-T01 claude-qa
+  dp_take F09-E01-T02 claude-qa
+  dp_script claude-qa "ok:review claude-qa F09-E01-T01 PASS \"fast lane ok\" exit=0"
+  dp_run
+  dp_has "the developer runs once" "dispatch: run 1: claude-dev on F09-E01-T01"
+  dp_has "the reviewer runs once" "dispatch: run 2: claude-qa on F09-E01-T01"
+  dp_lacks "the developer is not launched again today" "dispatch: run 3"
+  dp_has "the summary shows two runs" "dispatch: summary: runs=2 ok=2 limits=0 failures=0"
+  [ "$(dp_left)" = "1" ] && ok "$label the second developer line was never consumed" || bad "$label lines left: $(dp_left)"
+  grep -q '^| runs:claude-dev:[0-9-]* | 1 |$' "$dp/.factory/state.md" && ok "$label the runs of the day are counted in the state file" || bad "$label state: $(cat "$dp/.factory/state.md")"
+
+  dp_proj stop
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  dp_script claude-dev "write:.factory/STOP=stop ;; ok:claim claude-dev F09-E01-T01 \"fix\" ;; ok:checkpoint claude-dev F09-E01-T01 \"started\" \"continue\""
+  dp_script claude-dev "ok:checkpoint claude-dev F09-E01-T01 \"more\" \"continue\""
+  dp_run
+  dp_has "the run in progress finishes" "dispatch: run 1 ok"
+  dp_has "the stop file ends the loop" "dispatch: stop requested"
+  dp_has "no second run starts" "dispatch: summary: runs=1 ok=1 limits=0 failures=0"
+  [ "$(dp_left)" = "1" ] && ok "$label the next line stays in the script" || bad "$label lines left: $(dp_left)"
+
+  dp_proj audit
+  seed_replace "$dp/AGENTS.md" "| Mode | FACTORY |" "| Mode | FACTORY |
+| Preferred reviewer | gemini-qa |"
+  seed_plan_row "$dp" F09-E01-T10 "Reviewed by one model"
+  seed_entry "$dp" "$(now_ts)" claude-dev F09-E01-T10 IN_PROGRESS "Reviewed by one model" '- Summary: w\n- Verify: pending\n- Phase: GREEN\n- Lane: NORMAL\n'
+  seed_entry "$dp" "$(now_ts)" claude-qa F09-E01-T10 REVIEW "Reviewed by one model" '- Summary: r\n- Verify: exit=0\n- Review: PASS - ok\n- Cross-model: NO\n'
+  seed_entry "$dp" "$(now_ts)" claude-dev F09-E01-T10 DONE "Reviewed by one model" '- Summary: d\n- Files: x\n- Verify: exit=0\n- Cross-model: NO\n'
+  dp_script gemini-qa "ok:append-log gemini-qa F09-E01-T10 AUDIT \"audited, nothing wrong\" src/ exit=0"
+  dp_run
+  dp_has "with no other work the preferred reviewer audits" "dispatch: run 1: gemini-qa on F09-E01-T10"
+  dp_has "the audit run is a good run" "dispatch: summary: runs=1 ok=1 limits=0 failures=0"
+  dp_last_entry > "$WORK/.last"
+  grep -q '^## \[.*\] | gemini-qa | F09-E01-T10 | AUDIT' "$WORK/.last" && ok "$label the audit is an AUDIT entry of the preferred reviewer" || bad "$label audit entry: $(cat "$WORK/.last")"
+  run status "$dp" > "$WORK/.out" 2>&1
+  ! grep -q 'F09-E01-T10' "$WORK/.out" && ok "$label the audit does not reopen the task" || bad "$label task reopened: $(cat "$WORK/.out")"
+  dp_script gemini-qa "fail:no second audit expected"
+  dp_run
+  dp_has "an audited task is not audited again" "dispatch: nothing to do"
 }
 
 file_hash() {
@@ -2498,7 +3080,8 @@ EOF
 }
 
 # SMOKE_LAUNCHERS (default "sh ps1") picks the launchers to run; SMOKE_ONLY=factory
-# skips the pre-factory suite. Two snapshots can run in parallel, one per launcher.
+# skips the pre-factory suite and SMOKE_ONLY=dispatch runs only the dispatcher suite. Two
+# snapshots can run in parallel, one per launcher.
 SMOKE_LAUNCHERS="${SMOKE_LAUNCHERS:-sh ps1}"
 SMOKE_ONLY="${SMOKE_ONLY:-}"
 want_launcher() { case " $SMOKE_LAUNCHERS " in *" $1 "*) return 0 ;; esac; return 1; }
@@ -2507,8 +3090,9 @@ RUNNER="sh_runner"
 sh_runner() { sh "$SH_BIN" "$@"; }
 if want_launcher sh; then
   echo "### sh: $SH_BIN ###"
-  [ "$SMOKE_ONLY" = "factory" ] || run_suite sh
-  run_factory_suite sh
+  [ "$SMOKE_ONLY" = "factory" ] || [ "$SMOKE_ONLY" = "dispatch" ] || run_suite sh
+  [ "$SMOKE_ONLY" = "dispatch" ] || run_factory_suite sh
+  run_dispatch_suite sh
 fi
 
 PWSH=""
@@ -2539,8 +3123,9 @@ elif [ -n "$PWSH" ]; then
     done
     "$PWSH" -NoProfile -NonInteractive -Command "$ps_cmd"
   }
-  [ "$SMOKE_ONLY" = "factory" ] || run_suite ps1
-  run_factory_suite ps1
+  [ "$SMOKE_ONLY" = "factory" ] || [ "$SMOKE_ONLY" = "dispatch" ] || run_suite ps1
+  [ "$SMOKE_ONLY" = "dispatch" ] || run_factory_suite ps1
+  run_dispatch_suite ps1
 else
   echo "### ps1: skipped (no pwsh or powershell.exe on PATH) ###"
 fi

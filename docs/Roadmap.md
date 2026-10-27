@@ -19,12 +19,22 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E02-T04 | Exit markers and immutable tests from RED sha | D-06 and D-07 including the no-git warning | Changing a recorded test after RED makes handoff fail | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T01:49:07Z | F06-E02-T02 | — |
-| F06-E03-T03 | Recall command with deterministic ranking and budget | Algorithm in section 4.5 | Same bytes in sh and ps1; never above budget; whole rows only | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T01:09:28Z | F06-E03-T01, F06-E03-T02, F06-E02-T01 | — |
-| F06-E03-T04 | Learn and retro commands with mandatory lessons | retro rules and done integration per section 4.5 | learned none refused after a FAIL; Hits updated on done | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T01:09:30Z | F06-E03-T03 | — |
-| F06-E03-T05 | Brain garbage collection in rotate and promotion warning | Archive to 75 percent of cap with SHA-256 check | Over-cap fixture ends under cap; archive verified | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T01:09:33Z | F06-E03-T01 | — |
-| F06-E01-T04 | Add next command for autonomous task selection | Order and skips per section 4.3 | Smoke cases for every role return the expected ID | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T01:49:08Z | F06-E02-T02, F06-E02-T03 | — |
-| F06-E02-T06 | Fast lane with size limits and promotion to SPEC | Section 4.3.1; Lane and Base lines; BUG rows need a test file | Every fast lane limit has a passing and a failing smoke case | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T01:49:10Z | F06-E02-T04, F06-E02-T05 | — |
+| F06-E02-T04 | Exit markers and immutable tests from RED sha | D-06 and D-07 including the no-git warning | Changing a recorded test after RED makes handoff fail | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T03:04:06Z | F06-E02-T02 | — |
+| F06-E03-T03 | Recall command with deterministic ranking and budget | Algorithm in section 4.5 | Same bytes in sh and ps1; never above budget; whole rows only | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T03:03:57Z | F06-E03-T01, F06-E03-T02, F06-E02-T01 | — |
+| F06-E03-T04 | Learn and retro commands with mandatory lessons | retro rules and done integration per section 4.5 | learned none refused after a FAIL; Hits updated on done | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T03:03:59Z | F06-E03-T03 | — |
+| F06-E03-T05 | Brain garbage collection in rotate and promotion warning | Archive to 75 percent of cap with SHA-256 check | Over-cap fixture ends under cap; archive verified | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T03:04:01Z | F06-E03-T01 | — |
+| F06-E02-T06 | Fast lane with size limits and promotion to SPEC | Section 4.3.1; Lane and Base lines; BUG rows need a test file | Every fast lane limit has a passing and a failing smoke case | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T03:04:04Z | F06-E02-T04, F06-E02-T05 | — |
+| F06-E04-T02 | Show phase in status output | Factory only, phase and lane | Classic status unchanged byte for byte | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T02:50:46Z | F06-E02-T02 | — |
+| F06-E04-T03 | Cross-model marker, default reviewers and audits | Section 4.8; handoff default reviewer by lane; AUDIT entries | Same-model review marked; audit never reopens a task | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T02:50:47Z | F06-E02-T05, F06-E02-T06 | — |
+| F06-E04-T01 | Digest command for asynchronous human review | Contents per section 4.7, at most 4 KiB | Fixture with every item kind lists them all | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T02:50:49Z | F06-E03-T04, F06-E04-T03 | — |
+| F06-E01-T06 | Next returns a reviewed task to its holder | next gives a task in REVIEW with an answer back to the agent that holds it, first of all and even with no attempts left, so it can close, retake or pause it | The holder is offered the task after PASS and after FAIL; nobody else is | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T02:50:51Z | F06-E01-T04 | — |
+| F06-E06-T01 | Dispatch config templates and gitignore block | templates/dispatch.md and dispatch-prompt.md; init and migrate add them | Idempotent on a second run; gitignore block not duplicated | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T02:50:52Z | F06-E01-T02 | — |
+| F06-E06-T02 | Dispatcher loop in PowerShell with limit detection | Section 4.9 steps 1 to 6 | All dispatcher smoke cases pass through ps1 | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T02:50:58Z | F06-E06-T01, F06-E01-T04, F06-E04-T03 | — |
+| F06-E06-T03 | Dispatcher loop in sh with identical behavior | Same as the PowerShell loop | Same logs and ledger results as ps1 on the same script | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T02:50:59Z | F06-E06-T02 | — |
+| F06-E06-T04 | Fake CLIs and dispatcher smoke tests | scripts/tests fake_cli in sh and ps1 driven by a script file | Cases 18 to 25 of section 7 pass | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T02:51:01Z | F06-E06-T03 | — |
+| F06-E05-T01 | Document factory mode across skill and references | Files in section 5 | Every new command documented in SKILL, README and workflow | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T03:24:30Z | F06-E06-T04 | — |
+| F06-E05-T02 | Add factory evals and adjust six-file evals | Section 7 list | evals.json valid; each new eval maps to a smoke case | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T03:27:40Z | F06-E05-T01 | — |
+| F06-E01-T07 | Context drops older log entries to fit in Factory mode | In Factory mode context shows fewer than five latest entries when the whole would pass 8 KiB, and says so in the heading; it still fails when the rest does not fit | The dogfooding run ends with context and check inside the budget; classic context is unchanged | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T03:39:12Z | F06-E01-T06 | — |
 
 <!-- context:end -->
 
@@ -100,25 +110,16 @@ Spec: docs/features/ia-factory.md (closed decisions D-01 to D-21 are ADR-023 onw
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E04-T01 | Digest command for asynchronous human review | Contents per section 4.7, at most 4 KiB | Fixture with every item kind lists them all | TODO | — | F06-E03-T04, F06-E04-T03 | — |
-| F06-E04-T02 | Show phase in status output | Factory only, phase and lane | Classic status unchanged byte for byte | TODO | — | F06-E02-T02 | — |
-| F06-E04-T03 | Cross-model marker, default reviewers and audits | Section 4.8; handoff default reviewer by lane; AUDIT entries | Same-model review marked; audit never reopens a task | TODO | — | F06-E02-T05, F06-E02-T06 | — |
 
 #### F06-E06 — CLI dispatcher
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E06-T01 | Dispatch config templates and gitignore block | templates/dispatch.md and dispatch-prompt.md; init and migrate add them | Idempotent on a second run; gitignore block not duplicated | TODO | — | F06-E01-T02 | — |
-| F06-E06-T02 | Dispatcher loop in PowerShell with limit detection | Section 4.9 steps 1 to 6 | All dispatcher smoke cases pass through ps1 | TODO | — | F06-E06-T01, F06-E01-T04, F06-E04-T03 | — |
-| F06-E06-T03 | Dispatcher loop in sh with identical behavior | Same as the PowerShell loop | Same logs and ledger results as ps1 on the same script | TODO | — | F06-E06-T02 | — |
-| F06-E06-T04 | Fake CLIs and dispatcher smoke tests | scripts/tests fake_cli in sh and ps1 driven by a script file | Cases 18 to 25 of section 7 pass | TODO | — | F06-E06-T03 | — |
 
 #### F06-E05 — Docs, evals and dogfooding
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E05-T01 | Document factory mode across skill and references | Files in section 5 | Every new command documented in SKILL, README and workflow | TODO | — | F06-E06-T04 | — |
-| F06-E05-T02 | Add factory evals and adjust six-file evals | Section 7 list | evals.json valid; each new eval maps to a smoke case | TODO | — | F06-E05-T01 | — |
 | F06-E05-T03 | Dogfood a full factory lifecycle end to end | Section 8 | Section 9 checklist fully met | TODO | — | F06-E05-T02 | — |
 
 ## Gaps, Bugs & Technical Debt
@@ -137,6 +138,7 @@ task. ID prefix marks the kind: `Fxx-GAP-xx` (missing capability),
 | F05-DEBT-03 | A rotation can fake an instant close | Low | F05 | rotate re-opens a task that was in REVIEW as an IN_PROGRESS entry stamped with the time of its last entry, so a done within 5 minutes of that last entry looks like a task claimed and closed minutes apart. Rare; fix by ignoring carried-forward IN_PROGRESS entries when measuring | TODO | — | — | — |
 | F06-DEBT-02 | Bind the spec review to the spec content | Low | F06 | QA found that a spec edited after its Review: PASS still opens the SPEC to RED gate because nothing hashes the spec; record a SHA-256 of the spec at the SPEC handoff and compare it at advance | TODO | — | — | — |
 | F06-DEBT-03 | Reject test paths outside the project | Low | F06 | QA found that a tracked test path such as ../root.test.sh in a sub-project, an absolute path or a drive path passes the spec check and the RED gate; the spec rules should require a relative path without .. segments | TODO | — | — | — |
+| F06-DEBT-04 | Make the docs lock exclusive and race free | Medium | F06 | QA found that the PowerShell lock (New-Item on docs/.lock) is not exclusive, so four parallel learn calls lost a lesson, and that the sh lock can read a vanished directory as stale through the stat -f fallback and stop with File: unbound variable; use an exclusive create and treat an unreadable age as a retry. The dispatcher runs one CLI at a time, so this only matters for people running commands by hand next to it | TODO | — | — | — |
 
 ## Out of scope
 

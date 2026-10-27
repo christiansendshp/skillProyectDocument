@@ -301,10 +301,27 @@ REVIEW (reviewer)  "- Review: FAIL - detail"  --> back with the developer
 
 ## Factory mode
 
-An optional mode, off unless the project `AGENTS.md` has a `## Factory` section
-with `Mode` `FACTORY`; without it every command above behaves exactly as
-described. `mode` prints which mode applies. The rest (phases, spec, brain,
-fast lane, dispatcher) is in `references/factory.md`.
+On when the project `AGENTS.md` has a `## Factory` section with `Mode` `FACTORY`
+(`init` writes it for a new project); without it every command above behaves
+exactly as described. `mode` prints which mode applies, and why. The full
+description (phases, specs, the brain, the fast lane, the dispatcher) is in
+`references/factory.md`. What changes in the commands above:
+
+- `claim` also checks that the role of the agent matches the phase of the task,
+  the work in progress (`WIP per agent`) and the fix attempts (`Max fix attempts`),
+  and records the phase (and, for a fast-lane row, `Lane` and `Base`).
+- `pause` from `REVIEW` is allowed to the holder, and needs a working memory
+  (`checkpoint`) so the next agent can resume.
+- `handoff`, `review` and `done` need `exit=0` in the verify; a self-review, a
+  closing without a passing review and an empty verify are errors, not warnings.
+  `handoff` of a GREEN task also checks that the tests recorded at RED did not
+  change, and of a fast-lane task its size; `review` writes `Cross-model: NO` when the
+  reviewer and the holder are the same model; `done` needs `retro`.
+- `status` ends each line with the phase and the lane. `rotate` also archives the
+  brain and carries the phase, the lane and the evidence of open tasks.
+- `check` also validates `docs/Brain.md`, the specs, the working memories, the
+  roster and the `Phase` of every open task.
+- New commands: `next`, `checkpoint`, `advance`, `recall`, `learn`, `retro`, `digest`.
 
 ## Rotation
 
@@ -433,7 +450,8 @@ warns. Each runtime adapter must use the same id every session (see
 
 ## Gate
 
-Run `check` after documentation updates. It exits non-zero only on errors:
+Run `check` after documentation updates. It exits non-zero only on errors (in
+Factory mode also the ones listed in `references/factory.md`):
 
 - missing `AGENTS.md` at the root, a leftover `docs/Agents.md`, or more
   than one case variant of `AGENTS.md` coexisting;
