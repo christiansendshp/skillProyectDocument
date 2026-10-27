@@ -1387,6 +1387,7 @@ function Invoke-Claim {
             }
         }
         $claimPhase = ""
+        $claimLegacy = $false
         if (Test-FactoryOn) {
             $claimPhase = "SPEC"
             if ($state -and $state.Phase) { $claimPhase = $state.Phase }
@@ -1408,7 +1409,13 @@ function Invoke-Claim {
             } elseif ($prevLane -ceq "FAST") {
                 $claimPhase = "SPEC"
             }
-            Assert-PhaseRole $agent $claimPhase $task
+            # A task already started before the project moved to Factory mode has no phase and no lane
+            # (ADR-090): its retake keeps it that way instead of putting it into SPEC, where done would
+            # refuse it. A task that is new, assigned or from the fast lane always gets both.
+            if ($state -and -not $state.Phase -and -not $prevLane -and $claimLane -ceq "NORMAL" -and $state.Status -cin @("IN_PROGRESS", "REVIEW", "PAUSE")) {
+                $claimLegacy = $true
+            }
+            if (-not $claimLegacy) { Assert-PhaseRole $agent $claimPhase $task }
             $maxAttempts = [int](Get-FactoryNumber "Max fix attempts")
             if ($state -and [int]$state.Attempts -ge $maxAttempts) {
                 throw "claim failed: $task used $($state.Attempts) of $maxAttempts fix attempts; pause it with BLOQUEO and write the lesson, or raise Max fix attempts"
@@ -1427,7 +1434,7 @@ function Invoke-Claim {
             "- Summary: $summary",
             "- Verify: pending"
         )
-        if (Test-FactoryOn) {
+        if ((Test-FactoryOn) -and -not $claimLegacy) {
             $claimLines += "- Phase: $claimPhase"
             $claimLines += "- Lane: $claimLane"
             if ($claimBase) { $claimLines += "- Base: $claimBase" }

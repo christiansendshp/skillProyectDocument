@@ -1304,6 +1304,7 @@ cmd_claim() {
     fi
   fi
   claim_phase=""
+  claim_legacy=0
   if factory_on; then
     claim_phase="$(printf '%s' "${state:-}" | cut -f12)"
     [ -n "$claim_phase" ] || claim_phase="SPEC"
@@ -1321,7 +1322,14 @@ cmd_claim() {
     elif [ "$claim_prev_lane" = "FAST" ]; then
       claim_phase="SPEC"
     fi
-    require_phase_role "$agent" "$claim_phase" "$task"
+    # A task already started before the project moved to Factory mode has no phase and no lane
+    # (ADR-090): its retake keeps it that way instead of putting it into SPEC, where done would
+    # refuse it. A task that is new, assigned or from the fast lane always gets both.
+    claim_legacy=0
+    if [ -n "${state:-}" ] && [ -z "$(printf '%s' "$state" | cut -f12)" ] && [ -z "$claim_prev_lane" ] && [ "$claim_lane" = "NORMAL" ]; then
+      case "$(printf '%s' "$state" | cut -f2)" in IN_PROGRESS|REVIEW|PAUSE) claim_legacy=1 ;; esac
+    fi
+    if [ "$claim_legacy" -eq 0 ]; then require_phase_role "$agent" "$claim_phase" "$task"; fi
     claim_att="$(printf '%s' "${state:-}" | cut -f16)"
     claim_max="$(factory_number "Max fix attempts")"
     if [ "${claim_att:-0}" -ge "$claim_max" ]; then
@@ -1340,7 +1348,7 @@ cmd_claim() {
     echo "## [$timestamp] | $agent | $task | IN_PROGRESS | $name"
     echo "- Summary: $summary"
     echo "- Verify: pending"
-    if factory_on; then
+    if factory_on && [ "$claim_legacy" -eq 0 ]; then
       echo "- Phase: $claim_phase"
       echo "- Lane: $claim_lane"
       if [ -n "$claim_base" ]; then echo "- Base: $claim_base"; fi

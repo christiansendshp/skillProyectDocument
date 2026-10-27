@@ -2834,6 +2834,30 @@ SPEC
   run review "$bn" claude-qa F09-E01-T01 PASS "fine" "exit=0" >/dev/null 2>&1
   run retro "$bn" claude-spec F09-E01-T01 none none >/dev/null 2>&1
   assert_success "$label a task claimed before Factory mode (no phase at all) may close" run done "$bn" claude-spec F09-E01-T01 "work" "docs/" "exit=0"
+  # its retake after a failed review, or from a pause, keeps it as it was: no phase and no lane (ADR-092)
+  bn_proj legacy_retake
+  seed_entry "$bn" "$(now_ts)" claude-spec F09-E01-T01 IN_PROGRESS "Export invoices as CSV" '- Summary: claimed before Factory mode\n- Verify: pending\n'
+  run checkpoint "$bn" claude-spec F09-E01-T01 "work" "review" >/dev/null 2>&1
+  run handoff "$bn" claude-spec F09-E01-T01 "ready" "exit=0" claude-qa >/dev/null 2>&1
+  run review "$bn" claude-qa F09-E01-T01 FAIL "not yet" "exit=0" >/dev/null 2>&1
+  assert_success "$label a task started before Factory mode is retaken after a failed review" run claim "$bn" claude-spec F09-E01-T01 "retake"
+  [ "$(grep -c '^- Phase:' "$bn/docs/Agentslog.md")" -eq 0 ] && [ "$(grep -c '^- Lane:' "$bn/docs/Agentslog.md")" -eq 0 ] && ok "$label the retake writes no phase and no lane" || bad "$label the retake invented a phase or a lane: $(grep -E '^- (Phase|Lane):' "$bn/docs/Agentslog.md" | tr '\n' ' ')"
+  run checkpoint "$bn" claude-spec F09-E01-T01 "fixed" "review" >/dev/null 2>&1
+  run handoff "$bn" claude-spec F09-E01-T01 "fixed" "exit=0" claude-qa >/dev/null 2>&1
+  run review "$bn" claude-qa F09-E01-T01 PASS "fine now" "exit=0" >/dev/null 2>&1
+  run learn "$bn" claude-spec F09-E01-T01 PITFALL "Run the export before the handoff" "export csv" "Run the export once before asking for a review" >/dev/null 2>&1
+  run retro "$bn" claude-spec F09-E01-T01 none LRN-004 >/dev/null 2>&1
+  assert_success "$label and it still closes after the retake" run done "$bn" claude-spec F09-E01-T01 "work" "docs/" "exit=0"
+  bn_proj legacy_pause
+  seed_entry "$bn" "$(now_ts)" claude-spec F09-E01-T01 IN_PROGRESS "Export invoices as CSV" '- Summary: claimed before Factory mode\n- Verify: pending\n'
+  run checkpoint "$bn" claude-spec F09-E01-T01 "work" "later" >/dev/null 2>&1
+  run pause "$bn" claude-spec F09-E01-T01 OTRO "out for a day" >/dev/null 2>&1
+  assert_success "$label a task started before Factory mode is retaken after a pause" run claim "$bn" claude-spec F09-E01-T01 "back"
+  [ "$(grep -c '^- Phase:' "$bn/docs/Agentslog.md")" -eq 0 ] && ok "$label the claim after a pause writes no phase" || bad "$label the claim after a pause invented a phase"
+  bn_proj legacy_new
+  seed_entry "$bn" "$(now_ts)" claude-spec F09-E01-T01 ASSIGNED "Export invoices as CSV" '- Assign: claude-spec\n'
+  assert_success "$label a task that was only assigned still starts in SPEC" run claim "$bn" claude-spec F09-E01-T01 "start"
+  [ "$(grep -c '^- Phase: SPEC$' "$bn/docs/Agentslog.md")" -eq 1 ] && ok "$label a first claim in Factory mode writes the SPEC phase" || bad "$label first claim phase wrong: $(grep -E '^- Phase:' "$bn/docs/Agentslog.md" | tr '\n' ' ')"
   # a task that went through advance closes from GREEN (the cases of the evidence block do it with git), and the fast lane starts in GREEN
   ft_proj gate_fast nogit
   run claim "$ft" claude-dev F09-E01-T01 "fix it" >/dev/null 2>&1

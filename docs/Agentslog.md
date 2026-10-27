@@ -59,3 +59,8 @@ segments live in `docs/history/`.
 - Verify: pending
 - Phase: SPEC
 - Lane: NORMAL
+
+## [2026-10-27T21:05:13Z] | claude-sonnet-5-5 | F06-E05-T03 | REVIEW | Dogfood a full factory lifecycle end to end
+- Summary: QA round: Level NONE tasks can close (advance RED to GREEN, ADR-091), stale numbers fixed; commit 21e3413
+- Verify: focused sh 115 and ps1 113 passed 0 failed incl. the new block; check . OK; full8 smoke of this commit is running; exit=0
+- Handoff: claude-qa
