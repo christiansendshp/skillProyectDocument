@@ -9,8 +9,8 @@ ADR-023 to ADR-043 in `docs/Stack_Tecnologies.md`).
 ## Activation
 
 Factory mode is on when the project `AGENTS.md` has a `## Factory` section
-whose `Mode` is `FACTORY`. Without the section, or with `Mode` `CLASSIC` (or any
-value that is not `FACTORY`), every command behaves exactly as it did before
+whose `Mode` is `FACTORY` (in any letter case). Without the section, or with `Mode`
+`CLASSIC` (or any value that is not `FACTORY`), every command behaves exactly as it did before
 Factory mode existed (BR-008).
 
 ```markdown
@@ -46,8 +46,9 @@ ignored); anything else, including 0, text or a huge number, takes the default.
 tests and for forcing one mode from a script); any other value is ignored.
 
 `mode <project>` prints which mode applies and where it came from (`env`,
-`AGENTS.md` or `default`); in Factory mode it also prints every effective
-setting, one `Name = value` line each.
+`AGENTS.md` or `default`); in Factory mode it also prints every setting as it is
+written in `AGENTS.md`, one `Name = value` line each (a value the scripts cannot
+use, such as `abc` for a number, is shown as written and the default applies).
 
 ## The brain file
 
@@ -105,7 +106,7 @@ The `## Factory` section of `templates/AGENTS.factory.md` stays under 1.5 KiB
 and a fresh Factory project's `context` stays at or below 6912 bytes, which
 leaves room for the active work of a real project. When the five latest ledger
 entries would take `context` past 8192 bytes, Factory mode shows fewer (four, three,
-two or one) and says so in the heading (`the latest 3 of 5, to stay within 8192
+two or one) and says so in the heading (`the latest 3 only, to stay within 8192
 bytes`) instead of failing; it fails, as classic mode does, only when the rules, the
 summaries, the active work and the open tasks do not fit, and then the summaries are
 what has to be compacted.
@@ -124,7 +125,9 @@ Work that goes through the SPEC phase has an executable spec in
   `CONTRACT`, `E2E` or `NONE`; each scenario has one level (one behavior, one
   level). `NONE` needs a `Justification` (docs, config, infra).
 - `## Tests`, one line per test file: `- path/to/file.spec (S01, S02)`. It may
-  be empty until the RED phase; every scenario id it names must exist.
+  be empty until the RED phase; every scenario id it names must exist, and the path
+  must be relative and inside the project (no leading slash, no drive letter, no `..`
+  segment).
 - `## Out of scope`.
 
 In Factory mode `check` validates every file in `docs/specs/`: a missing
@@ -183,7 +186,7 @@ used. The next agent runs `claim`.
 
 | From | To | What the script checks |
 |---|---|---|
-| SPEC | RED | `docs/specs/<TASK-ID>.md` exists, passes the spec rules and has no `UNKNOWN` left; the last review of the spec was `PASS` from an agent other than the one advancing (`Independent review` `NO` drops this) |
+| SPEC | RED | `docs/specs/<TASK-ID>.md` exists, passes the spec rules and has no `UNKNOWN` left; the last review of the spec was `PASS` from an agent other than the one advancing, and the spec is still the one that review saw: `handoff` of a spec records its SHA-256 (`- Spec-sha:`) and a changed file needs a new handoff (`Independent review` `NO` drops both) |
 | RED | GREEN | the verify has `exit=N` with N not 0; the spec lists test files; they exist and, with git, are committed and unchanged; the entry records `- Red: <sha>` and `- Tests: <paths>` |
 | RED or GREEN | SPEC | nothing extra: a wrong test or spec goes back to the spec |
 | GREEN | RED | nothing extra: the tests were wrong |
@@ -192,8 +195,8 @@ SPEC to GREEN (no RED) is only allowed when `Require TDD` is `NO`. GREEN to REVI
 `handoff` and REVIEW to DONE is `done`. A spec review is the normal `handoff` to a
 reviewer and `review PASS`; the author then retakes the task with `claim`.
 Without git the RED to GREEN gate cannot check that the tests are committed: it
-warns and records no `Red` sha. `rotate` carries the phase and the spec reviewer
-(`- Spec-pass:`) of every open task. The command exists only in Factory mode.
+warns and records no `Red` sha. `rotate` carries the phase, the spec reviewer
+(`- Spec-pass:`) and the spec hash of every open task. The command exists only in Factory mode.
 
 ## Evidence, reviews and limits
 
@@ -359,14 +362,17 @@ recorded phase shows `SPEC`. In classic mode the output is the one it always was
   empty, or names the agent that is handing off, leaves the handoff with no
   addressee: any QA agent takes it through `next`.
 - `review` writes `- Cross-model: NO` when the first word of the `Model` column
-  of the reviewer and of the holder is the same (lower case). A review by
-  another model has no marker. `done` copies the marker to the DONE entry and
+  of the reviewer and of the holder is the same (lower case); two agents whose
+  `Model` is empty or an em dash count as the same model, because nothing shows
+  that they differ. A review by another model has no marker. `done` copies the marker to the DONE entry and
   `rotate` carries it.
 - The `Preferred reviewer` is offered the audit of every closed normal-lane task
   marked `Cross-model: NO` that has no audit yet, but only when `next` has nothing
   else for it. It records the audit with `append-log <agent> <task-id> AUDIT
   "<summary>" "<files>" "<verify>"`. An `AUDIT` entry is valid only in Factory
-  mode, never reopens a task and takes the task out of the audit queue. A problem
+  mode, never reopens a task and takes the task out of the audit queue. `rotate` carries a
+  closed task that still waits for its audit as a `DONE` entry, so the queue survives
+  a rotation. A problem
   found by the audit goes in as a new `Fxx-BUG-xx` row.
 
 ## digest: what a person reads
@@ -378,6 +384,85 @@ detail), open `Fxx-GAP-xx` rows, lessons still `HYPOTHESIS`, tasks closed per
 lane, failed reviews and the normal-lane tasks reviewed by one model, with how
 many the preferred reviewer already audited. A longer digest is cut on a whole
 line and ends with `digest: truncated, N more lines, read the ledger and the Roadmap`.
+
+## Autonomy and red lines
+
+In Factory mode an agent never waits for an answer from a person. What it does with a
+doubt depends on the kind of doubt:
+
+| Kind of decision | What the agent does | Where it stays |
+|---|---|---|
+| Technical, reversible, inside the task | Decides | The code; an `ADR-xxx` if it lasts |
+| Technical and lasting, or architecture | Decides the most reversible option | An `ADR-xxx` row `HYPOTHESIS`, `CONFIRMED` once a test or a deploy proves it |
+| Ambiguous product behavior | Looks for a `DEFAULT` lesson in the brain; if there is none, takes the stricter, more conservative behavior | A `BR-xxx` row `HYPOTHESIS` pinned by a scenario and a test, and the `digest` |
+| A question that blocks the task | Does not work around it in silence | An `Fxx-GAP-xx` row in `## Gaps, Bugs & Technical Debt`, named in the `Depends on` of the task; the task goes to `pause BLOQUEO` and the agent takes other work |
+| A red line | Prepares everything up to the edge and stops | `pause ESPERA_RESPUESTA "RED-LINE: <what and why>"`, listed by `digest` |
+
+Red lines are: a deploy to main or to production, a destructive operation on data, any
+secret, a new paid service, a weaker auth or tenant isolation, and rules about personal
+data. The procedure:
+
+```sh
+sh scripts/project_docs.sh checkpoint . claude-dev F02-E01-T05 "ready up to the deploy" "wait for a person"
+sh scripts/project_docs.sh pause . claude-dev F02-E01-T05 ESPERA_RESPUESTA "RED-LINE: deploys to production"
+sh scripts/project_docs.sh next . claude-dev        # the next task, never this one
+```
+
+`next` skips a pause whose detail starts with `RED-LINE:` and every `BLOQUEO`; the person
+answers by recording the decision (a `BR`, an `ADR` or the answer in the `Fxx-GAP` row) and
+the owner retakes the task with `claim`.
+
+## Context economy
+
+- Start with `context` (at most 8 KiB) and `recall <task-id>` (within `Recall budget
+  bytes`). Read nothing else until the task asks for it.
+- Search and read by range before opening a file; the `MAP` lessons of the brain say
+  which files and which test command belong to a module.
+- Give a subagent the output of `recall` and the path of the spec, never the history of
+  the conversation.
+- Run `checkpoint` before pausing, before changing phase, before the runtime compacts
+  the conversation and before any long tool output; after a compaction reload with
+  `recall`.
+- Each change of phase is a commit named `<TASK-ID> <PHASE>: <summary>`, and a `claim`
+  is committed and pushed at once when machines share the repository.
+
+## One task from start to finish
+
+The normal lane with three agents and a reviewer, each line a command (`.` is the project,
+`sh scripts/project_docs.sh` the launcher):
+
+```sh
+# claude-spec
+next . claude-spec                                   # F02-E01-T03
+claim . claude-spec F02-E01-T03 "spec the CSV export"
+recall . F02-E01-T03
+#   write docs/specs/F02-E01-T03.md from templates/Spec.md
+checkpoint . claude-spec F02-E01-T03 "spec written" "hand it to a reviewer"
+handoff . claude-spec F02-E01-T03 "spec ready" "exit=0" gemini-qa
+# gemini-qa
+review . gemini-qa F02-E01-T03 PASS "the scenarios cover the rules" "exit=0"
+# claude-spec again
+claim . claude-spec F02-E01-T03 "continue after the review"
+advance . claude-spec F02-E01-T03 RED "spec reviewed, exit=0"      # assigned to the test agent
+# claude-test
+claim . claude-test F02-E01-T03 "write the failing tests"
+#   write the tests listed in the spec, run them, commit them
+checkpoint . claude-test F02-E01-T03 "tests written, they fail" "implement"
+advance . claude-test F02-E01-T03 GREEN "the tests fail first, exit=1"   # assigned to the developer
+# claude-dev
+claim . claude-dev F02-E01-T03 "implement the export"
+#   code, run the tests, never edit the recorded tests
+handoff . claude-dev F02-E01-T03 "export implemented" "tests pass, exit=0" gemini-qa
+# gemini-qa
+review . gemini-qa F02-E01-T03 PASS "tests unchanged, the code reads well" "exit=0"
+# claude-dev closes it
+retro . claude-dev F02-E01-T03 LRN-001 none
+done . claude-dev F02-E01-T03 "CSV export" "src/export.sh tests/" "exit=0"
+```
+
+After a `Review: FAIL` the developer runs `claim` again, fixes what the note says, `learn`s
+what went wrong (mandatory) and hands off again. A fast-lane task skips the first two
+blocks and starts at `claim` by the developer.
 
 ## The dispatcher: passing the turn between CLIs
 
@@ -451,5 +536,11 @@ a pause, delete its `fails:` row from `.factory/state.md`.
 `scripts/tests/fake_cli.sh` and `fake_cli.ps1` stand in for the real CLIs. They read
 from the file in `FAKE_CLI_SCRIPT` the first line that starts with `<agent>: ` (and
 remove it) and run its actions separated by ` ;; `: `ok:<core command>` (the project is
-added), `write:<path>=<text>`, `git:<args>`, `limit:<text>` and `fail:<text>`. The
-smoke test drives the dispatcher with them, so no real quota is ever spent.
+added; a failure ends the line), `tryok:<core command>` (the same, a failure does not end
+the line), `exec:<command line>` (runs it in the project, for example a test; its exit
+code is the value of `{EXIT}` in the actions that follow, and of `tryok`), `write:<path>=<text>`
+(`
+` is a new line), `git:<args>`, `env:<NAME>` (prints the variable the dispatcher
+handed over, to prove that API keys are not), `limit:<text>` and `fail:<text>`. The smoke
+test drives the dispatcher with them, so no real quota is ever spent; `scripts/tests/dogfood.sh`
+runs a whole lifecycle with them.

@@ -72,7 +72,7 @@ Both launchers also provide:
 | `assign <agent> <task-id> <to-agent>` | Hand a task out without starting it (`ASSIGNED`; the row stays `TODO` with the new Owner) |
 | `done <agent> <task-id> <summary> <files> <verify>` | Close a task, record it in `Features.md`, clear it from the Roadmap; only the holder, the reviewer who passed it, or anyone on a stale or forced task |
 | `status` | List every open (`IN_PROGRESS`/`PAUSE`/`REVIEW`/`ASSIGNED`) task with its stage, owner, age, reason (and, in Factory mode, its phase and lane) |
-| `mode` | Print whether Factory or Classic mode applies (and why); in Factory mode, the effective settings. See `references/factory.md` |
+| `mode` | Print whether Factory or Classic mode applies (and why); in Factory mode, the settings as written in `AGENTS.md`. See `references/factory.md` |
 | `append-log` | Manual/legacy ledger entry outside the claim lifecycle |
 | `rotate` | Archive an oversized ledger, hash-verified, carrying open tasks forward; in Factory mode also archive the least used lessons of an oversized brain |
 
@@ -82,7 +82,7 @@ Factory mode only (every one refuses to run in a classic project):
 |---|---|
 | `next <agent>` | Print the id of the task the agent should work on now, or `none`: what it holds, what is assigned to it, a review for it, a paused task of its role, then the first eligible `TODO` row |
 | `checkpoint <agent> <task-id> <step> <next>` | Write the working memory of a task (`docs/brain/tasks/`), so another agent can resume after a quota cut |
-| `advance <agent> <task-id> <phase> <verify>` | Move a task between SPEC, RED, GREEN, with the gates: a valid spec, an independent spec review, failing tests committed first |
+| `advance <agent> <task-id> <phase> <verify> [to-agent]` | Move a task between SPEC, RED, GREEN, with the gates: a valid spec, an independent spec review, failing tests committed first; `to-agent` picks who receives it |
 | `recall <task-id>` | The task, its spec, its working memory and the lessons that apply, in the `Recall budget bytes` |
 | `learn <agent> <task-id> <kind> <name> <trigger> <lesson>` | Add a lesson to `docs/Brain.md` |
 | `retro <agent> <task-id> <used> <learned>` | Record the lessons a task used and left behind; required by `done` |
@@ -106,7 +106,7 @@ Environment variables (all optional):
 | `PROJECT_DOCS_MIN_WORK_MINUTES` (default `5`) | `done` and `check` warn about a task claimed and closed less than this apart; `0` silences it |
 | `PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1` | Reviewing your own handoff becomes an error instead of a warning |
 | `PROJECT_DOCS_FORCE=1` | `done` lets any agent close a task another agent holds |
-| `PROJECT_DOCS_MODE=classic` | `init` creates the six-file project (the same as `--classic`) |
+| `PROJECT_DOCS_MODE=classic` or `factory` | Force the mode for the run, over the file: `classic` makes every command behave as before (and `init` create the six-file project); `factory` makes every command behave in Factory mode (meant for tests and scripts) |
 | `PROJECT_DOCS_DISPATCH_NO_SLEEP=1` | The dispatcher prints `sleep until HH:MM` and stops instead of waiting (tests) |
 
 An optional `## Agent identity` table in `AGENTS.md` lists one stable id per

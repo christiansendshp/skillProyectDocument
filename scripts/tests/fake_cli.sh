@@ -11,7 +11,8 @@
 #   tryok:<command of project_docs> the same, but a failure does not end the line
 #   exec:<command line>            runs a command in the project (a test, sed...); its exit code
 #                                  is the value of {EXIT} in the actions that follow
-#   write:<path>=<text>            writes a file in the project; \n in the text is a new line
+#   env:<NAME>                     prints NAME=<value>, or NAME=unset (to see what the dispatcher hands over)
+#   write:<path>=<text>            writes a file in the project; \n in the text is a new line (only that)
 #   git:<arguments>                runs git in the project
 #   limit:<text>                   prints the text and exits 1, like a CLI that hit its quota
 #   fail:<text>                    prints the text on stderr and exits 1
@@ -55,11 +56,15 @@ printf '%s\n' "$actions" | while IFS= read -r act; do
     exec)
       if ( cd "$PROJECT" && eval "$payload" ); then last_exit=0; else last_exit=$?; fi
       ;;
+    env)
+      eval "env_value=\"\${$payload-}\""
+      if [ -n "$env_value" ]; then printf '%s=%s\n' "$payload" "$env_value"; else printf '%s=unset\n' "$payload"; fi
+      ;;
     write)
       path="${payload%%=*}"
       text="${payload#*=}"
       mkdir -p "$(dirname "$PROJECT/$path")"
-      printf '%b\n' "$text" > "$PROJECT/$path"
+      printf '%s' "$text" | awk '{ gsub(/\\n/, "\n"); print }' > "$PROJECT/$path"
       ;;
     git)
       eval "git -C \"\$PROJECT\" $payload" || exit 1

@@ -310,7 +310,8 @@ factory_dispatch_setup() {
   fi
   fds_gi="$PROJECT/.gitignore"
   fds_mark='# project-documentation dispatcher (generated files)'
-  if ! { [ -f "$fds_gi" ] && tr -d '\r' < "$fds_gi" | grep -qxF -- "$fds_mark"; }; then
+  # the marker counts in any case, with trailing spaces, after a BOM or with CRLF endings
+  if ! { [ -f "$fds_gi" ] && clean_stream < "$fds_gi" | awk -v m="$fds_mark" '{ sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); if (tolower($0) == m) f = 1 } END { exit f ? 0 : 1 }'; }; then
     {
       if [ -s "$fds_gi" ]; then
         if [ -n "$(tail -c 1 "$fds_gi")" ]; then echo; fi
@@ -962,7 +963,7 @@ build_context() {
       open_tasks_line
       echo
       if [ "$bc_keep" -lt 5 ]; then
-        echo "## Latest agent entries (the latest $bc_keep of 5, to stay within $CONTEXT_LIMIT bytes)"
+        echo "## Latest agent entries (the latest $bc_keep only, to stay within $CONTEXT_LIMIT bytes)"
       else
         echo "## Latest agent entries"
       fi
@@ -1223,6 +1224,14 @@ with_lock() {
     attempts=$((attempts + 1))
     if [ -d "$lockdir" ]; then
       lock_epoch="$(stat -c %Y "$lockdir" 2>/dev/null || stat -f %m "$lockdir" 2>/dev/null || echo 0)"
+      # A lock released between the test and the stat leaves no age (or the filesystem report
+      # of stat -f): ask again instead of reading it as an old lock and taking a fresh one.
+      case "$lock_epoch" in
+        ''|*[!0-9]*|0)
+          if [ "$attempts" -ge 50 ]; then die "could not acquire docs/.lock (busy); retry"; fi
+          sleep 0.1 2>/dev/null || sleep 1
+          continue ;;
+      esac
       now_epoch="$(date -u +%s)"
       if [ $((now_epoch - lock_epoch)) -ge 30 ]; then
         rmdir "$lockdir" 2>/dev/null || true
@@ -1898,9 +1907,21 @@ cmd_digest() {
   require_factory digest
   dg_since="${1:-}"
   if [ -n "$dg_since" ]; then
-    printf '%s' "$dg_since" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9:]+Z?)?$' || die "digest requires an ISO date like 2026-10-27 or a timestamp like 2026-10-27T14:00:00Z"
+    dg_ok=0
+    if printf '%s' "$dg_since" | grep -Eq '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?Z?)?$'; then
+      dg_ok=1
+      dg_mm="$(printf '%s' "$dg_since" | cut -c6-7)"; dg_dd="$(printf '%s' "$dg_since" | cut -c9-10)"
+      case "$dg_mm" in
+        02) [ "$dg_dd" -le 29 ] || dg_ok=0 ;;
+        04|06|09|11) [ "$dg_dd" -le 30 ] || dg_ok=0 ;;
+      esac
+    fi
+    [ "$dg_ok" -eq 1 ] || die "digest requires an ISO date like 2026-10-27 or a timestamp like 2026-10-27T14:00:00Z"
   fi
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  # awk function: the first N characters of a UTF-8 string, run in the C locale (bytes), so a
+  # multibyte character is never cut in two
+  dg_cut='function cut(s, n,   i, c, out, ch) { out = ""; ch = 0; for (i = 1; i <= length(s); i++) { c = substr(s, i, 1); if (c !~ /[\200-\277]/) { ch++; if (ch > n) break } out = out c } return out }'
   dg_day="$(printf '%s' "$dg_since" | cut -c1-10)"
   dg_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-digest.XXXXXX")"
   dg_states="$(all_task_states)"
@@ -1908,20 +1929,20 @@ cmd_digest() {
     echo "digest since ${dg_since:-the start of the ledger}"
     echo "## Product guesses"
     if [ -f "$DOCS_DIR/ProductDescription.md" ]; then
-      clean_stream < "$DOCS_DIR/ProductDescription.md" | awk '
+      clean_stream < "$DOCS_DIR/ProductDescription.md" | LC_ALL=C awk "$dg_cut"'
         /^\|/ {
           line=$0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line); n=split(line, c, "|")
           for (i=1; i<=n; i++) gsub(/^[ \t]+|[ \t]+$/, "", c[i])
-          if (c[1] ~ /^BR-[0-9]+$/ && c[3] == "HYPOTHESIS" && c[4] ~ /^agent:/) printf "%s | %s | %s\n", c[1], substr(c[2], 1, 80), c[4]
+          if (c[1] ~ /^BR-[0-9]+$/ && c[3] == "HYPOTHESIS" && c[4] ~ /^agent:/) printf "%s | %s | %s\n", c[1], cut(c[2], 80), c[4]
         }
       '
     fi > "$dg_tmp.part"
     if [ -f "$DOCS_DIR/Stack_Tecnologies.md" ]; then
-      clean_stream < "$DOCS_DIR/Stack_Tecnologies.md" | awk -v since="$dg_day" '
+      clean_stream < "$DOCS_DIR/Stack_Tecnologies.md" | LC_ALL=C awk -v since="$dg_day" "$dg_cut"'
         /^\|/ {
           line=$0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line); n=split(line, c, "|")
           for (i=1; i<=n; i++) gsub(/^[ \t]+|[ \t]+$/, "", c[i])
-          if (c[1] ~ /^ADR-[0-9]+$/ && c[4] == "HYPOTHESIS" && (since == "" || c[5] >= since)) printf "%s | %s | %s\n", c[1], substr(c[2], 1, 80), c[5]
+          if (c[1] ~ /^ADR-[0-9]+$/ && c[4] == "HYPOTHESIS" && (since == "" || c[5] >= since)) printf "%s | %s | %s\n", c[1], cut(c[2], 80), c[5]
         }
       ' >> "$dg_tmp.part"
     fi
@@ -1953,12 +1974,12 @@ cmd_digest() {
       on && /^- Review: FAIL/ { n++ }
       END { print n + 0 }
     ')"
-    dg_cross="$(printf '%s\n' "$dg_states" | awk -F'\t' '$2 == "DONE" && $18 != "FAST" && $20 == "NO" { n++; if ($21 + 0 > 0) a++ } END { print n + 0 " " a + 0 }')"
+    dg_cross="$(printf '%s\n' "$dg_states" | awk -F'\t' -v since="$dg_since" '$2 == "DONE" && $18 != "FAST" && $20 == "NO" && (since == "" || $4 >= since) { n++; if ($21 + 0 > 0) a++ } END { print n + 0 " " a + 0 }')"
     echo "Failed reviews: $dg_fail; NORMAL tasks closed with the same model reviewing: ${dg_cross% *}; audited by the preferred reviewer: ${dg_cross#* }"
   } > "$dg_tmp"
   rm -f "$dg_tmp.part"
-  LC_ALL=C awk -v max=4096 '
-    { L[NR] = $0 }
+  LC_ALL=C awk -v max=4096 "$dg_cut"'
+    { L[NR] = $0; if (length(L[NR]) > 800) L[NR] = cut(L[NR], 197) "..." }
     END {
       total = 0; for (i = 1; i <= NR; i++) total += length(L[i]) + 1
       if (total <= max) { for (i = 1; i <= NR; i++) print L[i]; exit }
@@ -2146,12 +2167,17 @@ cmd_handoff() {
   fi
   name="$(require_valid_name "$task" handoff)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  hs_sha=""
+  if factory_on && [ "$handoff_phase" = "SPEC" ] && [ -f "$DOCS_DIR/specs/$task.md" ]; then
+    hs_sha="$(file_hash "$DOCS_DIR/specs/$task.md" | awk '{ print $1 }')"
+  fi
   {
     echo
     echo "## [$timestamp] | $agent | $task | REVIEW | $name"
     echo "- Summary: $summary"
     echo "- Verify: $verify"
     if [ -n "$reviewer" ]; then echo "- Handoff: $reviewer"; fi
+    if [ -n "$hs_sha" ]; then echo "- Spec-sha: $hs_sha"; fi
   } >> "$DOCS_DIR/Agentslog.md"
   if [ -n "$reviewer" ]; then
     echo "project_docs handoff: $task handed to review ($reviewer)"
@@ -2321,7 +2347,21 @@ advance_gate_spec() {
     ag_by="$(printf '%s' "$state" | cut -f13)"
     [ -n "$ag_by" ] || die "advance failed: the spec of $1 has no Review: PASS yet (hand it off to a reviewer first)"
     [ "$ag_by" != "$2" ] || die "advance failed: the Review: PASS of the spec of $1 comes from $2 itself; another agent must review it"
+    ag_rec="$(spec_sha_of "$1")"
+    if [ -n "$ag_rec" ]; then
+      ag_now="$(file_hash "$ag_spec" | awk '{ print $1 }')"
+      [ "$ag_rec" = "$ag_now" ] || die "advance failed: docs/specs/$1.md changed after it was handed off for review (the review saw $(printf '%s' "$ag_rec" | cut -c1-8), the file is $(printf '%s' "$ag_now" | cut -c1-8) now); hand it off for review again"
+    fi
   fi
+}
+
+# spec_sha_of TASK: the SHA-256 of the spec that the last handoff of the task recorded, or nothing.
+spec_sha_of() {
+  clean_stream < "$DOCS_DIR/Agentslog.md" | awk -v id="$1" '
+    /^## \[/ { cur = 0; n = split($0, h, " [|] "); if (n >= 3 && h[3] == id) cur = 1; next }
+    cur && /^- Spec-sha: / { sha = substr($0, 13) }
+    END { print sha }
+  '
 }
 
 # Gate RED to GREEN: failing tests (exit not 0), listed in the spec, existing and
@@ -3659,6 +3699,7 @@ spec_report() {
         e=tl[i]
         if (e !~ /^- [^ ]+ \(S[0-9][0-9]+(, S[0-9][0-9]+)*\)$/) { err("Tests entry \047" substr(e, 3) "\047 is not \047- path (S01, S02)\047"); continue }
         p=substr(e, 3); path=p; sub(/ .*/, "", path)
+        if (path ~ /^[\/\\]/ || path ~ /^[A-Za-z]:/ || path ~ /(^|[\/\\])\.\.([\/\\]|$)/) err("Tests entry \047" path "\047 must be a relative path inside the project (no absolute path, drive letter or .. segment)")
         r=p; sub(/^.* \(/, "", r); sub(/\)$/, "", r)
         k=split(r, refs, ", ")
         for (j=1; j<=k; j++) if (!(refs[j] in scid)) err("Tests entry \047" path "\047 refers to unknown scenario " refs[j])
@@ -3943,6 +3984,7 @@ rotate_log() {
           echo "- Summary: carried forward from docs/history/$archive_name at rotation"
           if [ -n "$phase" ]; then echo "- Phase: $phase"; fi
           if [ -n "$specpass" ]; then echo "- Spec-pass: $specpass"; fi
+          rot_sha="$(spec_sha_of "$tid")"; if [ -n "$rot_sha" ]; then echo "- Spec-sha: $rot_sha"; fi
           if [ -n "$red" ]; then echo "- Red: $red"; fi
           if [ -n "$tests" ]; then echo "- Tests: $tests"; fi
           if [ "$att_carry" -gt 0 ]; then echo "- Attempts: $att_carry"; fi
@@ -3955,6 +3997,7 @@ rotate_log() {
         echo "- Summary: carried forward from docs/history/$archive_name at rotation"
         if [ "$status" != "REVIEW" ] && [ -n "$phase" ]; then echo "- Phase: $phase"; fi
         if [ "$status" != "REVIEW" ] && [ -n "$specpass" ]; then echo "- Spec-pass: $specpass"; fi
+        if [ "$status" != "REVIEW" ]; then rot_sha="$(spec_sha_of "$tid")"; if [ -n "$rot_sha" ]; then echo "- Spec-sha: $rot_sha"; fi; fi
         if [ "$status" != "REVIEW" ] && [ -n "$red" ]; then echo "- Red: $red"; fi
         if [ "$status" != "REVIEW" ] && [ -n "$tests" ]; then echo "- Tests: $tests"; fi
         if [ "$status" != "REVIEW" ] && [ "$att_carry" -gt 0 ]; then echo "- Attempts: $att_carry"; fi
@@ -3973,6 +4016,19 @@ rotate_log() {
           if [ -n "$review" ]; then echo "- Review: $review - carried forward from docs/history/$archive_name"; fi
           if [ -n "$cross" ]; then echo "- Cross-model: $cross"; fi
         fi
+      done
+    fi
+    # A closed task of the normal lane that one model reviewed and nobody audited yet stays in the
+    # ledger as a DONE entry, so the audit queue of the preferred reviewer survives the rotation.
+    if factory_on; then
+      all_task_states | awk -F'\t' '$2 == "DONE" && $18 != "FAST" && $20 == "NO" && $21 + 0 == 0' | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base cross audited pdetail rest; do
+        [ -n "$tid" ] || continue
+        echo
+        echo "## [$ts] | $agent | $tid | DONE | $name"
+        echo "- Summary: carried forward from docs/history/$archive_name at rotation, still to be audited"
+        echo "- Files: see docs/history/$archive_name"
+        echo "- Verify: carried forward from docs/history/$archive_name"
+        echo "- Cross-model: NO"
       done
     fi
   } > "$tmp"

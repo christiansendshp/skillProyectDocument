@@ -636,3 +636,205 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 ## [2026-10-27T03:39:12Z] | claude-sonnet-5-5 | F06-E01-T07 | IN_PROGRESS | Context drops older log entries to fit in Factory mode
 - Summary: context drops older log entries to fit in Factory mode
 - Verify: pending
+
+## [2026-10-27T04:20:08Z] | claude-sonnet-5-5 | F06-E03-T03 | REVIEW | Recall command with deterministic ranking and budget
+- Summary: recall: tab inside a row read as a space; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:10Z] | claude-sonnet-5-5 | F06-E03-T04 | REVIEW | Learn and retro commands with mandatory lessons
+- Summary: done repeats the mandatory lesson rule; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:12Z] | claude-sonnet-5-5 | F06-E03-T05 | REVIEW | Brain garbage collection in rotate and promotion warning
+- Summary: brain gc under the docs lock, tabs; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:14Z] | claude-sonnet-5-5 | F06-E02-T04 | REVIEW | Exit markers and immutable tests from RED sha
+- Summary: renames and underscore in exit markers; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:16Z] | claude-sonnet-5-5 | F06-E02-T06 | REVIEW | Fast lane with size limits and promotion to SPEC
+- Summary: fast lane: renames, names with spaces, git failures; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:18Z] | claude-sonnet-5-5 | F06-E04-T01 | REVIEW | Digest command for asynchronous human review
+- Summary: digest command; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:19Z] | claude-sonnet-5-5 | F06-E04-T02 | REVIEW | Show phase in status output
+- Summary: status adds phase and lane; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:21Z] | claude-sonnet-5-5 | F06-E04-T03 | REVIEW | Cross-model marker, default reviewers and audits
+- Summary: cross-model marker, default reviewers, audits; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:23Z] | claude-sonnet-5-5 | F06-E01-T06 | REVIEW | Next returns a reviewed task to its holder
+- Summary: next gives a reviewed task to its holder, role handoff, stub row; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:25Z] | claude-sonnet-5-5 | F06-E01-T07 | REVIEW | Context drops older log entries to fit in Factory mode
+- Summary: context drops older entries to fit in Factory mode; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:28Z] | claude-sonnet-5-5 | F06-E06-T01 | REVIEW | Dispatch config templates and gitignore block
+- Summary: init and migrate create dispatch.md and the gitignore block; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:30Z] | claude-sonnet-5-5 | F06-E06-T02 | REVIEW | Dispatcher loop in PowerShell with limit detection
+- Summary: PowerShell dispatcher; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:33Z] | claude-sonnet-5-5 | F06-E06-T03 | REVIEW | Dispatcher loop in sh with identical behavior
+- Summary: sh dispatcher; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:36Z] | claude-sonnet-5-5 | F06-E06-T04 | REVIEW | Fake CLIs and dispatcher smoke tests
+- Summary: fake CLIs and dispatcher smoke cases; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:37Z] | claude-sonnet-5-5 | F06-E05-T01 | REVIEW | Document factory mode across skill and references
+- Summary: Factory docs in SKILL, README, references, adapters; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:20:39Z] | claude-sonnet-5-5 | F06-E05-T02 | REVIEW | Add factory evals and adjust six-file evals
+- Summary: Factory evals and six-file evals pinned to classic; see commit 2b97a0b
+- Verify: commit 2b97a0b; smoke before the last two fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; context and dispatcher cases run on their own: pass in sh and ps1; scripts/tests/dogfood.sh sh and ps1: 16 passed 0 failed; differential vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T04:31:42Z] | claude-sonnet-5-5 | F06-DEBT-04 | IN_PROGRESS | Make the docs lock exclusive and race free
+- Summary: make the docs lock exclusive and race free
+- Verify: pending
+
+## [2026-10-27T16:21:55Z] | claude-qa | F06-E03-T03 | REVIEW | Recall command with deterministic ranking and budget
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: PASS - the tab fixes hold: a tab in a lesson, name or trigger is a space, hand written rows with tabs, CRLF and BOM read the same, brain and archive bytes equal in sh and ps1
+
+## [2026-10-27T16:21:57Z] | claude-qa | F06-E03-T04 | REVIEW | Learn and retro commands with mandatory lessons
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: PASS - done refuses learned none after a FAIL, a BLOQUEO or a move back to RED that came after the retro; learn then retro then done closes it; messages equal in sh and ps1
+
+## [2026-10-27T16:21:59Z] | claude-qa | F06-E03-T05 | REVIEW | Brain garbage collection in rotate and promotion warning
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: PASS - the tab row reaches the archive, DEFAULT rows stay, rotate fails cleanly when docs/.lock is held and works after release
+
+## [2026-10-27T16:22:01Z] | claude-qa | F06-E02-T04 | REVIEW | Exit markers and immutable tests from RED sha
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: PASS - a recorded test renamed, deleted or weakened after RED is refused; pre_exit=0 is not a marker; sh and ps1 agree
+
+## [2026-10-27T16:22:02Z] | claude-qa | F06-E02-T06 | REVIEW | Fast lane with size limits and promotion to SPEC
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: PASS - renames out of a protected path, names with spaces and a failing git are handled in sh and ps1; residual: a ps1 untracked path longer than 260 characters is skipped, fixed before done
+
+## [2026-10-27T16:22:04Z] | claude-qa | F06-E01-T06 | REVIEW | Next returns a reviewed task to its holder
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: PASS - next gives the holder a task in REVIEW with an answer first, also with attempts used up; Handoff: QA reaches QA and BOTH agents; the stub row is not offered
+
+## [2026-10-27T16:22:06Z] | claude-qa | F06-E01-T07 | REVIEW | Context drops older log entries to fit in Factory mode
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: PASS - context shows fewer entries instead of failing in Factory mode and classic still fails the same; minor: the heading says of 5 even with fewer entries, reworded before done
+
+## [2026-10-27T16:22:08Z] | claude-qa | F06-E04-T02 | REVIEW | Show phase in status output
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: PASS - Factory status lines end with PHASE LANE in sh and ps1 and classic status is unchanged
+
+## [2026-10-27T16:22:10Z] | claude-qa | F06-E04-T03 | REVIEW | Cross-model marker, default reviewers and audits
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: PASS - default reviewer by lane, the Cross-model marker and audits work; two fixes before done: an unaudited cross-model DONE task must survive rotate, and the unknown model case is documented
+
+## [2026-10-27T16:22:11Z] | claude-qa | F06-E04-T01 | REVIEW | Digest command for asynchronous human review
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: FAIL - digest: the cross-model and audit counts ignore since, impossible since dates like 2026-99-99 are accepted, sh can cut a multibyte character at 80 bytes, and one very long RED-LINE detail drops every later section
+
+## [2026-10-27T16:22:13Z] | claude-qa | F06-E06-T01 | REVIEW | Dispatch config templates and gitignore block
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: PASS - init and migrate --factory create .factory/dispatch.md and the .gitignore block once, same bytes in sh and ps1 for empty, CRLF and no final newline files; minor: the marker is not matched after a BOM, in another case or with trailing spaces, fixed before done
+
+## [2026-10-27T16:22:15Z] | claude-qa | F06-E06-T02 | REVIEW | Dispatcher loop in PowerShell with limit detection
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: FAIL - ps1 dispatcher: after three failures a refused pause still logs blocked and clears the counter, so the pair runs again for ever; a missing project gives a raw error; STOP is not read during a cooldown sleep; API key variables are not scrubbed
+
+## [2026-10-27T16:22:17Z] | claude-qa | F06-E06-T03 | REVIEW | Dispatcher loop in sh with identical behavior
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: FAIL - sh dispatcher: the same spin after a refused pause; a relative project path breaks the prompt file path; a Cooldown cell that is not a number aborts the whole run; a CRLF dispatch.md finds no agents
+
+## [2026-10-27T16:22:19Z] | claude-qa | F06-E06-T04 | REVIEW | Fake CLIs and dispatcher smoke tests
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: PASS - 61 dispatcher cases pass in sh and ps1 and prove cases 22 to 25 of the design; gaps listed by QA (plan wide cooldown, reset forms, watch, fake CLI write parity) are added before done
+
+## [2026-10-27T16:22:21Z] | claude-qa | F06-E05-T01 | REVIEW | Document factory mode across skill and references
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: FAIL - docs: mode prints raw values while the docs say effective, Mode in lower case is accepted, README advance lacks to-agent, the new commands have no signatures in SKILL or workflow, the red line procedure, the context rules and a worked example are missing, workflow.md still says six files and old roles, and the new adapter text changes the link block of a classic project against BR-008
+
+## [2026-10-27T16:22:23Z] | claude-qa | F06-E05-T02 | REVIEW | Add factory evals and adjust six-file evals
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 2 on a frozen copy of 2b97a0b (git archive); sh and ps1 compared; exit=0
+- Review: PASS - evals.json is valid, ids 1 to 57, every smoke field matches a header; evals that need classic behavior are pinned to init --classic before done
+
+## [2026-10-27T16:22:44Z] | claude-sonnet-5-5 | F06-E03-T03 | DONE | Recall command with deterministic ranking and budget
+- Summary: recall command with ranking and budget; a tab in a row is a space
+- Files: scripts/project_docs.sh, scripts/project_docs.ps1, scripts/smoke_test.sh, references/factory.md
+- Verify: commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0
+
+## [2026-10-27T16:22:47Z] | claude-sonnet-5-5 | F06-E03-T04 | DONE | Learn and retro commands with mandatory lessons
+- Summary: learn and retro with the mandatory lesson, done integration and the repeat of the rule
+- Files: scripts/project_docs.sh, scripts/project_docs.ps1, scripts/smoke_test.sh, references/factory.md
+- Verify: commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0
+
+## [2026-10-27T16:22:49Z] | claude-sonnet-5-5 | F06-E03-T05 | DONE | Brain garbage collection in rotate and promotion warning
+- Summary: brain gc in rotate under the docs lock and the promotion warning
+- Files: scripts/project_docs.sh, scripts/project_docs.ps1, scripts/smoke_test.sh, references/factory.md
+- Verify: commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0
+
+## [2026-10-27T16:22:52Z] | claude-sonnet-5-5 | F06-E02-T04 | DONE | Exit markers and immutable tests from RED sha
+- Summary: strict exit markers and unchanged tests from the Red sha, renames included
+- Files: scripts/project_docs.sh, scripts/project_docs.ps1, scripts/smoke_test.sh, references/factory.md
+- Verify: commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0
+
+## [2026-10-27T16:22:54Z] | claude-sonnet-5-5 | F06-E01-T06 | DONE | Next returns a reviewed task to its holder
+- Summary: next gives a reviewed task back to its holder
+- Files: scripts/project_docs.sh, scripts/project_docs.ps1, scripts/smoke_test.sh, references/factory.md
+- Verify: commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0
+
+## [2026-10-27T16:22:57Z] | claude-sonnet-5-5 | F06-E04-T02 | DONE | Show phase in status output
+- Summary: status adds the phase and the lane in Factory mode
+- Files: scripts/project_docs.sh, scripts/project_docs.ps1, scripts/smoke_test.sh, references/factory.md
+- Verify: commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0
+
+## [2026-10-27T16:35:30Z] | claude-sonnet-5-5 | F06-DEBT-03 | IN_PROGRESS | Reject test paths outside the project
+- Summary: reject test paths outside the project
+- Verify: pending
+
+## [2026-10-27T16:38:09Z] | claude-sonnet-5-5 | F06-DEBT-02 | IN_PROGRESS | Bind the spec review to the spec content
+- Summary: bind the spec review to the spec content
+- Verify: pending

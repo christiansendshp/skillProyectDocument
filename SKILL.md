@@ -151,7 +151,12 @@ Read `references/factory.md` once. The cycle needs no question to a person:
 4. When undecided choose the most reversible option and record it as an ADR. If
    it is irreversible or breaks a rule, add an `Fxx-GAP` row and `pause BLOQUEO`.
    Never wait for an answer.
-5. A person reads `digest` now and then. CLIs that cannot call each other
+5. The commands, after the project path: `next <agent>`, `recall <task-id>`,
+   `checkpoint <agent> <task-id> <step> <next>`, `advance <agent> <task-id> <phase>
+   <verify> [to-agent]`, `learn <agent> <task-id> <kind> <name> <trigger> <lesson>`,
+   `retro <agent> <task-id> <used-ids|none> <learned-ids|none>`, `digest [since]`,
+   `status` (adds the phase and the lane) and `mode` (which mode applies and why).
+6. A person reads `digest` now and then. CLIs that cannot call each other
    (Claude Code, Gemini CLI) take turns through `scripts/factory_dispatch.sh` or
    `.ps1`, which read the ledger with `next` and need no API key.
 
@@ -163,7 +168,9 @@ of every command. A project can list them (with aliases) in the optional
 assign and done then normalise an alias to the id and warn about unknown
 names. Without the table nothing changes. See `references/workflow.md`.
 
-Optional environment variables: `PROJECT_DOCS_STALE_HOURS` (default 24),
+Optional environment variables: `PROJECT_DOCS_MODE` (`classic` or `factory`, forces the
+mode for one run), `PROJECT_DOCS_DISPATCH_NO_SLEEP` (the dispatcher prints the wait
+instead of sleeping, for tests), `PROJECT_DOCS_STALE_HOURS` (default 24),
 `PROJECT_DOCS_MIN_WORK_MINUTES` (default 5, 0 silences the instant-close
 warning), `PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1` (reviewing your own
 handoff becomes an error) and `PROJECT_DOCS_FORCE=1` (anyone may close).

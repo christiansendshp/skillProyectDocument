@@ -2585,8 +2585,8 @@ SPEC
   cx_fill "$ip"
   assert_success "$label context of a Factory project whose five entries would not fit" run context "$ip"
   [ "$(cx_bytes)" -le 8192 ] && ok "$label the output is within 8192 bytes ($(cx_bytes))" || bad "$label context is $(cx_bytes) bytes"
-  tr -d '\r' < "$WORK/.out" | grep -q '^## Latest agent entries (the latest [1-4] of 5, to stay within 8192 bytes)$' && ok "$label the heading says how many entries are shown" || bad "$label heading: $(grep 'Latest agent' "$WORK/.out")"
-  cx_n="$(tr -d '\r' < "$WORK/.out" | sed -n 's/^## Latest agent entries (the latest \([1-4]\) of 5.*/\1/p')"
+  tr -d '\r' < "$WORK/.out" | grep -q '^## Latest agent entries (the latest [1-4] only, to stay within 8192 bytes)$' && ok "$label the heading says how many entries are shown" || bad "$label heading: $(grep 'Latest agent' "$WORK/.out")"
+  cx_n="$(tr -d '\r' < "$WORK/.out" | sed -n 's/^## Latest agent entries (the latest \([1-4]\) only.*/\1/p')"
   [ "$(tr -d '\r' < "$WORK/.out" | grep -c '^## \[')" = "$cx_n" ] && ok "$label that many entries are printed" || bad "$label entries printed: $(grep -c '^## \[' "$WORK/.out") instead of $cx_n"
   tr -d '\r' < "$WORK/.out" | grep -q '| F09-FILL-05 | DONE |' && ok "$label the entries kept are the latest ones" || bad "$label the latest entry is missing"
   ip_new cx_classic
@@ -2600,6 +2600,110 @@ SPEC
   awk -v pad="$cx_pad" '$0 == "| — | — | — | — | — | — | — | — |" && !done { print "| F09-E01-T01 | A task with a very long text | " pad " | Done | TODO | — | — | — |"; done = 1; next } { print }' "$ip/docs/Roadmap.md" > "$ip/docs/Roadmap.md.tmp" && mv "$ip/docs/Roadmap.md.tmp" "$ip/docs/Roadmap.md"
   assert_failure "$label context still fails when what is above the entries does not fit" run context "$ip"
   out_has "hot context is " && out_has "bytes; compact summaries below 8192" && ok "$label the error asks to compact the summaries" || bad "$label huge context text: $(cat "$WORK/.out")"
+
+  echo "== $label: fixes after the QA of 2b97a0b (F06-E04-T01, F06-E04-T03, F06-E06-T01, F06-DEBT-04) =="
+  # ---- digest: the date, the counts, characters and long lines ---------------------------------------------
+  dg_proj r2
+  for dg_bad in 2026-99-99 2026-02-30 2026-04-31 2026-10-27T: 2026-10-27T25:00:00Z 2026-10-27T14:60:00Z yesterday 2026-10-27Z 2026-1-5; do
+    assert_failure "$label digest refuses the date $dg_bad" run digest "$dg" "$dg_bad"
+  done
+  for dg_good in 2026-10-27 2026-10-27T14:00 2026-10-27T14:00:00Z 2026-02-29; do
+    assert_success "$label digest accepts the date $dg_good" run digest "$dg" "$dg_good"
+  done
+  runo digest "$dg"
+  out_has "same model reviewing: 2; audited by the preferred reviewer: 1" && ok "$label without a date it counts every closed task reviewed by one model" || bad "$label digest counts: $(tail -n 1 "$WORK/.out")"
+  runo digest "$dg" 2026-10-26T11:00:00Z
+  out_has "NORMAL: 1, FAST: 1" && out_has "same model reviewing: 1; audited by the preferred reviewer: 0" && ok "$label the cross-model and audit counts follow the date" || bad "$label digest since: $(tail -n 3 "$WORK/.out")"
+  runo digest "$dg" 2099-01-01
+  out_has "NORMAL: 0, FAST: 0" && out_has "same model reviewing: 0; audited by the preferred reviewer: 0" && ok "$label a date in the future counts nothing" || bad "$label digest future: $(tail -n 3 "$WORK/.out")"
+  dg_proj mb
+  dg_a79="$(awk 'BEGIN { for (i = 0; i < 79; i++) printf "a" }')"
+  seed_replace "$dg/docs/ProductDescription.md" "| BR-001 | Invoices round half up | HYPOTHESIS |" "| BR-001 | ${dg_a79}éñ | HYPOTHESIS |"
+  assert_success "$label digest of a rule whose name has accents" run digest "$dg"
+  tr -d '\r' < "$WORK/.out" | grep -q "^BR-001 | ${dg_a79}é | agent:" && ! grep -q 'éñ' "$WORK/.out" && ok "$label a name is cut at 80 characters, never inside one" || bad "$label BR line: $(grep BR-001 "$WORK/.out")"
+  dg_proj long
+  dg_long="$(awk 'BEGIN { for (i = 0; i < 600; i++) printf "abcdefghi " }')"
+  seed_plan_row "$dg" F09-E01-T20 "A very long red line"
+  seed_entry "$dg" "$(now_ts)" claude-dev F09-E01-T20 IN_PROGRESS "A very long red line" '- Summary: w\n- Verify: pending\n- Phase: GREEN\n'
+  seed_entry "$dg" "$(now_ts)" claude-dev F09-E01-T20 PAUSE "A very long red line" "- Pause: ESPERA_RESPUESTA - RED-LINE: $dg_long\n"
+  assert_success "$label digest with a red line whose detail is six thousand characters" run digest "$dg"
+  [ "$(tr -d '\r' < "$WORK/.out" | wc -c | tr -d ' ')" -le 4096 ] && out_has "## Open gaps" && out_has "## Reviews" && tr -d '\r' < "$WORK/.out" | grep -q '^F09-E01-T20 | claude-dev | RED-LINE: .*\.\.\.$' && ok "$label the long line is cut and the sections after it stay" || bad "$label long digest: $(tr -d '\r' < "$WORK/.out" | wc -c) bytes: $(tail -n 3 "$WORK/.out" | cut -c1-120)"
+
+  # ---- rotate keeps the closed tasks that wait for an audit ---------------------------------------------------
+  au_proj r2
+  seed_fill "$au" F09-FILL-08 205
+  assert_success "$label rotate of a ledger with a closed task that waits for its audit" run rotate "$au"
+  runo next "$au" gemini-qa
+  [ "$(head -n 1 "$WORK/.out" | tr -d '\r')" = "F09-E01-T10" ] && ok "$label the audit queue survives the rotation" || bad "$label next after rotate: $(cat "$WORK/.out")"
+  grep -q '^## \[.*\] | claude-dev | F09-E01-T10 | DONE |' "$au/docs/Agentslog.md" && ! grep -q '| F09-E01-T11 | DONE |' "$au/docs/Agentslog.md" && ! grep -q '| F09-E01-T12 | DONE |' "$au/docs/Agentslog.md" && ok "$label only the normal-lane task reviewed by one model is carried" || bad "$label carried entries: $(grep -E '\| DONE \|' "$au/docs/Agentslog.md" | cut -c1-90)"
+  assert_success "$label the audit is recorded after the rotation" run append-log "$au" gemini-qa F09-E01-T10 AUDIT "audited, nothing wrong" "src/" "exit=0"
+  seed_fill "$au" F09-FILL-09 205
+  run rotate "$au" >/dev/null 2>&1
+  runo next "$au" gemini-qa
+  [ "$(head -n 1 "$WORK/.out" | tr -d '\r')" = "none" ] && ok "$label an audited task is not carried again" || bad "$label next after the second rotate: $(cat "$WORK/.out")"
+
+  # ---- the marker of the .gitignore block is found in other writings --------------------------------------------------
+  GI_MARK='# project-documentation dispatcher (generated files)'
+  for gi_v in bom upper spaces; do
+    ip_new "gi_$gi_v"
+    run init "$ip" >/dev/null 2>&1
+    case "$gi_v" in
+      bom) printf '\357\273\277%s\n.factory/state.md\n.factory/runs/\n' "$GI_MARK" > "$ip/.gitignore" ;;
+      upper) printf '# PROJECT-DOCUMENTATION DISPATCHER (GENERATED FILES)\n.factory/state.md\n.factory/runs/\n' > "$ip/.gitignore" ;;
+      spaces) printf '  %s   \n.factory/state.md\n.factory/runs/\n' "$GI_MARK" > "$ip/.gitignore" ;;
+    esac
+    cp "$ip/.gitignore" "$WORK/.gi_before"
+    run migrate "$ip" --factory >/dev/null 2>&1
+    cmp -s "$WORK/.gi_before" "$ip/.gitignore" && ok "$label the .gitignore block is found with a $gi_v marker and not added again" || bad "$label .gitignore changed with a $gi_v marker: $(cat "$ip/.gitignore" | tr -d '\r')"
+  done
+
+  # ---- the docs lock: parallel commands do not lose work ---------------------------------------------------------------
+  bn_proj par
+  for par_i in 1 2 3; do
+    ( run learn "$bn" claude-dev F09-E01-T01 PITFALL "Parallel lesson $par_i" "parallel$par_i" "Text $par_i" > "$WORK/.par$par_i" 2>&1 ) &
+  done
+  wait
+  [ "$(grep -c '^| LRN-' "$bnb")" -eq 6 ] && [ "$(grep '^| LRN-' "$bnb" | cut -d'|' -f2 | sort -u | wc -l | tr -d ' ')" -eq 6 ] && ok "$label three lessons added at the same time are three lessons with three ids" || bad "$label parallel learn: $(grep '^| LRN-' "$bnb" | cut -c1-40 | tr '\n' '~') $(cat "$WORK"/.par1 "$WORK"/.par2 "$WORK"/.par3 | tr '\n' '~' | cut -c1-300)"
+
+  echo "== $label: test paths of a spec stay inside the project (F06-DEBT-03) =="
+  spec_bad sp_abs 's#tests/billing/export.spec.sh#/etc/export.spec.sh#' "Tests entry '/etc/export.spec.sh' must be a relative path inside the project (no absolute path, drive letter or .. segment)"
+  spec_bad sp_drive 's#tests/billing/export.spec.sh#C:/tests/export.spec.sh#' "Tests entry 'C:/tests/export.spec.sh' must be a relative path inside the project"
+  spec_bad sp_dots 's#tests/billing/export.spec.sh#../root.test.sh#' "Tests entry '../root.test.sh' must be a relative path inside the project"
+  spec_bad sp_dots_mid 's#tests/billing/export.spec.sh#tests/../../x.test.sh#' "Tests entry 'tests/../../x.test.sh' must be a relative path inside the project"
+  sp_proj sp_dots_name
+  mkspec "$sp" F09-E01-T01
+  sedi 's#tests/billing/export.spec.sh#tests/a..b/.hidden.sh#' "$sp/docs/specs/F09-E01-T01.md"
+  assert_success "$label a path with dots inside a name is a path inside the project" run check "$sp"
+
+  echo "== $label: the review of a spec is bound to the content it saw (F06-DEBT-02) =="
+  adv_proj sha_edit
+  adv_reviewed
+  sh_now="$(file_hash "$av/docs/specs/F09-E01-T01.md" | awk '{ print $1 }')"
+  grep -q "^- Spec-sha: $sh_now\$" "$av/docs/Agentslog.md" && ok "$label the handoff of a spec records its SHA-256" || bad "$label no Spec-sha: $(grep 'Spec-sha' "$av/docs/Agentslog.md")"
+  printf '%s\n' '- Excel export, decided after the review' >> "$av/docs/specs/F09-E01-T01.md"
+  adv_refused "advance refuses a spec edited after the review that passed it" "docs/specs/F09-E01-T01.md changed after it was handed off for review (the review saw $(printf '%s' "$sh_now" | cut -c1-8)" claude-spec F09-E01-T01 RED "spec reviewed, exit=0"
+  run handoff "$av" claude-spec F09-E01-T01 "spec ready again" "exit=0" claude-qa >/dev/null 2>&1
+  run review "$av" claude-qa F09-E01-T01 PASS "spec checked again" "exit=0" >/dev/null 2>&1
+  run claim "$av" claude-spec F09-E01-T01 "advance it" >/dev/null 2>&1
+  assert_success "$label a new handoff and a new review let the edited spec go on" run advance "$av" claude-spec F09-E01-T01 RED "spec reviewed, exit=0"
+
+  adv_proj sha_same
+  adv_reviewed
+  assert_success "$label an unchanged spec goes on" run advance "$av" claude-spec F09-E01-T01 RED "spec reviewed, exit=0"
+
+  adv_proj sha_rotate
+  adv_reviewed
+  seed_fill "$av" F09-FILL-10 205
+  run rotate "$av" >/dev/null 2>&1
+  grep -q '^- Spec-sha: ' "$av/docs/Agentslog.md" && ok "$label rotate carries the SHA-256 of the spec" || bad "$label Spec-sha lost in rotate"
+  printf '%s\n' '- A change after the rotation' >> "$av/docs/specs/F09-E01-T01.md"
+  adv_refused "the binding still holds after rotate" "changed after it was handed off for review" claude-spec F09-E01-T01 RED "spec reviewed, exit=0"
+
+  adv_proj sha_legacy
+  adv_reviewed
+  sedi '/^- Spec-sha: /d' "$av/docs/Agentslog.md"
+  printf '%s\n' '- A change nobody can compare against' >> "$av/docs/specs/F09-E01-T01.md"
+  assert_success "$label a review recorded before the SHA-256 existed has nothing to compare" run advance "$av" claude-spec F09-E01-T01 RED "spec reviewed, exit=0"
 
 #FACTORY_CASES
 }
@@ -2657,10 +2761,12 @@ run_dispatch_suite() {
     if [ "$label" = "sh" ]; then
       ( FAKE_CLI_SCRIPT="$dp/fake.txt"; FAKE_CLI_LOG="$dp/fake.log"; PROJECT_DOCS_DISPATCH_NO_SLEEP=1
         export FAKE_CLI_SCRIPT FAKE_CLI_LOG PROJECT_DOCS_DISPATCH_NO_SLEEP
+        if [ -n "${DP_SET_KEYS:-}" ]; then ANTHROPIC_API_KEY=secret-a; GEMINI_API_KEY=secret-b; export ANTHROPIC_API_KEY GEMINI_API_KEY; fi
         sh "$SCRIPT_DIR/factory_dispatch.sh" "$dp" "$@" ) > "$WORK/.out" 2>&1
     else
       ( FAKE_CLI_SCRIPT="$(to_native_path "$dp/fake.txt")"; FAKE_CLI_LOG="$(to_native_path "$dp/fake.log")"; PROJECT_DOCS_DISPATCH_NO_SLEEP=1
         export FAKE_CLI_SCRIPT FAKE_CLI_LOG PROJECT_DOCS_DISPATCH_NO_SLEEP
+        if [ -n "${DP_SET_KEYS:-}" ]; then ANTHROPIC_API_KEY=secret-a; GEMINI_API_KEY=secret-b; export ANTHROPIC_API_KEY GEMINI_API_KEY; fi
         "$PWSH" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(to_native_path "$SCRIPT_DIR/factory_dispatch.ps1")" "$(to_native_path "$dp")" "$@" ) > "$WORK/.out" 2>&1
     fi
     dp_rc=$?
@@ -2845,6 +2951,108 @@ run_dispatch_suite() {
   dp_script gemini-qa "fail:no second audit expected"
   dp_run
   dp_has "an audited task is not audited again" "dispatch: nothing to do"
+
+  # ---- round 2 of the QA: no spin, paths, numbers, keys, plans, reset forms ---------------------------------------
+  echo "== $label: the dispatcher after the QA of 2b97a0b =="
+  # a pause that is refused ends the pair for the day instead of starting it again for ever
+  dp_proj nospin
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  dp_script claude-dev "write:docs/brain/tasks/F09-E01-T01.md=this is not a working memory ;; ok:claim claude-dev F09-E01-T01 \"fix\" ;; fail:boom"
+  dp_script claude-dev "fail:boom"
+  dp_script claude-dev "fail:boom"
+  dp_script claude-dev "fail:boom"
+  dp_run
+  dp_has "the third failure tries to block the task" "dispatch: run 3 could not block F09-E01-T01 (pause was refused)"
+  dp_lacks "a refused pause is not logged as blocked" "dispatch: run 3 blocked"
+  dp_lacks "no fourth run starts" "dispatch: run 4"
+  dp_has "the dispatcher ends with nothing to do" "dispatch: nothing to do"
+  dp_has "three failures are in the summary" "dispatch: summary: runs=3 ok=0 limits=0 failures=3"
+  [ "$(dp_left)" = "1" ] && ok "$label the fourth line of the script stays unused" || bad "$label script lines left: $(dp_left)"
+  grep -q '^| fails:claude-dev:F09-E01-T01 | 3 |$' "$dp/.factory/state.md" && ok "$label the counter stays at three, so the pair is skipped" || bad "$label state: $(cat "$dp/.factory/state.md")"
+
+  # a failure followed by a success clears the counter
+  dp_proj clear
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  dp_script claude-dev "fail:first try"
+  dp_script claude-dev "ok:claim claude-dev F09-E01-T01 \"fix\" ;; ok:checkpoint claude-dev F09-E01-T01 \"started\" \"continue\""
+  dp_run --once
+  grep -q '^| fails:claude-dev:F09-E01-T01 | 1 |$' "$dp/.factory/state.md" && ok "$label a failed run is counted" || bad "$label state after one failure: $(cat "$dp/.factory/state.md")"
+  dp_run --once
+  ! grep -q 'fails:' "$dp/.factory/state.md" && ok "$label a good run clears the counter" || bad "$label state after a good run: $(cat "$dp/.factory/state.md")"
+
+  # options and the project folder
+  dp_proj opts
+  dp_run -x
+  [ "$dp_rc" -eq 2 ] && dp_has "a dash option the dispatcher does not know is refused" "factory_dispatch: unknown option -x" || bad "$label -x exit $dp_rc: $(dp_out | head -n 3)"
+  dp_save="$dp"; dp="$WORK/${label}_dp_never_made"; rm -rf "$dp"
+  dp_run
+  [ "$dp_rc" -eq 1 ] && dp_has "a project folder that does not exist is refused" "factory_dispatch: project folder not found" || bad "$label missing folder exit $dp_rc: $(dp_out | head -n 3)"
+  dp="$dp_save"
+  dp_run --watch
+  dp_has "--watch waits for new work when there is none" "dispatch: waiting 300 seconds for new work"
+
+  # a relative project path (the CLI runs inside the project, so the paths it gets are absolute)
+  if [ "$label" = "sh" ]; then
+    dp_proj rel
+    dp_fast "$dp" F09-E01-T01 "Fix the typo"
+    dp_script claude-dev "exec:test -f \"\$FACTORY_PROMPT_FILE\" && echo prompt-found ;; ok:claim claude-dev F09-E01-T01 \"fix\" ;; ok:checkpoint claude-dev F09-E01-T01 \"started\" \"continue\""
+    ( cd "$(dirname "$dp")" && FAKE_CLI_SCRIPT="$dp/fake.txt"; FAKE_CLI_LOG="$dp/fake.log"; PROJECT_DOCS_DISPATCH_NO_SLEEP=1
+      export FAKE_CLI_SCRIPT FAKE_CLI_LOG PROJECT_DOCS_DISPATCH_NO_SLEEP
+      sh "$SCRIPT_DIR/factory_dispatch.sh" "$(basename "$dp")" --once ) > "$WORK/.out" 2>&1
+    dp_has "a relative project path works" "dispatch: run 1 ok"
+    cat "$dp"/.factory/runs/*.out | grep -q '^prompt-found$' && ok "$label the CLI finds its prompt file" || bad "$label prompt path: $(cat "$dp"/.factory/runs/*.out)"
+  fi
+
+  # a cooldown that is not a number takes 60 minutes; a configuration with CRLF endings is read
+  dp_proj badcool
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  awk -F'|' '$2 ~ /^ claude-dev / { n = split($0, c, "|"); printf "|%s|%s|%s|%s| abc |%s|%s|\n", c[2], c[3], c[4], c[5], c[7], c[8]; next } { print }' "$dp/.factory/dispatch.md" > "$dp/.factory/dispatch.md.tmp" && mv "$dp/.factory/dispatch.md.tmp" "$dp/.factory/dispatch.md"
+  dp_script claude-dev "ok:claim claude-dev F09-E01-T01 \"fix\" ;; ok:checkpoint claude-dev F09-E01-T01 \"started\" \"continue\" ;; limit:You've hit your session limit"
+  dp_run
+  dp_has "a limit with no reset time and a bad Cooldown cell still sets a cooldown" "plan claude in cooldown until"
+  dp_cd="$(sed -n 's/^| cooldown:claude | \([0-9]*\) |$/\1/p' "$dp/.factory/state.md")"
+  dp_now="$(date +%s)"
+  [ -n "$dp_cd" ] && [ "$dp_cd" -ge $((dp_now + 3300)) ] && [ "$dp_cd" -le $((dp_now + 3900)) ] && ok "$label the cooldown is about sixty minutes" || bad "$label cooldown epoch $dp_cd, now $dp_now"
+  dp_proj crlf
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  sed 's/$/\r/' "$dp/.factory/dispatch.md" > "$dp/.factory/dispatch.md.tmp" && mv "$dp/.factory/dispatch.md.tmp" "$dp/.factory/dispatch.md"
+  dp_script claude-dev "ok:claim claude-dev F09-E01-T01 \"fix\" ;; ok:checkpoint claude-dev F09-E01-T01 \"started\" \"continue\""
+  dp_run --once
+  dp_has "a configuration with CRLF endings finds its agents" "dispatch: run 1: claude-dev on F09-E01-T01"
+
+  # API keys are not handed over: the CLIs use the login of the subscription
+  dp_proj keys
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  dp_script claude-dev "env:ANTHROPIC_API_KEY ;; env:GEMINI_API_KEY ;; ok:claim claude-dev F09-E01-T01 \"fix\" ;; ok:checkpoint claude-dev F09-E01-T01 \"started\" \"continue\""
+  DP_SET_KEYS=1 dp_run --once
+  cat "$dp"/.factory/runs/*.out > "$WORK/.keys"
+  tr -d '\r' < "$WORK/.keys" | grep -q '^ANTHROPIC_API_KEY=unset$' && tr -d '\r' < "$WORK/.keys" | grep -q '^GEMINI_API_KEY=unset$' && ! grep -q 'secret' "$WORK/.keys" && ok "$label the API key variables of the dispatcher do not reach the CLI" || bad "$label keys: $(cat "$WORK/.keys")"
+
+  # one plan, one quota: a limit of claude-dev keeps claude-qa waiting too
+  dp_proj planwide
+  dp_fast "$dp" F09-E01-T02 "Second typo"
+  dp_fast "$dp" F09-E01-T01 "Fix the typo"
+  dp_take F09-E01-T01 claude-qa
+  dp_script claude-dev "ok:claim claude-dev F09-E01-T02 \"fix\" ;; ok:checkpoint claude-dev F09-E01-T02 \"started\" \"continue\" ;; limit:You've hit your session limit · resets 3:45pm"
+  dp_script claude-qa "ok:review claude-qa F09-E01-T01 PASS \"fast lane ok\" exit=0"
+  dp_run
+  dp_has "the limit of claude-dev puts the claude plan in cooldown" "dispatch: run 2 limit: claude-dev hit its limit, plan claude in cooldown until 15:45"
+  dp_lacks "claude-qa, of the same plan, does not run" "claude-qa on F09-E01-T01"
+  dp_has "the dispatcher waits for the plan" "dispatch: sleep until 15:45"
+  [ "$(dp_left)" = "1" ] && ok "$label the review waits in the script" || bad "$label script lines left: $(dp_left)"
+
+  # the forms of the reset time, and a limit text in capitals
+  dp_limit_case() {  # dp_limit_case <name> <output of the CLI> <HH:MM the cooldown ends>
+    dp_proj "$1"
+    dp_fast "$dp" F09-E01-T01 "Fix the typo"
+    dp_script claude-dev "ok:claim claude-dev F09-E01-T01 \"fix\" ;; ok:checkpoint claude-dev F09-E01-T01 \"started\" \"continue\" ;; limit:$2"
+    dp_run --once
+    dp_has "the reset time in [$2] ends the cooldown at $3" "plan claude in cooldown until $3"
+  }
+  dp_limit_case reset_midnight "You've hit your session limit · resets 12am" 00:00
+  dp_limit_case reset_hour "You've hit your weekly limit - resets 9am" 09:00
+  dp_limit_case reset_caps "YOU'VE HIT YOUR SESSION LIMIT. RESETS 11:30PM" 23:30
+  dp_limit_case reset_24h "You've hit your opus limit, resets 15:45" 15:45
 }
 
 file_hash() {

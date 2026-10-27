@@ -56,7 +56,7 @@ PowerShell:
 
 Use the same launcher for every other command (`link`, `migrate`, `claim`,
 `pause`, `handoff`, `review`, `assign`, `done`, `status`, `append-log`,
-`rotate`, `check`, and in Factory mode `mode`, `next`, `checkpoint`, `advance`,
+`rotate`, `check`, `mode`, and in Factory mode `next`, `checkpoint`, `advance`,
 `recall`, `learn`, `retro`, `digest`).
 
 ## Merge, do not overwrite

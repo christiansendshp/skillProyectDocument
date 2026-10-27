@@ -11,7 +11,7 @@
 set -eu
 
 case "${1:-}" in
-  ''|--*) PROJECT="." ;;
+  ''|-*) PROJECT="." ;;
   *) PROJECT="$1"; shift ;;
 esac
 WATCH=0
@@ -24,6 +24,7 @@ for fd_a in "$@"; do
   esac
 done
 
+PROJECT="$(CDPATH= cd -- "$PROJECT" 2>/dev/null && pwd)" || { echo "factory_dispatch: project folder not found" >&2; exit 1; }
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 CORE="$SCRIPT_DIR/project_docs.sh"
 PROMPT_TEMPLATE="$SCRIPT_DIR/../templates/dispatch-prompt.md"
@@ -46,19 +47,19 @@ esac
 
 # ---- the configuration ---------------------------------------------------------------------------
 cfg_setting() {  # cfg_setting NAME DEFAULT
-  fd_v="$(awk -F'|' -v want="$1" '
+  fd_v="$(tr -d '\r' < "$CONFIG" | awk -F'|' -v want="$1" '
     /^## / { insec = ($0 == "## Settings"); next }
     insec && /^\|/ {
       k = $2; v = $3
       gsub(/^[ \t]+|[ \t]+$/, "", k); gsub(/^[ \t]+|[ \t]+$/, "", v)
       if (k == want) { print v; exit }
     }
-  ' "$CONFIG")"
+  ')"
   case "$fd_v" in ''|*[!0-9]*) printf '%s' "$2" ;; *) printf '%s' "$fd_v" ;; esac
 }
 
 agents_tsv() {  # id, plan, command, limit text, cooldown minutes, max runs per day, covers for
-  awk -F'|' '
+  tr -d '\r' < "$CONFIG" | awk -F'|' '
     function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
     /^## / { insec = ($0 == "## Agents"); next }
     insec && /^\|/ {
@@ -68,11 +69,12 @@ agents_tsv() {  # id, plan, command, limit text, cooldown minutes, max runs per 
       if (c[1] == "Agent id" || c[1] ~ /^-+$/ || c[1] == "") next
       cmd = c[3]
       if (cmd ~ /^`/) { sub(/^`/, "", cmd); sub(/`$/, "", cmd) }
-      mr = c[6]; if (mr == "—") mr = ""
+      cool = (c[5] ~ /^[0-9]+$/) ? c[5] : 60
+      mr = c[6]; if (mr !~ /^[0-9]+$/) mr = ""
       cv = c[7]; if (cv == "—") cv = ""
-      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", c[1], c[2], cmd, c[4], c[5], mr, cv
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", c[1], c[2], cmd, c[4], cool, mr, cv
     }
-  ' "$CONFIG"
+  '
 }
 
 # ---- the state -------------------------------------------------------------------------------------
@@ -204,6 +206,7 @@ run_agent() {  # run_agent AGENT TASK PLAN COMMAND LIMITTEXT COOLDOWN COVERED
     cd "$PROJECT"
     FACTORY_AGENT="$ra_agent"; FACTORY_TASK="$ra_task"; FACTORY_PROJECT="$PROJECT"; FACTORY_PROMPT_FILE="$ra_prompt"
     export FACTORY_AGENT FACTORY_TASK FACTORY_PROJECT FACTORY_PROMPT_FILE
+    unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN GEMINI_API_KEY GOOGLE_API_KEY
     if [ "$TIMEOUT_MIN" -gt 0 ] && command -v timeout >/dev/null 2>&1; then
       timeout "$((TIMEOUT_MIN * 60))" sh -c "$ra_final"
     else
@@ -221,8 +224,11 @@ run_agent() {  # run_agent AGENT TASK PLAN COMMAND LIMITTEXT COOLDOWN COVERED
     ra_line="$(status_line "$ra_task")"
     if agent_holds "$ra_line" "$ra_agent"; then
       core checkpoint "$PROJECT" "$ra_agent" "$ra_task" "limit reached" "resume after the cooldown" >/dev/null 2>&1 || true
-      core pause "$PROJECT" "$ra_agent" "$ra_task" LIMITE "limit until $(fmt_hm "$ra_until")" >/dev/null 2>&1 || true
-      log "run $RUN_COUNT paused $ra_task (LIMITE) for $ra_agent"
+      if core pause "$PROJECT" "$ra_agent" "$ra_task" LIMITE "limit until $(fmt_hm "$ra_until")" >/dev/null 2>&1; then
+        log "run $RUN_COUNT paused $ra_task (LIMITE) for $ra_agent"
+      else
+        log "run $RUN_COUNT could not pause $ra_task for $ra_agent (pause was refused)"
+      fi
     fi
   elif [ "$RC" -eq 0 ] && [ "$ra_before" != "$ra_after" ]; then
     OK_COUNT=$((OK_COUNT + 1))
@@ -236,9 +242,12 @@ run_agent() {  # run_agent AGENT TASK PLAN COMMAND LIMITTEXT COOLDOWN COVERED
     ra_line="$(status_line "$ra_task")"
     if [ "$ra_fails" -ge 3 ] && agent_holds "$ra_line" "$ra_agent"; then
       core checkpoint "$PROJECT" "$ra_agent" "$ra_task" "three runs without progress" "needs a person" >/dev/null 2>&1 || true
-      core pause "$PROJECT" "$ra_agent" "$ra_task" BLOQUEO "dispatcher: 3 runs without progress" >/dev/null 2>&1 || true
-      state_del "fails:$ra_agent:$ra_task"
-      log "run $RUN_COUNT blocked $ra_task after 3 failures"
+      if core pause "$PROJECT" "$ra_agent" "$ra_task" BLOQUEO "dispatcher: 3 runs without progress" >/dev/null 2>&1; then
+        state_del "fails:$ra_agent:$ra_task"
+        log "run $RUN_COUNT blocked $ra_task after 3 failures"
+      else
+        log "run $RUN_COUNT could not block $ra_task (pause was refused); $ra_agent is skipped on it until the fails row of .factory/state.md is deleted"
+      fi
     fi
   fi
 }
@@ -293,6 +302,15 @@ EOF
   return 1
 }
 
+nap() {  # nap SECONDS: sleeps in steps of 30 seconds at most and stops early when .factory/STOP appears
+  fd_left="$1"
+  while [ "$fd_left" -gt 0 ] && [ ! -e "$STOP" ]; do
+    fd_step="$fd_left"; [ "$fd_step" -le 30 ] || fd_step=30
+    sleep "$fd_step"
+    fd_left=$((fd_left - fd_step))
+  done
+}
+
 # ---- the loop ----------------------------------------------------------------------------------------------------------------
 while :; do
   if [ -e "$STOP" ]; then log "stop requested"; break; fi
@@ -311,13 +329,13 @@ EOF
     log "sleep until $(fmt_hm "$fd_soon")"
     if [ "${PROJECT_DOCS_DISPATCH_NO_SLEEP:-0}" = "1" ] || [ "$ONCE" -eq 1 ]; then break; fi
     fd_wait=$((fd_soon - NOW)); [ "$fd_wait" -gt 0 ] || fd_wait=1
-    sleep "$fd_wait"
+    nap "$fd_wait"
     continue
   fi
   if [ "$WATCH" -eq 1 ] && [ "$ONCE" -eq 0 ]; then
     log "waiting $IDLE_SEC seconds for new work"
     if [ "${PROJECT_DOCS_DISPATCH_NO_SLEEP:-0}" = "1" ]; then break; fi
-    sleep "$IDLE_SEC"
+    nap "$IDLE_SEC"
     continue
   fi
   log "nothing to do"

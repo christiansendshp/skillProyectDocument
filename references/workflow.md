@@ -64,8 +64,9 @@ Read full documents only by task:
 
 ## New project
 
-1. Run `init`; it creates only missing files and links other agent files to
-   `AGENTS.md` (see Redirected agent files below).
+1. Run `init`; it creates only missing files (the seven files of Factory mode, or
+   the six with `--classic`) and links other agent files to `AGENTS.md` (see
+   Redirected agent files below).
 2. Replace known placeholders with confirmed facts from the request or
    project, using `CONFIRMED`/`HYPOTHESIS`/`UNKNOWN` honestly.
 3. Leave unknowns explicit instead of delaying harmless implementation.
@@ -321,7 +322,12 @@ description (phases, specs, the brain, the fast lane, the dispatcher) is in
   brain and carries the phase, the lane and the evidence of open tasks.
 - `check` also validates `docs/Brain.md`, the specs, the working memories, the
   roster and the `Phase` of every open task.
-- New commands: `next`, `checkpoint`, `advance`, `recall`, `learn`, `retro`, `digest`.
+- New commands, after the project path: `next <agent>`, `checkpoint <agent> <task-id>
+  <step> <next>`, `advance <agent> <task-id> <phase> <verify> [to-agent]`, `recall
+  <task-id>`, `learn <agent> <task-id> <kind> <name> <trigger> <lesson>`, `retro <agent>
+  <task-id> <used-ids|none> <learned-ids|none>` and `digest [since]`. Environment:
+  `PROJECT_DOCS_MODE` (`classic` or `factory`) forces the mode for one run and
+  `PROJECT_DOCS_DISPATCH_NO_SLEEP=1` makes the dispatcher print its wait.
 
 ## Rotation
 
@@ -418,7 +424,9 @@ the project root `AGENTS.md` records them:
 | claude-sonnet-5-5 | AI | Claude Sonnet 5.5 | BOTH | claude, claude-sonnet-5 |
 ```
 
-`Kind` is `HUMAN` or `AI`; `Role` is `DEVELOPER`, `QA` or `BOTH`. The section
+`Kind` is `HUMAN` or `AI`; `Role` is `SPEC`, `TEST`, `DEV`, `QA`, `OPS` or `BOTH`
+(`DEVELOPER` is the old name of `DEV`; in classic mode the roles only warn, in
+Factory mode they decide who may take which phase). The section
 is not required by `check`, and `init` adds it to new projects only, never to
 an existing `AGENTS.md` block.
 

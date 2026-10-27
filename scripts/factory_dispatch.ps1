@@ -23,9 +23,12 @@ param(
 $ErrorActionPreference = "Stop"
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $EmDash = [char]0x2014
+# the PowerShell that runs this script runs the core, and cmd.exe (Windows) or sh run the agent commands
+$PsExe = (Get-Process -Id $PID).Path
+$IsWin = ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT)
 
 $options = [System.Collections.Generic.List[string]]::new()
-if ($Project.StartsWith("--")) { $options.Add($Project); $Project = "." }
+if ($Project.StartsWith("-")) { $options.Add($Project); $Project = "." }
 foreach ($r in @($Rest)) { if ($r) { $options.Add($r) } }
 $Watch = $false
 $Once = $false
@@ -38,7 +41,7 @@ foreach ($o in $options) {
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Core = Join-Path $ScriptDir "project_docs.ps1"
 $PromptTemplate = Join-Path (Join-Path $ScriptDir "..") "templates/dispatch-prompt.md"
-$Project = (Resolve-Path -LiteralPath $Project).Path
+try { $Project = (Resolve-Path -LiteralPath $Project -ErrorAction Stop).Path } catch { [Console]::Error.WriteLine("factory_dispatch: project folder not found"); exit 1 }
 $FDir = Join-Path $Project ".factory"
 $Config = Join-Path $FDir "dispatch.md"
 $StateFile = Join-Path $FDir "state.md"
@@ -74,6 +77,9 @@ function Invoke-Captured([string]$File, [string]$ArgLine, [string]$WorkDir, [has
     $psi.StandardOutputEncoding = $Utf8
     $psi.StandardErrorEncoding = $Utf8
     foreach ($k in $EnvVars.Keys) { $psi.EnvironmentVariables[[string]$k] = [string]$EnvVars[$k] }
+    if ($EnvVars.ContainsKey("FACTORY_AGENT")) {
+        foreach ($key in @("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "GEMINI_API_KEY", "GOOGLE_API_KEY")) { $psi.EnvironmentVariables.Remove($key) }
+    }
     $p = [System.Diagnostics.Process]::Start($psi)
     $so = $p.StandardOutput.ReadToEndAsync()
     $se = $p.StandardError.ReadToEndAsync()
@@ -99,7 +105,7 @@ function Invoke-Captured([string]$File, [string]$ArgLine, [string]$WorkDir, [has
 function Invoke-Core([string[]]$CoreArgs) {
     $parts = @("-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", (ConvertTo-ArgText $Core))
     foreach ($a in $CoreArgs) { $parts += (ConvertTo-ArgText $a) }
-    return Invoke-Captured "powershell.exe" ($parts -join " ") $Project @{} 0
+    return Invoke-Captured $PsExe ($parts -join " ") $Project @{} 0
 }
 
 # ---- the configuration -----------------------------------------------------------------------------------
@@ -367,7 +373,8 @@ function Invoke-AgentRun($Row, [string]$Task, [string]$Covered) {
     $final = $Row.Command.Replace("{PROMPT_FILE}", $promptFile)
     $before = Get-LedgerHash
     $envVars = @{ FACTORY_AGENT = $agent; FACTORY_TASK = $Task; FACTORY_PROJECT = $Project; FACTORY_PROMPT_FILE = $promptFile }
-    $res = Invoke-Captured "cmd.exe" ("/d /s /c " + '"' + $final + '"') $Project $envVars ($TimeoutMin * 60)
+    if ($IsWin) { $res = Invoke-Captured "cmd.exe" ("/d /s /c " + '"' + $final + '"') $Project $envVars ($TimeoutMin * 60) }
+    else { $res = Invoke-Captured "/bin/sh" ("-c " + (ConvertTo-ArgText $final)) $Project $envVars ($TimeoutMin * 60) }
     [System.IO.File]::WriteAllText($outFile, ($res.Out + $res.Err), $Utf8)
     $after = Get-LedgerHash
     Update-Clock
@@ -381,8 +388,9 @@ function Invoke-AgentRun($Row, [string]$Task, [string]$Covered) {
         $line = Get-StatusLine $Task
         if (Test-AgentHolds $line $agent) {
             [void](Invoke-Core @("checkpoint", $Project, $agent, $Task, "limit reached", "resume after the cooldown"))
-            [void](Invoke-Core @("pause", $Project, $agent, $Task, "LIMITE", "limit until $(Format-Hm $until)"))
-            Write-Log "run $n paused $Task (LIMITE) for $agent"
+            $pr = Invoke-Core @("pause", $Project, $agent, $Task, "LIMITE", "limit until $(Format-Hm $until)")
+            if ($pr.Code -eq 0) { Write-Log "run $n paused $Task (LIMITE) for $agent" }
+            else { Write-Log "run $n could not pause $Task for $agent (pause was refused)" }
         }
     }
     elseif ($rc -eq 0 -and $before -cne $after) {
@@ -399,9 +407,12 @@ function Invoke-AgentRun($Row, [string]$Task, [string]$Covered) {
         $line = Get-StatusLine $Task
         if ($fails -ge 3 -and (Test-AgentHolds $line $agent)) {
             [void](Invoke-Core @("checkpoint", $Project, $agent, $Task, "three runs without progress", "needs a person"))
-            [void](Invoke-Core @("pause", $Project, $agent, $Task, "BLOQUEO", "dispatcher: 3 runs without progress"))
-            Remove-State $failKey
-            Write-Log "run $n blocked $Task after 3 failures"
+            $pr = Invoke-Core @("pause", $Project, $agent, $Task, "BLOQUEO", "dispatcher: 3 runs without progress")
+            if ($pr.Code -eq 0) {
+                Remove-State $failKey
+                Write-Log "run $n blocked $Task after 3 failures"
+            }
+            else { Write-Log "run $n could not block $Task (pause was refused); $agent is skipped on it until the fails row of .factory/state.md is deleted" }
         }
     }
 }
@@ -446,6 +457,16 @@ function Select-Next {
     return $null
 }
 
+# Sleeps in steps of 30 seconds at most and stops early when .factory/STOP appears.
+function Wait-Steps([long]$Seconds) {
+    $left = $Seconds
+    while ($left -gt 0 -and -not (Test-Path -LiteralPath $StopFile)) {
+        $step = [Math]::Min($left, 30)
+        Start-Sleep -Seconds $step
+        $left -= $step
+    }
+}
+
 # ---- the loop ----------------------------------------------------------------------------------------------------
 $noSleep = ($env:PROJECT_DOCS_DISPATCH_NO_SLEEP -ceq "1")
 while ($true) {
@@ -464,13 +485,13 @@ while ($true) {
         if ($noSleep -or $Once) { break }
         $wait = $soon - $script:Now
         if ($wait -le 0) { $wait = 1 }
-        Start-Sleep -Seconds $wait
+        Wait-Steps $wait
         continue
     }
     if ($Watch -and -not $Once) {
         Write-Log "waiting $IdleSec seconds for new work"
         if ($noSleep) { break }
-        Start-Sleep -Seconds $IdleSec
+        Wait-Steps $IdleSec
         continue
     }
     Write-Log "nothing to do"

@@ -298,7 +298,7 @@ function Add-FactoryDispatchSetup {
     $has = $false
     if (Test-Path -LiteralPath $gi -PathType Leaf) {
         foreach ($l in @(Get-ContentUtf8 -LiteralPath $gi)) {
-            if (([string]$l).TrimEnd([char]13) -ceq $mark) { $has = $true; break }
+            if (([string]$l).Trim().ToLowerInvariant() -ceq $mark) { $has = $true; break }
         }
     }
     if (-not $has) {
@@ -1029,7 +1029,7 @@ function Get-HotContext {
     while ($true) {
         $all = [System.Collections.Generic.List[string]]::new()
         $all.AddRange([string[]]$base)
-        if ($keep -lt 5) { $all.Add("## Latest agent entries (the latest $keep of 5, to stay within $ContextLimit bytes)") }
+        if ($keep -lt 5) { $all.Add("## Latest agent entries (the latest $keep only, to stay within $ContextLimit bytes)") }
         else { $all.Add("## Latest agent entries") }
         foreach ($line in @(Get-LatestEntries $keep)) { $all.Add([string]$line) }
         $content = ($all -join "`n") + "`n"
@@ -1305,26 +1305,25 @@ function Enter-DocsLock {
     $lockDir = Join-Path $DocsDir ".lock"
     $attempts = 0
     while ($true) {
+        # cmd's mkdir fails when the directory exists and checks and creates in one call to the
+        # system. New-Item checks first and creates after, so two processes could both win.
+        & cmd.exe /d /c ('mkdir "' + $lockDir + '" 2>nul') | Out-Null
+        if ($LASTEXITCODE -eq 0) { break }
+        # The lock can be released between the Test-Path and the Get-Item: ask again.
         try {
-            New-Item -ItemType Directory -Path $lockDir -ErrorAction Stop | Out-Null
-            break
-        } catch {
-            # The lock can be released between the Test-Path and the Get-Item: ask again.
-            try {
-                if (Test-Path -LiteralPath $lockDir -PathType Container) {
-                    $age = (Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $lockDir -ErrorAction Stop).LastWriteTimeUtc
-                    if ($age.TotalSeconds -ge 30) {
-                        Remove-Item -LiteralPath $lockDir -Force -Recurse -ErrorAction SilentlyContinue
-                        continue
-                    }
+            if (Test-Path -LiteralPath $lockDir -PathType Container) {
+                $age = (Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $lockDir -ErrorAction Stop).LastWriteTimeUtc
+                if ($age.TotalSeconds -ge 30) {
+                    Remove-Item -LiteralPath $lockDir -Force -Recurse -ErrorAction SilentlyContinue
+                    continue
                 }
-            } catch {
-                continue
             }
-            $attempts++
-            if ($attempts -ge 50) { throw "could not acquire docs/.lock (busy); retry" }
-            Start-Sleep -Milliseconds 100
+        } catch {
+            continue
         }
+        $attempts++
+        if ($attempts -ge 50) { throw "could not acquire docs/.lock (busy); retry" }
+        Start-Sleep -Milliseconds 100
     }
     $script:LockDir = $lockDir
 }
@@ -1916,7 +1915,10 @@ function Assert-FastSize([string]$Task, $State) {
     }
     foreach ($l in $untracked) {
         $p = Join-Path $Project $l
-        if (Test-Path -LiteralPath $p -PathType Leaf) {
+        # Windows PowerShell 5.1 rejects a path past 260 characters unless it has the \\?\ prefix
+        if ($p.Length -ge 240 -and -not $p.StartsWith("\\")) { $p = "\\?\" + $p }
+        if (-not [System.IO.File]::Exists($p)) { throw "handoff failed: the new file $l cannot be read, so its lines cannot be counted" }
+        if ($true) {
             $text = [System.IO.File]::ReadAllText($p, $Utf8)
             if ($text.Length -gt 0) {
                 $n = ($text.Split([char]10)).Count
@@ -2067,12 +2069,32 @@ function Get-RosterModel([string]$Id) {
 # digest <project> [since]: what a human has to read, in at most 4 KiB: product guesses and
 # decisions still HYPOTHESIS, open red lines, open gaps, new lessons, what closed, and the
 # reviews (failures, reviews of one model, audits).
+# The first N characters (code points) of a text; a pair of surrogates is never cut in two.
+function Get-CutText([string]$Text, [int]$Chars) {
+    $count = 0
+    for ($i = 0; $i -lt $Text.Length; $i++) {
+        if (-not [char]::IsLowSurrogate($Text[$i])) {
+            $count++
+            if ($count -gt $Chars) { return $Text.Substring(0, $i) }
+        }
+    }
+    return $Text
+}
+
 function Invoke-Digest {
     Assert-FactoryMode "digest"
+    # A rule or a decision can carry accents or an em dash; the console would turn them into other bytes.
+    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
     $since = ""
     if ($Arguments.Count -ge 1) { $since = ConvertTo-CleanField $Arguments[0] }
-    if ($since -and $since -cnotmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9:]+Z?)?$') {
-        throw "digest requires an ISO date like 2026-10-27 or a timestamp like 2026-10-27T14:00:00Z"
+    if ($since) {
+        $sinceOk = ($since -cmatch '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?Z?)?$')
+        if ($sinceOk) {
+            $mm = $since.Substring(5, 2); $dd = [int]$since.Substring(8, 2)
+            if ($mm -ceq "02" -and $dd -gt 29) { $sinceOk = $false }
+            if (@("04", "06", "09", "11") -ccontains $mm -and $dd -gt 30) { $sinceOk = $false }
+        }
+        if (-not $sinceOk) { throw "digest requires an ISO date like 2026-10-27 or a timestamp like 2026-10-27T14:00:00Z" }
     }
     $log = Join-Path $DocsDir "Agentslog.md"
     if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "run init first" }
@@ -2089,7 +2111,7 @@ function Invoke-Digest {
             if (-not $l.StartsWith("|")) { continue }
             $c = @(Split-TableCells $l)
             if ($c.Count -ge 4 -and $c[0] -cmatch '^BR-[0-9]+$' -and $c[2] -ceq "HYPOTHESIS" -and $c[3].StartsWith("agent:")) {
-                $t = $c[1]; if ($t.Length -gt 80) { $t = $t.Substring(0, 80) }
+                $t = Get-CutText $c[1] 80
                 $guesses.Add("$($c[0]) | $t | $($c[3])")
             }
         }
@@ -2100,7 +2122,7 @@ function Invoke-Digest {
             if (-not $l.StartsWith("|")) { continue }
             $c = @(Split-TableCells $l)
             if ($c.Count -ge 5 -and $c[0] -cmatch '^ADR-[0-9]+$' -and $c[3] -ceq "HYPOTHESIS" -and (-not $day -or [string]::CompareOrdinal($c[4], $day) -ge 0)) {
-                $t = $c[1]; if ($t.Length -gt 80) { $t = $t.Substring(0, 80) }
+                $t = Get-CutText $c[1] 80
                 $guesses.Add("$($c[0]) | $t | $($c[4])")
             }
         }
@@ -2149,10 +2171,14 @@ function Invoke-Digest {
     }
     $same = 0; $audited = 0
     foreach ($s in $states) {
-        if ($s.Status -eq "DONE" -and $s.Lane -cne "FAST" -and $s.Cross -ceq "NO") { $same++; if ($s.Audited) { $audited++ } }
+        if ($s.Status -eq "DONE" -and $s.Lane -cne "FAST" -and $s.Cross -ceq "NO" -and (-not $since -or [string]::CompareOrdinal($s.Ts, $since) -ge 0)) { $same++; if ($s.Audited) { $audited++ } }
     }
     $out.Add("Failed reviews: $failed; NORMAL tasks closed with the same model reviewing: $same; audited by the preferred reviewer: $audited")
     $max = 4096
+    # one very long line (a red line detail) must not push the sections after it out
+    for ($i = 0; $i -lt $out.Count; $i++) {
+        if ($Utf8.GetByteCount($out[$i]) -gt 800) { $out[$i] = (Get-CutText $out[$i] 197) + "..." }
+    }
     $total = 0
     foreach ($l in $out) { $total += $Utf8.GetByteCount($l) + 1 }
     if ($total -le $max) { foreach ($l in $out) { Write-Output $l }; return }
@@ -2358,6 +2384,10 @@ function Invoke-Handoff {
             "- Verify: $verify"
         )
         if ($reviewer) { $entryLines += "- Handoff: $reviewer" }
+        $specFile = Join-Path (Join-Path $DocsDir "specs") "$task.md"
+        if ((Test-FactoryOn) -and $handoffPhase -ceq "SPEC" -and (Test-Path -LiteralPath $specFile -PathType Leaf)) {
+            $entryLines += "- Spec-sha: $((Get-FileHash -LiteralPath $specFile -Algorithm SHA256).Hash.ToLowerInvariant())"
+        }
         $entry = ($entryLines -join "`n") + "`n"
         [System.IO.File]::AppendAllText($log, $entry, $Utf8)
         if ($reviewer) {
@@ -2536,7 +2566,29 @@ function Assert-AdvanceGateSpec([string]$Task, [string]$Agent, $State) {
         $by = $State.SpecPass
         if (-not $by) { throw "advance failed: the spec of $Task has no Review: PASS yet (hand it off to a reviewer first)" }
         if ($by -ceq $Agent) { throw "advance failed: the Review: PASS of the spec of $Task comes from $Agent itself; another agent must review it" }
+        $rec = Get-SpecSha $Task
+        if ($rec) {
+            $now = (Get-FileHash -LiteralPath $spec -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($rec -cne $now) {
+                throw "advance failed: docs/specs/$Task.md changed after it was handed off for review (the review saw $($rec.Substring(0, [Math]::Min(8, $rec.Length))), the file is $($now.Substring(0, 8)) now); hand it off for review again"
+            }
+        }
     }
+}
+
+# The SHA-256 of the spec that the last handoff of the task recorded, or "".
+function Get-SpecSha([string]$Task) {
+    $sha = ""
+    $cur = $false
+    foreach ($l in @(Get-ContentUtf8 -LiteralPath (Join-Path $DocsDir "Agentslog.md"))) {
+        if ($l.StartsWith("## [")) {
+            $h = $l -split ' \| '
+            $cur = ($h.Count -ge 3 -and $h[2] -ceq $Task)
+            continue
+        }
+        if ($cur -and $l.StartsWith("- Spec-sha: ")) { $sha = $l.Substring(12).Trim() }
+    }
+    return $sha
 }
 
 # Gate RED to GREEN: failing tests (exit not 0), listed in the spec, existing and
@@ -3806,6 +3858,9 @@ function Get-SpecReport([string]$Path) {
         if ($e -cnotmatch '^- [^ ]+ \(S[0-9][0-9]+(, S[0-9][0-9]+)*\)$') { $msgs.Add("$($pre)Tests entry '$($e.Substring(2))' is not '- path (S01, S02)'"); continue }
         $p = $e.Substring(2)
         $path = $p.Substring(0, $p.IndexOf(' '))
+        if ($path -match '^[\\/]' -or $path -match '^[A-Za-z]:' -or $path -match '(^|[\\/])\.\.([\\/]|$)') {
+            $msgs.Add("$($pre)Tests entry '$path' must be a relative path inside the project (no absolute path, drive letter or .. segment)")
+        }
         $r = $p.Substring($p.LastIndexOf(' (') + 2)
         $r = $r.Substring(0, $r.Length - 1)
         foreach ($ref in ($r -split ', ')) {
@@ -4089,6 +4144,7 @@ function Invoke-Rotate {
             $lines.Add("- Summary: carried forward from docs/history/$name at rotation")
             if ($s.Phase) { $lines.Add("- Phase: $($s.Phase)") }
             if ($s.SpecPass) { $lines.Add("- Spec-pass: $($s.SpecPass)") }
+            $rotSha = Get-SpecSha $s.Task; if ($rotSha) { $lines.Add("- Spec-sha: $rotSha") }
             if ($s.Red) { $lines.Add("- Red: $($s.Red)") }
             if ($s.Tests) { $lines.Add("- Tests: $($s.Tests)") }
             if ($attCarry -gt 0) { $lines.Add("- Attempts: $attCarry") }
@@ -4101,6 +4157,7 @@ function Invoke-Rotate {
         $lines.Add("- Summary: carried forward from docs/history/$name at rotation")
         if ($s.Status -ne "REVIEW" -and $s.Phase) { $lines.Add("- Phase: $($s.Phase)") }
         if ($s.Status -ne "REVIEW" -and $s.SpecPass) { $lines.Add("- Spec-pass: $($s.SpecPass)") }
+        if ($s.Status -ne "REVIEW") { $rotSha = Get-SpecSha $s.Task; if ($rotSha) { $lines.Add("- Spec-sha: $rotSha") } }
         if ($s.Status -ne "REVIEW" -and $s.Red) { $lines.Add("- Red: $($s.Red)") }
         if ($s.Status -ne "REVIEW" -and $s.Tests) { $lines.Add("- Tests: $($s.Tests)") }
         if ($s.Status -ne "REVIEW" -and $attCarry -gt 0) { $lines.Add("- Attempts: $attCarry") }
@@ -4118,6 +4175,20 @@ function Invoke-Rotate {
             if ($s.Handoff) { $lines.Add("- Handoff: $($s.Handoff)") }
             if ($s.Review) { $lines.Add("- Review: $($s.Review) - carried forward from docs/history/$name") }
             if ($s.Cross) { $lines.Add("- Cross-model: $($s.Cross)") }
+        }
+    }
+    # A closed task of the normal lane that one model reviewed and nobody audited yet stays in the
+    # ledger as a DONE entry, so the audit queue of the preferred reviewer survives the rotation.
+    if (Test-FactoryOn) {
+        foreach ($s in @(Get-TaskStates)) {
+            if ($s.Status -eq "DONE" -and $s.Lane -cne "FAST" -and $s.Cross -ceq "NO" -and -not $s.Audited) {
+                $lines.Add("")
+                $lines.Add("## [$($s.Ts)] | $($s.Agent) | $($s.Task) | DONE | $($s.Name)")
+                $lines.Add("- Summary: carried forward from docs/history/$name at rotation, still to be audited")
+                $lines.Add("- Files: see docs/history/$name")
+                $lines.Add("- Verify: carried forward from docs/history/$name")
+                $lines.Add("- Cross-model: NO")
+            }
         }
     }
     Write-Utf8File $log (ConvertTo-JoinedLines ([string[]]$lines))

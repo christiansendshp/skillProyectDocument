@@ -14,7 +14,8 @@ exports it), and removes that line. A line is a list of actions separated by " ;
   tryok:<command of project_docs> the same, but a failure does not end the line
   exec:<command line>            runs a command in the project (a test, sed...); its exit code
                                  is the value of {EXIT} in the actions that follow
-  write:<path>=<text>            writes a file in the project; \n in the text is a new line
+  env:<NAME>                     prints NAME=<value>, or NAME=unset (to see what the dispatcher hands over)
+  write:<path>=<text>            writes a file in the project; \n in the text is a new line (only that)
   git:<arguments>                runs git in the project
   limit:<text>                   prints the text and exits 1, like a CLI that hit its quota
   fail:<text>                    prints the text on stderr and exits 1
@@ -36,6 +37,8 @@ $Task = [string]$env:FACTORY_TASK
 $Project = [string]$env:FACTORY_PROJECT
 if (-not $Project) { $Project = "." }
 $ScriptFile = [string]$env:FAKE_CLI_SCRIPT
+$PsExe = (Get-Process -Id $PID).Path
+$IsWin = ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT)
 
 # plain words and "double quoted" strings
 function Split-Words([string]$Text) {
@@ -80,13 +83,18 @@ foreach ($act in @($line -split ' ;; ')) {
             $w = @(Split-Words $payload)
             $cmdArgs = @("-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $Core, $w[0], $Project)
             if ($w.Count -gt 1) { $cmdArgs += $w[1..($w.Count - 1)] }
-            & powershell.exe @cmdArgs
+            & $PsExe @cmdArgs
             $rc = $LASTEXITCODE
             if ($kind -ceq "tryok") { $lastExit = $rc } elseif ($rc -ne 0) { exit 1 }
         }
         "exec" {
-            & cmd.exe /d /s /c ('cd /d "' + $Project + '" && ' + $payload)
+            if ($IsWin) { & cmd.exe /d /s /c ('cd /d "' + $Project + '" && ' + $payload) }
+            else { & /bin/sh -c ('cd "' + $Project + '" && ' + $payload) }
             $lastExit = $LASTEXITCODE
+        }
+        "env" {
+            $v = [Environment]::GetEnvironmentVariable($payload)
+            if ($v) { [Console]::Out.WriteLine("$payload=$v") } else { [Console]::Out.WriteLine("$payload=unset") }
         }
         "write" {
             $eq = $payload.IndexOf("=")
