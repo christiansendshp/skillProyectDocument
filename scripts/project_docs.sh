@@ -4040,7 +4040,7 @@ rotate_log() {
     # Only when a preferred reviewer is set (nobody else audits), and the 20 latest at most, so a
     # queue nobody works off cannot keep the ledger over its limit.
     if factory_on && [ -n "$(factory_setting "Preferred reviewer")" ]; then
-      all_task_states | awk -F'\t' '$2 == "DONE" && $18 != "FAST" && $20 == "NO" && $21 + 0 == 0' | LC_ALL=C sort -t "$(printf '\t')" -k4,4 | tail -n 20 | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base cross audited pdetail rest; do
+      all_task_states | awk -F'\t' '$2 == "DONE" && $18 != "FAST" && $20 == "NO" && $21 + 0 == 0' | LC_ALL=C sort -t "$(printf '\t')" -k4,4 -k1,1 | tail -n 20 | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base cross audited pdetail rest; do
         [ -n "$tid" ] || continue
         echo
         echo "## [$ts] | $agent | $tid | DONE | $name"

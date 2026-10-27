@@ -2657,6 +2657,20 @@ SPEC
   seed_fill "$au" F09-FILL-12 205
   run rotate "$au" >/dev/null 2>&1
   [ "$(grep -c '| F09-E0[12]-T[0-9]* | DONE |' "$au/docs/Agentslog.md")" -eq 20 ] && grep -q '| F09-E02-T44 | DONE |' "$au/docs/Agentslog.md" && ! grep -q '| F09-E02-T24 | DONE |' "$au/docs/Agentslog.md" && ok "$label rotate carries at most the 20 latest closed tasks that wait for an audit" || bad "$label carried: $(grep -c '| F09-E0[12]-T[0-9]* | DONE |' "$au/docs/Agentslog.md")"
+  ip_new r2tie
+  run init "$ip" >/dev/null 2>&1
+  set_setting "$ip" "Preferred reviewer | gemini-qa"
+  tie_i=44
+  while [ "$tie_i" -ge 20 ]; do
+    tie_id="F09-E03-T$tie_i"
+    seed_entry "$ip" "2026-09-15T10:00:00Z" claude-dev "$tie_id" IN_PROGRESS "Tied close $tie_i" '- Summary: w\n- Verify: pending\n- Phase: GREEN\n- Lane: NORMAL\n'
+    seed_entry "$ip" "2026-09-15T10:00:00Z" claude-dev "$tie_id" DONE "Tied close $tie_i" '- Summary: d\n- Files: x\n- Verify: exit=0\n- Cross-model: NO\n'
+    tie_i=$((tie_i - 1))
+  done
+  seed_fill "$ip" F09-FILL-13 205
+  run rotate "$ip" >/dev/null 2>&1
+  tie_got="$(grep '| F09-E03-T[0-9]* | DONE |' "$ip/docs/Agentslog.md" | sed 's/.*| F09-E03-T\([0-9]*\) | DONE.*/\1/' | sort -n | tr '\n' ' ')"
+  [ "$tie_got" = "25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 " ] && ok "$label closed tasks with the same timestamp are carried by task id, the same twenty in both launchers" || bad "$label tied tasks carried: $tie_got"
 
   # ---- the marker of the .gitignore block is found in other writings --------------------------------------------------
   GI_MARK='# project-documentation dispatcher (generated files)'

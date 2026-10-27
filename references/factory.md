@@ -534,11 +534,14 @@ The agent CLIs start without `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `GEMIN
 `GOOGLE_API_KEY` in their environment, so each one uses the login of its subscription; a
 Gemini CLI that signs in with an API key must use another way to sign in. A `Cooldown
 minutes` or `Max runs per day` cell that is not a number takes 60 minutes or no cap, and a
-`Cooldown minutes` of 0 counts as 60. When the pause the dispatcher wants to write is
-refused (for example the task has no working memory) it logs `could not block` or `could
-not pause`, keeps the failure counter and skips that agent on that task, so nothing
-loops; delete the `fails:` row of `.factory/state.md` to try again. Waits are made in
-steps of at most 30 seconds, so `.factory/STOP` is read during a cooldown.
+`Cooldown minutes` of 0 counts as 60. The dispatcher writes `checkpoint` and then the
+pause itself, and the pause can still be refused (a Roadmap Name over ten words, a working
+memory file that is not one). After three failures it then logs `could not block`, keeps
+the failure counter and skips that agent on that task, so nothing loops; delete the
+`fails:` row of `.factory/state.md` to try again. After a quota limit it logs `could not
+pause` and the plan simply waits for its cooldown; the agent runs again when it ends.
+Waits are made in steps of at most 30 seconds, so `.factory/STOP` is read during a
+cooldown.
 
 Log lines all start with `dispatch:`. To retry a pair that failed three times without
 a pause, delete its `fails:` row from `.factory/state.md`.

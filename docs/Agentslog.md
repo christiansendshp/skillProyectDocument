@@ -965,3 +965,55 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 ## [2026-10-27T17:39:32Z] | claude-sonnet-5-5 | F06-E05-T02 | IN_PROGRESS | Add factory evals and adjust six-file evals
 - Summary: retake after the QA round 3 findings
 - Verify: pending
+
+## [2026-10-27T17:53:24Z] | claude-sonnet-5-5 | F06-E04-T03 | REVIEW | Cross-model marker, default reviewers and audits
+- Summary: audit queue bounded by the Preferred reviewer and a cap of 20; see commit 1af17ab
+- Verify: commit 1af17ab; focused runs pass in sh and ps1 (factory cases 135 and 136, dispatcher suite 95 and 93); differential fail=0 in sh and ps1 against 9302b58 with scripts/tests/diff_regression.sh; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T17:53:26Z] | claude-sonnet-5-5 | F06-DEBT-04 | REVIEW | Make the docs lock exclusive and race free
+- Summary: atomic takeover of an old lock; see commit 1af17ab
+- Verify: commit 1af17ab; focused runs pass in sh and ps1 (factory cases 135 and 136, dispatcher suite 95 and 93); differential fail=0 in sh and ps1 against 9302b58 with scripts/tests/diff_regression.sh; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T17:53:28Z] | claude-sonnet-5-5 | F06-E05-T01 | REVIEW | Document factory mode across skill and references
+- Summary: docs corrected after QA round 3; see commit 1af17ab
+- Verify: commit 1af17ab; focused runs pass in sh and ps1 (factory cases 135 and 136, dispatcher suite 95 and 93); differential fail=0 in sh and ps1 against 9302b58 with scripts/tests/diff_regression.sh; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T17:53:31Z] | claude-sonnet-5-5 | F06-E05-T02 | REVIEW | Add factory evals and adjust six-file evals
+- Summary: evals pinned as classic-mode scenarios, eval 57 reproducible; see commit 1af17ab
+- Verify: commit 1af17ab; focused runs pass in sh and ps1 (factory cases 135 and 136, dispatcher suite 95 and 93); differential fail=0 in sh and ps1 against 9302b58 with scripts/tests/diff_regression.sh; exit=0
+- Handoff: claude-qa
+
+## [2026-10-27T18:14:03Z] | claude-qa | F06-E04-T03 | REVIEW | Cross-model marker, default reviewers and audits
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 4 on a frozen copy of 1af17ab; sh and ps1 compared; 210 same-model tasks; exit=0
+- Review: FAIL - rotate carries different tasks in sh and ps1 when closed tasks share a timestamp: sh breaks the tie by task id and ps1 by ledger order; one explicit order is needed
+
+## [2026-10-27T18:14:05Z] | claude-sonnet-5-5 | F06-E04-T03 | IN_PROGRESS | Cross-model marker, default reviewers and audits
+- Summary: retake after the QA round 4 finding
+- Verify: pending
+
+## [2026-10-27T18:34:22Z] | claude-qa | F06-DEBT-04 | REVIEW | Make the docs lock exclusive and race free
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 4 on a frozen copy of 1af17ab; sh and ps1 compared; exit=0
+- Review: FAIL - the lock takeover race is fixed in sh and ps1, but when an old lock cannot be taken over the ps1 loop never ends: its busy bound is a throw inside a try whose catch continues
+
+## [2026-10-27T18:34:24Z] | claude-qa | F06-E05-T01 | REVIEW | Document factory mode across skill and references
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 4 on a frozen copy of 1af17ab; sh and ps1 compared; exit=0
+- Review: FAIL - three statements still false in the dispatcher paragraph (a refused pause after a limit keeps no counter, the no working memory example cannot happen, the API key removal is for four variables, not any)
+
+## [2026-10-27T18:34:26Z] | claude-qa | F06-E05-T02 | REVIEW | Add factory evals and adjust six-file evals
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: QA round 4 on a frozen copy of 1af17ab; sh and ps1 compared; exit=0
+- Review: PASS - evals.json valid, 57 unique ids, every smoke field matches a header, diff_regression.sh ends with fail=0 in sh and ps1 and catches changes in the commands it runs; a nit on the note of eval 35 is fixed before done
+
+## [2026-10-27T18:34:28Z] | claude-sonnet-5-5 | F06-DEBT-04 | IN_PROGRESS | Make the docs lock exclusive and race free
+- Summary: retake after the QA round 4 findings
+- Verify: pending
+
+## [2026-10-27T18:34:30Z] | claude-sonnet-5-5 | F06-E05-T01 | IN_PROGRESS | Document factory mode across skill and references
+- Summary: retake after the QA round 4 findings
+- Verify: pending

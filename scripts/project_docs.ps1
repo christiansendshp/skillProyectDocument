@@ -1303,21 +1303,21 @@ function Add-FeaturesCapability([string]$Id, [string]$Summary, [string]$Verify, 
 # ---------------------------------------------------------------------------
 function Enter-DocsLock {
     $lockDir = Join-Path $DocsDir ".lock"
+    $takeDir = $lockDir + ".takeover"
     $attempts = 0
     while ($true) {
         # cmd's mkdir fails when the directory exists and checks and creates in one call to the
         # system. New-Item checks first and creates after, so two processes could both win.
         & cmd.exe /d /c ('mkdir "' + $lockDir + '" 2>nul') | Out-Null
         if ($LASTEXITCODE -eq 0) { break }
-        # The lock can be released between the Test-Path and the Get-Item: ask again.
+        # The lock can be released between the Test-Path and the Get-Item, so a failure below only
+        # means ask again. An old lock is taken over by one waiter at a time, who reads its age
+        # again inside the takeover: two waiters that saw the same old lock could otherwise both
+        # remove it, and the second would remove the new lock of the first.
         try {
             if (Test-Path -LiteralPath $lockDir -PathType Container) {
                 $age = (Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $lockDir -ErrorAction Stop).LastWriteTimeUtc
                 if ($age.TotalSeconds -ge 30) {
-                    # An old lock is taken over by one waiter at a time, who reads its age again inside the
-                    # takeover: two waiters that saw the same old lock could otherwise both remove it, and the
-                    # second would remove the new lock of the first.
-                    $takeDir = $lockDir + ".takeover"
                     & cmd.exe /d /c ('mkdir "' + $takeDir + '" 2>nul') | Out-Null
                     if ($LASTEXITCODE -eq 0) {
                         try {
@@ -1335,15 +1335,9 @@ function Enter-DocsLock {
                             if ($ageT.TotalSeconds -ge 30) { Remove-Item -LiteralPath $takeDir -Force -Recurse -ErrorAction SilentlyContinue }
                         } catch { }
                     }
-                    $attempts++
-                    if ($attempts -ge 50) { throw "could not acquire docs/.lock (busy); retry" }
-                    Start-Sleep -Milliseconds 100
-                    continue
                 }
             }
-        } catch {
-            continue
-        }
+        } catch { }
         $attempts++
         if ($attempts -ge 50) { throw "could not acquire docs/.lock (busy); retry" }
         Start-Sleep -Milliseconds 100
@@ -4206,7 +4200,12 @@ function Invoke-Rotate {
     # Only when a preferred reviewer is set (nobody else audits), and the 20 latest at most, so a
     # queue nobody works off cannot keep the ledger over its limit.
     if ((Test-FactoryOn) -and (Get-FactorySetting "Preferred reviewer")) {
-        $queue = @(Get-TaskStates | Where-Object { $_.Status -eq "DONE" -and $_.Lane -cne "FAST" -and $_.Cross -ceq "NO" -and -not $_.Audited } | Sort-Object -Property Ts | Select-Object -Last 20)
+        # the 20 latest by timestamp, then by task id, compared as plain characters like sort in sh
+        $byKey = @{}
+        foreach ($c in @(Get-TaskStates | Where-Object { $_.Status -eq "DONE" -and $_.Lane -cne "FAST" -and $_.Cross -ceq "NO" -and -not $_.Audited })) { $byKey["$($c.Ts)`t$($c.Task)"] = $c }
+        $keys = [string[]]@($byKey.Keys)
+        [System.Array]::Sort($keys, [System.StringComparer]::Ordinal)
+        $queue = @($keys | Select-Object -Last 20 | ForEach-Object { $byKey[$_] })
         foreach ($s in $queue) {
             if ($true) {
                 $lines.Add("")

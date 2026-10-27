@@ -90,7 +90,7 @@ Factory mode only (every one refuses to run in a classic project):
 
 `scripts/factory_dispatch.sh` and `scripts/factory_dispatch.ps1` (`<project> [--watch] [--once]`)
 are the dispatcher: they ask `next` for each agent of `.factory/dispatch.md`, launch
-that agent's CLI (without any API key in its environment), detect quota limits in its output, and keep going. They live
+that agent's CLI (without `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `GEMINI_API_KEY` and `GOOGLE_API_KEY` in its environment), detect quota limits in its output, and keep going. They live
 outside the core and are tested with fake CLIs.
 
 Initialization is idempotent and never overwrites existing content —

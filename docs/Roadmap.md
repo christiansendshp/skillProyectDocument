@@ -19,12 +19,12 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E04-T03 | Cross-model marker, default reviewers and audits | Section 4.8; handoff default reviewer by lane; AUDIT entries | Same-model review marked; audit never reopens a task | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T17:29:06Z | F06-E02-T05, F06-E02-T06 | — |
+| F06-E04-T03 | Cross-model marker, default reviewers and audits | Section 4.8; handoff default reviewer by lane; AUDIT entries | Same-model review marked; audit never reopens a task | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T18:14:05Z | F06-E02-T05, F06-E02-T06 | — |
 | F06-E06-T01 | Dispatch config templates and gitignore block | templates/dispatch.md and dispatch-prompt.md; init and migrate add them | Idempotent on a second run; gitignore block not duplicated | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T02:50:52Z | F06-E01-T02 | — |
 | F06-E06-T02 | Dispatcher loop in PowerShell with limit detection | Section 4.9 steps 1 to 6 | All dispatcher smoke cases pass through ps1 | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T17:01:41Z | F06-E06-T01, F06-E01-T04, F06-E04-T03 | — |
 | F06-E06-T03 | Dispatcher loop in sh with identical behavior | Same as the PowerShell loop | Same logs and ledger results as ps1 on the same script | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T17:01:44Z | F06-E06-T02 | — |
 | F06-E06-T04 | Fake CLIs and dispatcher smoke tests | scripts/tests fake_cli in sh and ps1 driven by a script file | Cases 18 to 25 of section 7 pass | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T02:51:01Z | F06-E06-T03 | — |
-| F06-E05-T01 | Document factory mode across skill and references | Files in section 5 | Every new command documented in SKILL, README and workflow | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T17:39:29Z | F06-E06-T04 | — |
+| F06-E05-T01 | Document factory mode across skill and references | Files in section 5 | Every new command documented in SKILL, README and workflow | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T18:34:30Z | F06-E06-T04 | — |
 | F06-E05-T02 | Add factory evals and adjust six-file evals | Section 7 list | evals.json valid; each new eval maps to a smoke case | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T17:39:32Z | F06-E05-T01 | — |
 
 <!-- context:end -->
@@ -127,7 +127,7 @@ task. ID prefix marks the kind: `Fxx-GAP-xx` (missing capability),
 | F05-DEBT-01 | Age rounds differently in sh and PowerShell | Low | F05 | status and the stale checks compute age in whole hours: sh truncates toward zero and PowerShell floors, so an entry timestamped in the future shows 0h in sh and -1h in PowerShell. Only visible with a wrong clock or a hand-written future timestamp | TODO | — | — | — |
 | F05-DEBT-02 | The em dash verify marker is untested in PowerShell | Low | F05 | The smoke test passes arguments to PowerShell through a command string, which mangles a non-ASCII argument, so the em dash verify marker is only exercised through the sh launcher; the PowerShell comparison itself is covered by the other markers | TODO | — | — | — |
 | F05-DEBT-03 | A rotation can fake an instant close | Low | F05 | rotate re-opens a task that was in REVIEW as an IN_PROGRESS entry stamped with the time of its last entry, so a done within 5 minutes of that last entry looks like a task claimed and closed minutes apart. Rare; fix by ignoring carried-forward IN_PROGRESS entries when measuring | TODO | — | — | — |
-| F06-DEBT-04 | Make the docs lock exclusive and race free | Medium | F06 | QA found that the PowerShell lock (New-Item on docs/.lock) is not exclusive, so four parallel learn calls lost a lesson, and that the sh lock can read a vanished directory as stale through the stat -f fallback and stop with File: unbound variable; use an exclusive create and treat an unreadable age as a retry. The dispatcher runs one CLI at a time, so this only matters for people running commands by hand next to it | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T17:29:10Z | — | — |
+| F06-DEBT-04 | Make the docs lock exclusive and race free | Medium | F06 | QA found that the PowerShell lock (New-Item on docs/.lock) is not exclusive, so four parallel learn calls lost a lesson, and that the sh lock can read a vanished directory as stale through the stat -f fallback and stop with File: unbound variable; use an exclusive create and treat an unreadable age as a retry. The dispatcher runs one CLI at a time, so this only matters for people running commands by hand next to it | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T18:34:28Z | — | — |
 
 ## Out of scope
 

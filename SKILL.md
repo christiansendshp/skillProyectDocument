@@ -150,7 +150,9 @@ Read `references/factory.md` once. The cycle needs no question to a person:
    RED) and record the lessons used and learned with `retro` before `done`.
 4. When undecided choose the most reversible option and record it as an ADR. If
    it is irreversible or breaks a rule, add an `Fxx-GAP` row and `pause BLOQUEO`.
-   Never wait for an answer.
+   Never wait for an answer: at a red line (deploys, destructive data operations,
+   secrets, paid services, weaker auth; see `references/factory.md`) pause with
+   `ESPERA_RESPUESTA "RED-LINE: ..."` and take other work.
 5. The commands, after the project path: `next <agent>`, `recall <task-id>`,
    `checkpoint <agent> <task-id> <step> <next>`, `advance <agent> <task-id> <phase>
    <verify> [to-agent]`, `learn <agent> <task-id> <kind> <name> <trigger> <lesson>`,
