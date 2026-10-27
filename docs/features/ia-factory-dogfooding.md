@@ -45,12 +45,13 @@ the mode changed, `check` passed and a second `migrate --factory` changed nothin
 | Largest `context` during the run | 8185 bytes | 8186 bytes (console encoding) | 8192 |
 | `recall` of the normal task in GREEN | 913 bytes, 2 of 3 brain rows | 913 bytes, 2 of 3 | 4096 (`Recall budget bytes`) |
 | `digest` at the end | 405 bytes | 405 bytes | 4096 |
-| `context` of this repository after adopting Factory mode | 7765 bytes | — | 8192 |
+| `context` of this repository after adopting Factory mode | about 7.8 KB (7771 bytes in sh, 7761 in ps1) | see sh | 8192 |
 | `recall` of this task in this repository | 1192 bytes, 3 of 9 brain rows | — | 4096 |
 
-The two `gemini-qa` reviews were one `FAIL` and one that never happened because the quota ran
-out: the second `claude-qa` review is the covered one. The run ended with 17 runs, not with an
-agent waiting for a person.
+`gemini-qa` wrote two reviews (the `PASS` of the spec and the `FAIL` of the code) and its third
+run, the one that hit the quota, wrote none; of the two reviews by `claude-qa` one is the fast
+task and the other the covered review of the normal task. The run ended with 17 runs, not with
+an agent waiting for a person.
 
 ## The real CLIs (step 6)
 
@@ -86,10 +87,11 @@ that repeated each other were merged, `Work branch` and `Test command` were fill
 is confirmed, and the roster has the new roles), `rotate` archived the ledger of 229 entries
 to `docs/history/Agentslog-20261027-001.md`, and `migrate --factory` added the `## Factory`
 section, `docs/Brain.md`, the `docs/specs/` and `docs/brain/tasks/` folders,
-`.factory/dispatch.md` and the `.gitignore` block. `Preferred reviewer` is `claude-qa`. The
+`.factory/dispatch.md` and the `.gitignore` block. `Preferred reviewer` stays empty: the only QA
+agent of this repository has the model of its developer, so an audit would be a self-audit. The
 brain holds the three default lessons and six that this work taught (heredocs and
 backslashes, `git` renames, PowerShell case, atomic locks, focused runs, where the dispatcher
-lives). `check .` passes and `context` is 7765 bytes.
+lives). `check .` passes and `context` is about 7.8 KB.
 
 The last task of the branch, this one, was closed with the Factory rules of the repository
 itself: `checkpoint`, a `handoff` with `exit=0`, a review by `claude-qa`, `retro` with the
@@ -110,3 +112,41 @@ The dogfooding found things the unit-level cases had not:
   `learned none`, git hid renames from the size and test checks, a rotation dropped the audit
   queue, the PowerShell lock was not exclusive: all fixed after the QA reviews (ADR-073 to
   ADR-089).
+
+## Appendix: what the real run left behind (step 6)
+
+The dispatcher output of the four `--once` runs (the line "2 failure(s)" counts the failed
+run that preceded the log below, made while setting the experiment up):
+
+```
+dispatch: run 1: claude-dev on F91-E01-T01
+dispatch: run 1 ok
+dispatch: run 1: gemini-qa on F91-E01-T01
+dispatch: run 1 failed (exit 1), 2 failure(s) for gemini-qa on F91-E01-T01
+dispatch: run 1: claude-qa on F91-E01-T01 (covers gemini-qa)
+dispatch: run 1 ok
+dispatch: run 1: claude-dev on F91-E01-T01
+dispatch: run 1 ok
+```
+
+The output of the real `gemini -p` run, saved by the dispatcher in `.factory/runs/` (the stack
+trace lines are left out):
+
+```
+Error authenticating: IneligibleTierError: This client is no longer supported for Gemini Code
+Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of
+products: https://antigravity.google
+```
+
+The ledger of that project at the end (trimmed to the headers and the lines that matter):
+
+```
+## [..T04:05:34Z] | claude-dev | F91-E01-T01 | IN_PROGRESS | Create the hello file
+- Phase: GREEN / - Lane: FAST / - Base: 8d5d4f3...
+## [..T04:06:03Z] | claude-dev | F91-E01-T01 | REVIEW | Create the hello file
+- Verify: grep -qx hello hello.txt exit=0 / - Handoff: gemini-qa
+## [..T04:07:58Z] | claude-qa | F91-E01-T01 | REVIEW | Create the hello file
+- Review: PASS - hello.txt is exactly 'hello\n'; acceptance met / - Cross-model: NO
+## [..T04:09:03Z] | claude-dev | F91-E01-T01 | DONE | Create the hello file
+- Brain: used none; learned none / - Cross-model: NO
+```

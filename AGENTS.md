@@ -41,11 +41,13 @@ In order, skipping nothing:
    eligible `TODO` row in `## Plan` under the highest-priority open Epic,
    unless the user names another task.
 2. New work: add a row first (`## Plan` or `## Gaps, Bugs & Technical Debt`)
-   with a `Name` (<= 10 words) and the rest in `Description`; the commands
-   copy the Name into the Agentslog entry (`references/workflow.md`).
+   with a `Name` (<= 10 words, descriptive) and the rest in `Description`.
+   The commands refuse a missing or too-long Name and copy it into the
+   Agentslog entry; never retype it (`references/workflow.md`).
 3. `claim` fails on another agent's non-stale `IN_PROGRESS` or `REVIEW`, or a
    `PAUSE` only that agent can resolve. `docs/Agentslog.md` is the source of
-   truth for who holds a task; do not modify work another agent holds.
+   truth for who holds a task and wins over a Roadmap row's Status/Owner
+   cells; do not modify work another agent holds.
 4. To stop early: `pause <agent> <task-id> <category> "<detail>"` (`LIMITE`,
    `ESPERA_RESPUESTA`, `BLOQUEO`, `OTRO`); keep the Acceptance check accurate
    so another agent can resume cold.
@@ -82,7 +84,7 @@ skill's `references/factory.md`.
 | Fast lane max files | 5 |
 | Fast lane max lines | 150 |
 | Fast lane protected paths | prisma/ migrations/ auth/ rls/ security/ |
-| Preferred reviewer | claude-qa |
+| Preferred reviewer | — |
 | Fallback reviewer | — |
 
 - Never ask which task to take: run `next <agent>`; never stay idle.

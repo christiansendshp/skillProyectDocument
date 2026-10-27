@@ -2559,6 +2559,16 @@ cmd_done() {
   if factory_on && ! task_state "$task" >/dev/null 2>&1; then
     die "done failed: $task has no ledger entries; claim it first"
   fi
+  if factory_on; then
+    # BR-009: a task of the normal lane closes from GREEN, which only advance reaches, after a
+    # reviewed spec and failing tests. A task with no phase at all was claimed before the project
+    # moved to Factory mode and is not held to it; the fast lane starts in GREEN.
+    dn_state="$(task_state "$task" 2>/dev/null)" || dn_state=""
+    dn_phase="$(printf '%s' "$dn_state" | cut -f12)"
+    if [ -n "$dn_phase" ] && [ "$dn_phase" != "GREEN" ] && [ "$(printf '%s' "$dn_state" | cut -f18)" != "FAST" ]; then
+      die "done failed: $task is in phase $dn_phase; a task of the normal lane closes from GREEN, after a reviewed spec and failing tests (advance moves it)"
+    fi
+  fi
   vlow="$(printf '%s' "$verify" | tr 'A-Z' 'a-z' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
   case "$vlow" in
     none|n/a|"no run"|ninguno|"—"|unknown)

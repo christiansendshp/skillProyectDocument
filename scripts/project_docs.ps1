@@ -2779,6 +2779,12 @@ function Invoke-Done {
             }
         }
         if ((Test-FactoryOn) -and -not $state) { throw "done failed: $task has no ledger entries; claim it first" }
+        # BR-009: a task of the normal lane closes from GREEN, which only advance reaches, after a
+        # reviewed spec and failing tests. A task with no phase at all was claimed before the project
+        # moved to Factory mode and is not held to it; the fast lane starts in GREEN.
+        if ((Test-FactoryOn) -and $state.Phase -and $state.Phase -cne "GREEN" -and $state.Lane -cne "FAST") {
+            throw "done failed: $task is in phase $($state.Phase); a task of the normal lane closes from GREEN, after a reviewed spec and failing tests (advance moves it)"
+        }
         $vlow = $verify.Trim().ToLowerInvariant()
         if ($vlow -in @("none", "n/a", "no run", "ninguno", [string]$EmDash, "unknown")) {
             [Console]::Error.WriteLine("WARN: verify `"$verify`" says nothing about what was checked")

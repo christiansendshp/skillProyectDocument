@@ -1934,6 +1934,8 @@ SPEC
   rt_proj() {  # rt_proj <name>: a task the spec agent finished and the QA agent passed, ready for retro
     bn_proj "$1"
     run claim "$bn" claude-spec F09-E01-T01 "write the spec" >/dev/null 2>&1
+    # these cases are about the retro and the lessons, not about the phases: the task is put in GREEN
+    seed_entry "$bn" "$(now_ts)" claude-spec F09-E01-T01 IN_PROGRESS "Export invoices as CSV" '- Summary: in GREEN\n- Verify: pending\n- Phase: GREEN\n'
     run checkpoint "$bn" claude-spec F09-E01-T01 "spec done" "review" >/dev/null 2>&1
     run learn "$bn" claude-dev F09-E01-T01 PITFALL "Invoice totals drift when rounding early" "invoice rounding" "Round once at the end of the sum" >/dev/null 2>&1
   }
@@ -2294,6 +2296,7 @@ SPEC
     cm="$WORK/${label}_cm_$1"; rm -rf "$cm"; mkdir -p "$cm"; run init "$cm" >/dev/null 2>&1; drop_template_row "$cm"
     seed_plan_row "$cm" F09-E01-T01 "Cross model task"
     run claim "$cm" claude-spec F09-E01-T01 "work" >/dev/null 2>&1
+    seed_entry "$cm" "$(now_ts)" claude-spec F09-E01-T01 IN_PROGRESS "Cross model task" '- Summary: in GREEN\n- Verify: pending\n- Phase: GREEN\n'
     run checkpoint "$cm" claude-spec F09-E01-T01 "spec" "review" >/dev/null 2>&1
   }
   cm_proj same
@@ -2512,7 +2515,8 @@ SPEC
   assert_success "$label retro none none while the task has no trouble yet" run retro "$bn" claude-spec F09-E01-T01 none none
   run handoff "$bn" claude-spec F09-E01-T01 "spec ready" "exit=0" claude-qa >/dev/null 2>&1
   assert_success "$label the reviewer fails it" run review "$bn" claude-qa F09-E01-T01 FAIL "not yet"
-  run claim "$bn" claude-spec F09-E01-T01 "again" >/dev/null 2>&1
+  # the task is in GREEN, which the spec agent cannot claim: the retake is written into the ledger
+  seed_entry "$bn" "$(now_ts)" claude-spec F09-E01-T01 IN_PROGRESS "Export invoices as CSV" '- Summary: retaken after the FAIL\n- Verify: pending\n- Phase: GREEN\n'
   run handoff "$bn" claude-spec F09-E01-T01 "spec ready again" "exit=0" claude-qa >/dev/null 2>&1
   assert_success "$label the second review passes" run review "$bn" claude-qa F09-E01-T01 PASS "fine" "exit=0"
   brain_refused "done refuses a task that struggled after its retro said learned none" "done failed: F09-E01-T01 had a Review: FAIL, a BLOQUEO or a move back to RED, so its retro cannot say learned none; run learn and retro again" done "$bn" claude-spec F09-E01-T01 "spec" "docs/" "exit=0"
@@ -2747,6 +2751,32 @@ SPEC
   sedi '/^- Spec-sha: /d' "$av/docs/Agentslog.md"
   printf '%s\n' '- A change nobody can compare against' >> "$av/docs/specs/F09-E01-T01.md"
   assert_success "$label a review recorded before the SHA-256 existed has nothing to compare" run advance "$av" claude-spec F09-E01-T01 RED "spec reviewed, exit=0"
+
+  echo "== $label: done closes a normal-lane task only from GREEN (BR-009) =="
+  bn_proj gate
+  run claim "$bn" claude-spec F09-E01-T01 "write the spec" >/dev/null 2>&1
+  run checkpoint "$bn" claude-spec F09-E01-T01 "spec done" "review" >/dev/null 2>&1
+  run handoff "$bn" claude-spec F09-E01-T01 "spec ready" "exit=0" claude-qa >/dev/null 2>&1
+  run review "$bn" claude-qa F09-E01-T01 PASS "fine" "exit=0" >/dev/null 2>&1
+  run retro "$bn" claude-spec F09-E01-T01 none none >/dev/null 2>&1
+  brain_refused "done refuses a normal-lane task that never left SPEC, reviewed or not" "done failed: F09-E01-T01 is in phase SPEC; a task of the normal lane closes from GREEN, after a reviewed spec and failing tests (advance moves it)" done "$bn" claude-spec F09-E01-T01 "spec" "docs/" "exit=0"
+  [ -f "$bn/docs/Roadmap.md" ] && grep -q 'F09-E01-T01' "$bn/docs/Roadmap.md" && ok "$label the row stays in the Roadmap" || bad "$label the row was removed"
+  # a task claimed before the project moved to Factory mode has no phase and is not held to it
+  bn_proj legacy
+  seed_entry "$bn" "$(now_ts)" claude-spec F09-E01-T01 IN_PROGRESS "Export invoices as CSV" '- Summary: claimed before Factory mode\n- Verify: pending\n'
+  run checkpoint "$bn" claude-spec F09-E01-T01 "work" "review" >/dev/null 2>&1
+  run handoff "$bn" claude-spec F09-E01-T01 "ready" "exit=0" claude-qa >/dev/null 2>&1
+  run review "$bn" claude-qa F09-E01-T01 PASS "fine" "exit=0" >/dev/null 2>&1
+  run retro "$bn" claude-spec F09-E01-T01 none none >/dev/null 2>&1
+  assert_success "$label a task claimed before Factory mode (no phase at all) may close" run done "$bn" claude-spec F09-E01-T01 "work" "docs/" "exit=0"
+  # a task that went through advance closes from GREEN (the cases of the evidence block do it with git), and the fast lane starts in GREEN
+  ft_proj gate_fast nogit
+  run claim "$ft" claude-dev F09-E01-T01 "fix it" >/dev/null 2>&1
+  run checkpoint "$ft" claude-dev F09-E01-T01 "started" "fix" >/dev/null 2>&1
+  run handoff "$ft" claude-dev F09-E01-T01 "fixed" "exit=0" claude-qa >/dev/null 2>&1
+  run review "$ft" claude-qa F09-E01-T01 PASS "fast lane ok" "exit=0" >/dev/null 2>&1
+  run retro "$ft" claude-dev F09-E01-T01 none none >/dev/null 2>&1
+  assert_success "$label a fast-lane task closes from GREEN without any advance" run done "$ft" claude-dev F09-E01-T01 "fixed" "src/" "exit=0"
 
 #FACTORY_CASES
 }

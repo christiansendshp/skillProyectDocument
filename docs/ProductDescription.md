@@ -24,12 +24,12 @@
 | BR-001 | `init` never overwrites an existing contract file | CONFIRMED | evals/evals.json #1 |
 | BR-002 | `context` output must stay at or below 8 KiB | CONFIRMED | scripts/project_docs.sh build_context |
 | BR-003 | Every new user-requested task is added to the Roadmap with an ID before execution | HYPOTHESIS | prompt-mejora-skillProyectDocument.md §4 |
-| BR-004 | The six canonical files contain only Markdown (tables and lists), never YAML or JSON | CONFIRMED | ADR-018; `check` rejects the per-entry YAML Roadmap format |
+| BR-004 | The contract files (six, and `docs/Brain.md` in Factory mode) contain only Markdown (tables and lists), never YAML or JSON | CONFIRMED | ADR-018; `check` rejects the per-entry YAML Roadmap format |
 | BR-005 | `done` refuses an empty verify, and `check` fails while any rule above is violated | CONFIRMED | evals/evals.json #11 |
 | BR-006 | The review stage of a task is recorded only in the Agentslog (state REVIEW with optional Handoff and Review lines); the Roadmap Status values and columns never change for it | CONFIRMED | ADR-021; smoke tests, Change 1 and 2 |
 | BR-007 | A project that never uses REVIEW, ASSIGNED or the Agent identity table behaves exactly as before: same check, status, context and rotate output; every new check beyond a refusal only warns | CONFIRMED | differential run against the previous scripts; evals/evals.json #38 |
 | BR-008 | Without a Factory section in AGENTS.md, or with Mode CLASSIC, the scripts behave exactly as before; this restates BR-007 to include Factory mode | CONFIRMED | docs/features/ia-factory.md; differential run against master |
-| BR-009 | In Factory mode no task reaches DONE without a valid spec, RED evidence (exit not zero), GREEN evidence (exit=0), tests unchanged since RED and a review PASS by another agent | CONFIRMED | docs/features/ia-factory.md |
+| BR-009 | In Factory mode no task claimed in that mode reaches DONE without a valid spec, RED evidence (exit not zero), GREEN evidence (exit=0), tests unchanged since RED and a review PASS by another agent; `done` closes a normal-lane task only from GREEN, which only `advance` reaches (a task claimed before the project moved to Factory mode has no phase and is not held to it) | CONFIRMED | docs/features/ia-factory.md |
 | BR-010 | recall never exceeds Recall budget bytes and never cuts a row | CONFIRMED | docs/features/ia-factory.md |
 | BR-011 | The brain never exceeds Brain max entries after rotate | CONFIRMED | docs/features/ia-factory.md |
 | BR-012 | A FAST task never reaches DONE when its diff exceeded the lane limits or touched a protected path | CONFIRMED | docs/features/ia-factory.md |
@@ -39,7 +39,7 @@
 
 | Flow | Start -> outcome | Status |
 |---|---|---|
-| Start a project | `init` creates the six files and links other agent files; `context` gives a bounded start (8 KiB) | CONFIRMED |
+| Start a project | `init` creates the six files (seven in Factory mode) and links other agent files; `context` gives a bounded start (8 KiB) | CONFIRMED |
 | Take and close a task | `claim` before the first edit, work, then `done` (or `pause`); with a reviewer, `handoff` then `review` first; the Agentslog records every state change | CONFIRMED |
 | Validate and archive | `check` gates completion; `rotate` archives an oversized ledger with a SHA-256 check | CONFIRMED |
 
@@ -47,7 +47,7 @@
 
 | Term | Meaning | Status |
 |---|---|---|
-| Contract files | The six canonical files: root `AGENTS.md` plus `Agentslog`, `ProductDescription`, `Stack_Tecnologies`, `Roadmap`, and `Features` under `docs/` | CONFIRMED |
+| Contract files | The six canonical files: root `AGENTS.md` plus `Agentslog`, `ProductDescription`, `Stack_Tecnologies`, `Roadmap`, and `Features` under `docs/`; Factory mode adds `docs/Brain.md` | CONFIRMED |
 | Hot context | The bounded slice that `context` emits, at most 8 KiB | CONFIRMED |
 | Epistemic Status | `CONFIRMED`, `HYPOTHESIS`, or `UNKNOWN`, used on facts in Product and Stack | CONFIRMED |
 | Workflow Status | `TODO`, `IN_PROGRESS`, `PAUSE`, or `DONE`, used on work items in Roadmap | CONFIRMED |
@@ -57,7 +57,7 @@
 
 ## Out of scope
 
-- YAML or JSON inside any of the six canonical files.
+- YAML or JSON inside any of the contract files.
 - A server, database, or hosted service.
 - External memory (MCP servers, vector databases) and embeddings: the brain is Markdown retrieved by keywords.
 - Running agent CLIs in parallel: the dispatcher runs one CLI at a time.

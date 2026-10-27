@@ -191,7 +191,9 @@ used. The next agent runs `claim`.
 | RED or GREEN | SPEC | nothing extra: a wrong test or spec goes back to the spec |
 | GREEN | RED | nothing extra: the tests were wrong |
 
-SPEC to GREEN (no RED) is only allowed when `Require TDD` is `NO`. GREEN to REVIEW is
+`done` closes a task of the normal lane only from GREEN, which only `advance` reaches (BR-009); a fast-lane
+task starts in GREEN, and a task claimed before the project moved to Factory mode has no
+phase and is not held to it. SPEC to GREEN (no RED) is only allowed when `Require TDD` is `NO`. GREEN to REVIEW is
 `handoff` and REVIEW to DONE is `done`. A spec review is the normal `handoff` to a
 reviewer and `review PASS`; the author then retakes the task with `claim`.
 Without git the RED to GREEN gate cannot check that the tests are committed: it
