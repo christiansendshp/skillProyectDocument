@@ -2642,6 +2642,32 @@ function Assert-AdvanceGateRed([string]$Task, [string]$Verify) {
     }
 }
 
+# True when RED has nothing to prove failing (D-08, ADR-091): the spec has scenarios, every
+# one is Level NONE (each already needs a Justification) and the ## Tests section lists no
+# file. A BUG row never qualifies (ADR-030): its RED is a test.
+function Test-AdvanceUntestable([string]$Task) {
+    if ($Task -cmatch '^F[0-9][0-9]-BUG-[0-9][0-9]') { return $false }
+    $spec = Join-Path (Join-Path $DocsDir "specs") "$Task.md"
+    if (-not (Test-Path -LiteralPath $spec -PathType Leaf)) { return $false }
+    $sec = ""
+    $rows = 0
+    $other = 0
+    $tests = 0
+    foreach ($l in @(Get-ContentUtf8 -LiteralPath $spec)) {
+        if ($l.StartsWith("## ")) { $sec = $l; continue }
+        if ($sec -ceq "## Scenarios" -and $l.StartsWith("|")) {
+            $line = $l.Substring(1) -replace '\|[ \t]*$', ''
+            $c = @($line.Split('|') | ForEach-Object { $_.Trim([char[]]@(' ', "`t")) })
+            if ($c[0] -ceq "ID" -or $c[0] -cmatch '^-+$') { continue }
+            $rows++
+            if ($c.Count -lt 5 -or $c[4] -cne "NONE") { $other++ }
+            continue
+        }
+        if ($sec -ceq "## Tests" -and $l.StartsWith("- ")) { $tests++ }
+    }
+    return ($rows -gt 0 -and $other -eq 0 -and $tests -eq 0)
+}
+
 # advance <project> <agent> <task-id> <next-phase> <verify> [to-agent]: moves the
 # task to its next phase, checking the gate of the phase it leaves, and assigns it.
 function Invoke-Advance {
@@ -2689,7 +2715,8 @@ function Invoke-Advance {
         if ($curPhase -ceq "SPEC") {
             Assert-AdvanceGateSpec $task $agent $state
         } elseif ("$($curPhase):$nextPhase" -ceq "RED:GREEN" -and (Test-FactoryYes "Require TDD")) {
-            Assert-AdvanceGateRed $task $verify
+            # a spec of Level NONE only has no test to fail: no Red sha and no test paths are recorded
+            if (-not (Test-AdvanceUntestable $task)) { Assert-AdvanceGateRed $task $verify }
         }
         $name = Assert-ValidName $task "advance"
         $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")

@@ -2417,6 +2417,29 @@ EOF
   fi
 }
 
+# advance_untestable TASK: succeeds when RED has nothing to prove failing (D-08, ADR-091): the
+# spec has scenarios, every one is Level NONE (each already needs a Justification) and the
+# ## Tests section lists no file. A BUG row never qualifies (ADR-030): its RED is a test.
+advance_untestable() {
+  case "$1" in F[0-9][0-9]-BUG-[0-9][0-9]*) return 1 ;; esac
+  [ -f "$DOCS_DIR/specs/$1.md" ] || return 1
+  clean_stream < "$DOCS_DIR/specs/$1.md" | awk '
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    /^## / { sec=$0; next }
+    sec == "## Scenarios" && /^\|/ {
+      line=$0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line)
+      cn=split(line, c, "|")
+      for (i=1; i<=cn; i++) c[i]=trim(c[i])
+      if (c[1] == "ID" || c[1] ~ /^-+$/) next
+      rows++
+      if (c[5] != "NONE") other++
+      next
+    }
+    sec == "## Tests" && /^- / { tests++ }
+    END { exit !(rows > 0 && other == 0 && tests == 0) }
+  '
+}
+
 # advance <project> <agent> <task-id> <next-phase> <verify> [to-agent]: moves the
 # task to its next phase, checking the gate of the phase it leaves, and assigns it.
 cmd_advance() {
@@ -2464,7 +2487,8 @@ cmd_advance() {
   if [ "$cur_phase" = "SPEC" ]; then
     advance_gate_spec "$task" "$agent"
   elif [ "$cur_phase:$next_phase" = "RED:GREEN" ] && factory_yes "Require TDD"; then
-    advance_gate_red "$task" "$verify"
+    # a spec of Level NONE only has no test to fail: no Red sha and no test paths are recorded
+    if ! advance_untestable "$task"; then advance_gate_red "$task" "$verify"; fi
   fi
   name="$(require_valid_name "$task" advance)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"

@@ -1606,6 +1606,71 @@ SPEC
   assert_success "$label Require TDD NO lets a reviewed spec go straight to GREEN" run advance "$av" claude-spec F09-E01-T01 GREEN "spec reviewed, exit=0"
   grep -q 'moved to GREEN, assigned to claude-dev$' "$WORK/.out" && ok "$label the GREEN phase goes to the DEV agent without RED" || bad "$label no-TDD output wrong: $(cat "$WORK/.out")"
 
+  echo "== $label: a spec whose scenarios are all Level NONE reaches GREEN with no failing test (D-08, ADR-091) =="
+  mkspec_none() {  # mkspec_none <project> <TASK-ID> [listed test path]: a valid spec whose only scenario is Level NONE; it lists a test file only when one is given
+    cat > "$1/docs/specs/$2.md" <<SPEC
+# Spec $2 — Document the export command
+
+## Summary
+
+- Goal: Document the export command in the README
+- Rules: BR-020
+- Tags: readme export docs/
+<!-- context:end -->
+
+## Scenarios
+
+| ID | Given | When | Then | Level | Justification |
+|---|---|---|---|---|---|
+| S01 | The README has no export section | A maintainer reads it | The command is documented | NONE | Docs only, reviewed by the QA agent |
+
+## Tests
+
+${3:+- $3 (S01)}
+
+## Out of scope
+
+- Other commands
+SPEC
+  }
+  none_proj() {  # none_proj <name> <TASK-ID> [listed test path]: a Factory project with a reviewed all-NONE spec, advanced to RED and checkpointed by the test agent
+    av="$WORK/${label}_nn_$1"; rm -rf "$av"; mkdir -p "$av"; run init "$av" >/dev/null 2>&1
+    seed_plan_row "$av" "$2" "Document the export command"
+    run claim "$av" claude-spec "$2" "write the spec" >/dev/null 2>&1
+    mkspec_none "$av" "$2" "${3:-}"
+    run checkpoint "$av" claude-spec "$2" "spec written" "ask for review" >/dev/null 2>&1
+    run handoff "$av" claude-spec "$2" "spec ready" "exit=0" claude-qa >/dev/null 2>&1
+    run review "$av" claude-qa "$2" PASS "spec checked" "exit=0" >/dev/null 2>&1
+    run claim "$av" claude-spec "$2" "advance it" >/dev/null 2>&1
+    run advance "$av" claude-spec "$2" RED "spec reviewed, exit=0" >/dev/null 2>&1
+    run claim "$av" claude-test "$2" "no tests apply" >/dev/null 2>&1
+    run checkpoint "$av" claude-test "$2" "nothing to test" "move to GREEN" >/dev/null 2>&1
+  }
+  none_proj n_ok F09-E01-T01
+  assert_success "$label an all-NONE spec is valid" run check "$av"
+  git -C "$av" init -q >/dev/null 2>&1
+  assert_success "$label advance moves an all-NONE spec from RED to GREEN with no failing test" run advance "$av" claude-test F09-E01-T01 GREEN "docs only, no tests apply, exit=0"
+  grep -q '^project_docs advance: F09-E01-T01 moved to GREEN, assigned to claude-dev$' "$WORK/.out" && ok "$label the GREEN phase goes to the DEV agent" || bad "$label GREEN output wrong: $(cat "$WORK/.out")"
+  av_entry="$(awk '/^## \[/ { buf=""; } { buf = buf $0 "\n" } END { printf "%s", buf }' "$av/docs/Agentslog.md" | tr -d '\r')"
+  printf '%s\n' "$av_entry" | grep -q '^- Phase: GREEN$' && ! printf '%s\n' "$av_entry" | grep -q '^- Red:\|^- Tests:' && ok "$label the entry records GREEN and no Red sha or test paths" || bad "$label NONE entry wrong: $av_entry"
+  run claim "$av" claude-dev F09-E01-T01 "write the docs" >/dev/null 2>&1
+  run checkpoint "$av" claude-dev F09-E01-T01 "docs written" "review" >/dev/null 2>&1
+  assert_success "$label a GREEN task with no tests hands off" run handoff "$av" claude-dev F09-E01-T01 "docs written" "README read, exit=0" claude-qa
+  assert_success "$label its review PASS needs no 'tests unchanged' note" run review "$av" claude-qa F09-E01-T01 PASS "the README documents the command" "exit=0"
+  run retro "$av" claude-dev F09-E01-T01 none none >/dev/null 2>&1
+  assert_success "$label a task with an all-NONE spec closes from GREEN" run done "$av" claude-dev F09-E01-T01 "docs written" "README.md" "exit=0"
+  assert_success "$label check passes after it" run check "$av"
+
+  none_proj n_listed F09-E01-T01 tests/docs/readme.spec.sh
+  adv_refused "an all-NONE spec that lists a test file still needs it to fail first" "advance failed: RED needs failing tests, but the verify says exit=0" claude-test F09-E01-T01 GREEN "docs only, exit=0"
+  none_proj n_bug F09-BUG-01
+  adv_refused "a BUG row never takes the Level NONE way: its RED is a test that reproduces it" "advance failed: RED needs failing tests, but the verify says exit=0" claude-test F09-BUG-01 GREEN "docs only, exit=0"
+  adv_refused "a BUG row with no test listed is refused too" "advance failed: docs/specs/F09-BUG-01.md ## Tests lists no test file" claude-test F09-BUG-01 GREEN "exit=1"
+  red_proj n_mixed
+  mv "$av/tests/billing/export.spec.sh" "$WORK/.test_keep"
+  adv_refused "a spec with a testable scenario is not exempt: S01 and S02 are UNIT" "advance failed: test file 'tests/billing/export.spec.sh' does not exist" claude-test F09-E01-T01 GREEN "exit=1"
+  mv "$WORK/.test_keep" "$av/tests/billing/export.spec.sh"
+
   echo "== $label: spec and working memory edge cases found in review (F06-E02-T01, F06-E03-T02) =="
   # a test path with a parenthesis, a BOM, blank cells, zero-cell rows and files that are not specs
   sp_proj rt_paren

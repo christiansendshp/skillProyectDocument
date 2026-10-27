@@ -6,7 +6,7 @@ used, `rotate` archives the least used rows when the file passes its cap.
 
 ## Operational summary
 
-- Entries: 9 of 80
+- Entries: 10 of 80
 - Last gc: —
 
 <!-- context:end -->
@@ -24,3 +24,4 @@ used, `rotate` archives the least used rows when the file passes its cap.
 | LRN-007 | Run every case through both launchers and focus the runs | PATTERN | smoke test sh ps1 parity focus | Write each case once for sh and ps1, run only the new block while iterating (SMOKE_ONLY), and the full smoke once at the end. | log:F06-E05-T03 | HYPOTHESIS | 0 | — |
 | LRN-008 | Where the dispatcher and its tests live | MAP | dispatcher dogfood fake cli diff regression | scripts/factory_dispatch.sh and .ps1 are the dispatcher; scripts/tests has fake_cli, dogfood.sh and diff_regression.sh; SMOKE_ONLY=dispatch runs its cases. | log:F06-E05-T03 | HYPOTHESIS | 0 | — |
 | LRN-009 | A lock created after a test is not exclusive | PITFALL | lock mkdir exclusive race takeover docs | Create the lock with one atomic call (mkdir), and take an old lock over behind a marker that reads its age again. | log:F06-E05-T03 | HYPOTHESIS | 0 | — |
+| LRN-010 | Try a new gate on tasks that lack its path | PITFALL | gate done advance exception none bug fast lane | Before closing a gate that forces every task through a phase, walk the tasks with no such path (Level NONE, BUG, fast lane, started before Factory mode) and give each an explicit way through or a documented refusal. | log:F06-E05-T03 | HYPOTHESIS | 0 | — |

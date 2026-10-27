@@ -45,8 +45,8 @@ the mode changed, `check` passed and a second `migrate --factory` changed nothin
 | Largest `context` during the run | 8185 bytes | 8186 bytes (console encoding) | 8192 |
 | `recall` of the normal task in GREEN | 913 bytes, 2 of 3 brain rows | 913 bytes, 2 of 3 | 4096 (`Recall budget bytes`) |
 | `digest` at the end | 405 bytes | 405 bytes | 4096 |
-| `context` of this repository after adopting Factory mode | about 7.8 KB (7771 bytes in sh, 7761 in ps1) | see sh | 8192 |
-| `recall` of this task in this repository | 1192 bytes, 3 of 9 brain rows | — | 4096 |
+| `context` of this repository after adopting Factory mode | 7771 bytes right after adopting it; 8078 while the last task waited for its review, already showing only the latest entry (ADR-080) | 7761; 8066 | 8192 |
+| `recall` of this task in this repository | about 1.2 KB (1174 bytes at the end), 3 of 9 brain rows | — | 4096 |
 
 `gemini-qa` wrote two reviews (the `PASS` of the spec and the `FAIL` of the code) and its third
 run, the one that hit the quota, wrote none; of the two reviews by `claude-qa` one is the fast
@@ -91,7 +91,7 @@ section, `docs/Brain.md`, the `docs/specs/` and `docs/brain/tasks/` folders,
 agent of this repository has the model of its developer, so an audit would be a self-audit. The
 brain holds the three default lessons and six that this work taught (heredocs and
 backslashes, `git` renames, PowerShell case, atomic locks, focused runs, where the dispatcher
-lives). `check .` passes and `context` is about 7.8 KB.
+lives). `check .` passes and `context` is 7771 bytes (sh) right after the adoption.
 
 The last task of the branch, this one, was closed with the Factory rules of the repository
 itself: `checkpoint`, a `handoff` with `exit=0`, a review by `claude-qa`, `retro` with the
@@ -112,6 +112,10 @@ The dogfooding found things the unit-level cases had not:
   `learned none`, git hid renames from the size and test checks, a rotation dropped the audit
   queue, the PowerShell lock was not exclusive: all fixed after the QA reviews (ADR-073 to
   ADR-089).
+- The review of this report found that a task whose scenarios are all `Level: NONE` (docs, config,
+  infra) could not reach GREEN, and therefore could not be closed once `done` required GREEN
+  (ADR-090): `advance` now lets RED go to GREEN with no failing test when every scenario is `NONE`
+  and no test file is listed, except for a `Fxx-BUG-xx` row (ADR-091).
 
 ## Appendix: what the real run left behind (step 6)
 

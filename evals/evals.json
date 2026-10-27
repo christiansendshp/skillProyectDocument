@@ -681,6 +681,19 @@
         "The classic AUDIT status is still invalid"
       ],
       "smoke": "a classic fixture behaves as before, with no environment at all (BR-008)"
+    },
+    {
+      "id": 58,
+      "prompt": "In a Factory project, take a documentation task whose spec has one scenario of Level NONE with a Justification and an empty ## Tests through the normal lane to DONE; then try the same spec when the task is a BUG row, when the spec also lists a test file, and when one scenario is UNIT.",
+      "expected_output": "advance moves the all-NONE spec from RED to GREEN with no failing test and records neither a Red sha nor test paths; handoff, review PASS and done still need exit=0 and an independent review, and done closes the task from GREEN. A BUG row, a spec that lists a test file and a spec with a testable scenario keep the failing-test gate.",
+      "files": [],
+      "expectations": [
+        "The RED to GREEN entry has no - Red: and no - Tests: line",
+        "done closes the task after review PASS and retro, and check stays OK",
+        "The BUG row is refused with RED needs failing tests, but the verify says exit=0",
+        "A spec that lists a test file is still refused with exit=0 at RED"
+      ],
+      "smoke": "a spec whose scenarios are all Level NONE reaches GREEN with no failing test (D-08, ADR-091)"
     }
   ]
 }

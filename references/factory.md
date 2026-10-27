@@ -123,7 +123,9 @@ Work that goes through the SPEC phase has an executable spec in
 - `## Scenarios`, a table `ID | Given | When | Then | Level | Justification`.
   IDs are `S01`, `S02`, ... (unique). `Level` is `UNIT`, `INTEGRATION`,
   `CONTRACT`, `E2E` or `NONE`; each scenario has one level (one behavior, one
-  level). `NONE` needs a `Justification` (docs, config, infra).
+  level). `NONE` needs a `Justification` (docs, config, infra). A task whose scenarios are all
+  `NONE`, with an empty `## Tests`, goes through the normal lane with no failing test; the review
+  of the code and `exit=0` at handoff and `done` still apply.
 - `## Tests`, one line per test file: `- path/to/file.spec (S01, S02)`. It may
   be empty until the RED phase; every scenario id it names must exist, and the path
   must be relative and inside the project (no leading slash, no drive letter, no `..`
@@ -187,7 +189,7 @@ used. The next agent runs `claim`.
 | From | To | What the script checks |
 |---|---|---|
 | SPEC | RED | `docs/specs/<TASK-ID>.md` exists, passes the spec rules and has no `UNKNOWN` left; the last review of the spec was `PASS` from an agent other than the one advancing, and the spec is still the one that review saw: `handoff` of a spec records its SHA-256 (`- Spec-sha:`) and a changed file needs a new handoff (`Independent review` `NO` drops both) |
-| RED | GREEN | the verify has `exit=N` with N not 0; the spec lists test files; they exist and, with git, are committed and unchanged; the entry records `- Red: <sha>` and `- Tests: <paths>` |
+| RED | GREEN | the verify has `exit=N` with N not 0; the spec lists test files; they exist and, with git, are committed and unchanged; the entry records `- Red: <sha>` and `- Tests: <paths>`. A spec whose scenarios are all `Level: NONE` and whose `## Tests` is empty has no test to fail: its RED to GREEN needs nothing of this and records neither (ADR-091); a `Fxx-BUG-xx` row never takes this way |
 | RED or GREEN | SPEC | nothing extra: a wrong test or spec goes back to the spec |
 | GREEN | RED | nothing extra: the tests were wrong |
 
