@@ -1698,6 +1698,7 @@ SPEC
   assert_success "$label review PASS with git needs no note about the tests" run review "$av" claude-qa F09-E01-T01 PASS "looks good" "exit=0"
   refused "done needs an exit marker" "done failed: the verify needs exit=N (exit=0 when the checks pass)" done "$av" claude-dev F09-E01-T01 "implemented" "src/" "all green"
   refused "done refuses a failing verify" "done failed: the verify says exit=1, not exit=0" done "$av" claude-dev F09-E01-T01 "implemented" "src/" "exit=1"
+  run retro "$av" claude-dev F09-E01-T01 none none >/dev/null 2>&1
   assert_success "$label done closes a reviewed task with exit=0" run done "$av" claude-dev F09-E01-T01 "implemented" "src/" "suite passes, exit=0"
 
   red_proj h_red
@@ -1832,6 +1833,434 @@ SPEC
   assert_success "$label rotate runs on a classic ledger with reviewed tasks" run rotate "$ip"
   ! grep -Eq '^- (Phase|Spec-pass|Red|Tests|Attempts):' "$ip/docs/Agentslog.md" && ok "$label classic rotate carries no Factory line" || bad "$label classic rotate carried: $(grep -E '^- (Phase|Spec-pass|Red|Tests|Attempts):' "$ip/docs/Agentslog.md" | tr '\n' ' ')"
   grep -q '^- Review: PASS - carried forward' "$ip/docs/Agentslog.md" && grep -q '^- Review: FAIL - carried forward' "$ip/docs/Agentslog.md" && ok "$label classic rotate still carries the reviews" || bad "$label classic reviews lost"
+
+  echo "== $label: recall, learn, retro and brain gc (F06-E03-T03, F06-E03-T04, F06-E03-T05) =="
+  bn_proj() {  # bn_proj <name>: a Factory project with one task whose row has real words in its description
+    bn="$WORK/${label}_bn_$1"; rm -rf "$bn"; mkdir -p "$bn"; run init "$bn" >/dev/null 2>&1
+    seed_plan_row "$bn" F09-E01-T01 "Export invoices as CSV"
+    seed_replace "$bn/docs/Roadmap.md" "| F09-E01-T01 | Export invoices as CSV | details | works |" "| F09-E01-T01 | Export invoices as CSV | Export the invoice list from billing as a CSV file | Totals match |"
+    bnb="$bn/docs/Brain.md"
+  }
+  set_setting() {  # set_setting <project> "<Name> | <Value>": adds a row right after Mode; the latest one wins
+    ss_f="$1/AGENTS.md"
+    awk -v row="| $2 |" '{ print } /^\| Mode \| FACTORY \|$/ { print row }' "$ss_f" > "$ss_f.tmp" && mv "$ss_f.tmp" "$ss_f"
+  }
+  brain_refused() {  # brain_refused <description> <expected text> <command...>
+    br_desc="$1"; br_want="$2"; shift 2
+    br_before="$(cat "$bnb" 2>/dev/null | cksum)"
+    assert_failure "$label $br_desc" run "$@"
+    out_has "$br_want" && ok "$label $br_desc: the message names it" || bad "$label $br_desc: text wrong, wanted [$br_want]: $(cat "$WORK/.out")"
+    [ "$(cat "$bnb" 2>/dev/null | cksum)" = "$br_before" ] && ok "$label $br_desc: the brain is untouched" || bad "$label $br_desc: the brain changed"
+  }
+
+  # ---- learn ------------------------------------------------------------------------------------------
+  bn_proj l_main
+  assert_success "$label learn adds a lesson to the brain" run learn "$bn" claude-dev F09-E01-T01 PITFALL "Invoice totals drift when rounding early" "Invoice Rounding" "Round once at the end of the sum"
+  grep -q '^project_docs learn: LRN-004 added$' "$WORK/.out" && ok "$label learn says which id it used" || bad "$label learn output wrong: $(cat "$WORK/.out")"
+  grep -qxF '| LRN-004 | Invoice totals drift when rounding early | PITFALL | invoice rounding | Round once at the end of the sum | log:F09-E01-T01 | HYPOTHESIS | 0 | — |' "$bnb" && ok "$label the new row has the trigger in lower case, the task as evidence and no hits" || bad "$label row wrong: $(grep LRN-004 "$bnb")"
+  grep -q '^- Entries: 4 of 80$' "$bnb" && ok "$label the entry count in the summary follows" || bad "$label summary count wrong: $(grep Entries: "$bnb")"
+  assert_success "$label the brain with the new row passes check" run check "$bn"
+  assert_success "$label a second lesson gets the next id" run learn "$bn" claude-dev F09-E01-T01 MAP "Billing module map" "src/billing/ billing" "Billing code lives in src/billing"
+  grep -q 'LRN-005 added' "$WORK/.out" && ok "$label ids go up by one" || bad "$label second id wrong: $(cat "$WORK/.out")"
+  assert_success "$label a DEFAULT lesson may fire on every task" run learn "$bn" claude-dev F09-E01-T01 DEFAULT "Prefer small commits" "*" "Commit each phase on its own"
+  mkdir -p "$bn/docs/history" && printf '| LRN-020 | Archived row | PATTERN | x | y | z | HYPOTHESIS | 0 | — |\n' > "$bn/docs/history/brain-archive-20260101-001.md"
+  assert_success "$label an archived id is never reused" run learn "$bn" claude-dev F09-E01-T01 RECIPE "Run the export spec first" "export csv" "Run one spec file before the suite"
+  grep -q 'LRN-021 added' "$WORK/.out" && ok "$label the next id is above the archived ones" || bad "$label id after archive wrong: $(cat "$WORK/.out")"
+  brain_refused "learn refuses a bar in a text" "learn failed: no argument may contain a vertical bar" learn "$bn" claude-dev F09-E01-T01 PITFALL "bad|name" "x" "y"
+  brain_refused "learn refuses an unknown kind" "learn failed: kind must be PITFALL, PATTERN, RECIPE, DEFAULT or MAP" learn "$bn" claude-dev F09-E01-T01 TIP "A name" "x" "y"
+  brain_refused "learn refuses a name over ten words" "learn failed: the name is 11 words, over the 10-word limit" learn "$bn" claude-dev F09-E01-T01 PITFALL "one two three four five six seven eight nine ten eleven" "x" "y"
+  brain_refused "learn refuses an empty trigger" "learn failed: the trigger is empty" learn "$bn" claude-dev F09-E01-T01 PITFALL "A name" " " "y"
+  brain_refused "learn refuses an empty lesson" "learn failed: the lesson is empty" learn "$bn" claude-dev F09-E01-T01 PITFALL "A name" "x" " "
+  brain_refused "learn keeps the * trigger for DEFAULT lessons" "learn failed: the trigger * is only for DEFAULT lessons" learn "$bn" claude-dev F09-E01-T01 PITFALL "Another name" "*" "y"
+  brain_refused "learn refuses a task that does not exist" "learn failed: F99-E99-T99 is not a task of this project" learn "$bn" claude-dev F99-E99-T99 PITFALL "Yet another" "x" "y"
+  brain_refused "learn refuses a name the brain already has" "learn failed: LRN-004 already has the name \"invoice TOTALS drift when rounding early\"" learn "$bn" claude-dev F09-E01-T01 PITFALL "invoice TOTALS drift when rounding early" "x" "y"
+  brain_refused "learn needs all its arguments" "learn requires: agent task-id kind name trigger lesson" learn "$bn" claude-dev F09-E01-T01 PITFALL "A name"
+  bn_proj l_cap
+  set_setting "$bn" "Brain max entries | 4"
+  assert_success "$label learn works up to the limit" run learn "$bn" claude-dev F09-E01-T01 PITFALL "Fourth row" "x" "y"
+  brain_refused "learn refuses past Brain max entries" "learn failed: the brain already has 4 entries (Brain max entries is 4); run rotate to archive the least used" learn "$bn" claude-dev F09-E01-T01 PITFALL "Fifth row" "x" "y"
+  ip_new l_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  assert_failure "$label learn does not run in classic mode" run learn "$ip" a F09-E01-T01 PITFALL "A name" "x" "y"
+  out_has "learn needs Factory mode" && ok "$label classic mode says so" || bad "$label classic learn text wrong: $(cat "$WORK/.out")"
+
+  # ---- recall ----------------------------------------------------------------------------------------------
+  bn_proj rc_main
+  run claim "$bn" claude-spec F09-E01-T01 "write the spec" >/dev/null 2>&1
+  mkspec "$bn" F09-E01-T01
+  run checkpoint "$bn" claude-spec F09-E01-T01 "wrote the parser" "wire the command" >/dev/null 2>&1
+  run learn "$bn" claude-dev F09-E01-T01 PITFALL "Invoice totals drift when rounding early" "invoice rounding" "Round once at the end of the sum" >/dev/null 2>&1
+  run learn "$bn" claude-dev F09-E01-T01 MAP "Billing module map" "src/billing/ billing" "Billing code lives in src/billing" >/dev/null 2>&1
+  run learn "$bn" claude-dev F09-E01-T01 RECIPE "Run only the export tests first" "export csv" "Run one spec file before the suite" >/dev/null 2>&1
+  run learn "$bn" claude-dev F09-E01-T01 PITFALL "Payroll batch size limit" "payroll batch" "Batches over 500 rows time out" >/dev/null 2>&1
+  run learn "$bn" claude-dev F09-E01-T01 PATTERN "A regression test for every bug" "regression" "Write the failing test first" >/dev/null 2>&1
+  seed_replace "$bnb" "Run one spec file before the suite | log:F09-E01-T01 | HYPOTHESIS | 0 |" "Run one spec file before the suite | log:F09-E01-T01 | HYPOTHESIS | 3 |"
+  assert_success "$label recall prints the task, the spec summary, the working memory and the matching brain rows" run recall "$bn" F09-E01-T01
+  tr -d '\r' < "$WORK/.out" | grep -v '^- Updated:' > "$WORK/.recall"
+  printf '%s\n' "## Task" "- ID: F09-E01-T01" "- Name: Export invoices as CSV" "- Description: Export the invoice list from billing as a CSV file" "- Acceptance check: Totals match" "- Status: IN_PROGRESS; Owner: $(grep -E '^\| F09-E01-T01 \|' "$bn/docs/Roadmap.md" | awk -F'|' '{ o=$7; gsub(/^ +| +$/, "", o); print o }'); Depends on: —" "## Spec summary" "- Goal: Let a user export the invoice list as CSV" "- Rules: BR-020" "- Tags: invoice export csv src/billing/" "## Now" "- Step: wrote the parser" "- Next: wire the command" "- Attempts: 0" "## Brain" \
+    "| LRN-006 | Run only the export tests first | RECIPE | export csv | Run one spec file before the suite | log:F09-E01-T01 | HYPOTHESIS | 3 | — |" \
+    "| LRN-005 | Billing module map | MAP | src/billing/ billing | Billing code lives in src/billing | log:F09-E01-T01 | HYPOTHESIS | 0 | — |" \
+    "$(grep '^| LRN-001 ' "$bnb")" "$(grep '^| LRN-002 ' "$bnb")" \
+    "| LRN-004 | Invoice totals drift when rounding early | PITFALL | invoice rounding | Round once at the end of the sum | log:F09-E01-T01 | HYPOTHESIS | 0 | — |" \
+    "recall: 5 of 8 brain entries shown" > "$WORK/.golden"
+  golden_eq "$WORK/.recall" && ok "$label recall output: matching rows only, best score first, hits then id break ties" || { bad "$label recall output differs"; diff "$WORK/.golden" "$WORK/.recall" | head -10; }
+  cp "$WORK/.recall" "$WORK/.recall1"
+  run recall "$bn" F09-E01-T01 >/dev/null 2>&1; run recall "$bn" F09-E01-T01 > "$WORK/.out" 2>&1
+  tr -d '\r' < "$WORK/.out" | grep -v '^- Updated:' | cmp -s - "$WORK/.recall1" && ok "$label recall is deterministic" || bad "$label recall changed between two runs"
+  set_setting "$bn" "Recall budget bytes | 1000"
+  assert_success "$label recall with a small budget still succeeds" run recall "$bn" F09-E01-T01
+  rbytes="$(tr -d '\r' < "$WORK/.out" | wc -c | tr -d ' ')"
+  [ "$rbytes" -le 1000 ] && ok "$label recall output is $rbytes bytes, within the budget of 1000" || bad "$label recall output is $rbytes bytes, over 1000"
+  rshown="$(tr -d '\r' < "$WORK/.out" | tail -n 1 | sed 's/^recall: \([0-9]*\) of .*/\1/')"
+  rrows="$(tr -d '\r' < "$WORK/.out" | grep -c '^| LRN-')"
+  [ "$rshown" = "$rrows" ] && [ "$rshown" -ge 1 ] && [ "$rshown" -lt 5 ] && ok "$label whole rows were dropped from the end, $rshown of the 5 matches stay, the count agrees" || bad "$label rows shown $rshown but $rrows printed"
+  tr -d '\r' < "$WORK/.out" | grep '^| LRN-' | while IFS= read -r rline; do grep -qxF -- "$rline" "$bnb" || echo "cut: $rline"; done > "$WORK/.cut"
+  [ ! -s "$WORK/.cut" ] && ok "$label every printed row is a whole row of the brain" || bad "$label a row was cut: $(cat "$WORK/.cut")"
+  set_setting "$bn" "Recall budget bytes | 100"
+  assert_failure "$label a budget the task parts do not fit in is an error" run recall "$bn" F09-E01-T01
+  out_has "over the Recall budget bytes of 100; shorten the spec Summary or the working memory" && ok "$label the error tells what to shorten" || bad "$label budget error text wrong: $(cat "$WORK/.out")"
+  bn_proj rc_bare
+  assert_success "$label recall works for a task with no spec and no working memory" run recall "$bn" F09-E01-T01
+  out_has "(no spec yet)" && out_has "(no working memory yet)" && ok "$label the missing parts are said, not skipped" || bad "$label bare recall wrong: $(cat "$WORK/.out")"
+  tr -d '\r' < "$WORK/.out" | tail -n 1 | grep -q '^recall: [0-9]* of 3 brain entries shown$' && ok "$label the last line counts the brain rows" || bad "$label last line wrong: $(tail -n 2 "$WORK/.out")"
+  assert_failure "$label recall refuses a task that is not in the Roadmap" run recall "$bn" F99-E99-T99
+  out_has "recall failed: F99-E99-T99 not found in docs/Roadmap.md" && ok "$label the missing task is named" || bad "$label recall missing task text: $(cat "$WORK/.out")"
+  ip_new rc_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  assert_failure "$label recall does not run in classic mode" run recall "$ip" F01-E01-T01
+  out_has "recall needs Factory mode" && ok "$label classic mode says so" || bad "$label classic recall text wrong: $(cat "$WORK/.out")"
+
+  # ---- retro and done --------------------------------------------------------------------------------------
+  rt_proj() {  # rt_proj <name>: a task the spec agent finished and the QA agent passed, ready for retro
+    bn_proj "$1"
+    run claim "$bn" claude-spec F09-E01-T01 "write the spec" >/dev/null 2>&1
+    run checkpoint "$bn" claude-spec F09-E01-T01 "spec done" "review" >/dev/null 2>&1
+    run learn "$bn" claude-dev F09-E01-T01 PITFALL "Invoice totals drift when rounding early" "invoice rounding" "Round once at the end of the sum" >/dev/null 2>&1
+  }
+  rt_review() {
+    run handoff "$bn" claude-spec F09-E01-T01 "spec ready" "exit=0" claude-qa >/dev/null 2>&1
+    run review "$bn" claude-qa F09-E01-T01 PASS "fine" "exit=0" >/dev/null 2>&1
+  }
+  rt_proj r_main
+  wmr="$bn/docs/brain/tasks/F09-E01-T01.md"
+  brain_refused "retro refuses an id that is not a lesson id" "retro failed: \"banana\" is not a lesson id like LRN-001 or the word none" retro "$bn" claude-spec F09-E01-T01 banana none
+  brain_refused "retro refuses a used lesson that does not exist" "retro failed: LRN-777 is not in docs/Brain.md" retro "$bn" claude-spec F09-E01-T01 LRN-777 none
+  brain_refused "retro refuses a learned lesson that is from another task" "retro failed: LRN-002 was not learned for F09-E01-T01 (its Evidence is seed)" retro "$bn" claude-spec F09-E01-T01 none LRN-002
+  brain_refused "retro refuses a task that is not in the project" "retro failed: F99-E99-T99 is not a task of this project" retro "$bn" claude-spec F99-E99-T99 none none
+  rt_review
+  brain_refused "done in Factory mode needs a retro" "done failed: F09-E01-T01 has no retro yet; run retro first" done "$bn" claude-spec F09-E01-T01 "spec" "docs/" "exit=0"
+  assert_success "$label retro records the used and the learned lessons, sorted and without repeats" run retro "$bn" claude-spec F09-E01-T01 "LRN-003, LRN-001 LRN-001" "LRN-004"
+  grep -q '^project_docs retro: F09-E01-T01 recorded (used: LRN-001, LRN-003; learned: LRN-004)$' "$WORK/.out" && ok "$label retro says what it recorded" || bad "$label retro output wrong: $(cat "$WORK/.out")"
+  grep -q '^- Used: LRN-001, LRN-003$' "$wmr" && grep -q '^- Learned: LRN-004$' "$wmr" && ok "$label the working memory ## Retro has both lines" || bad "$label Retro lines wrong: $(sed -n '/## Retro/,$p' "$wmr")"
+  assert_success "$label retro can be run again and replaces its lines" run retro "$bn" claude-spec F09-E01-T01 "LRN-001, LRN-003" "LRN-004"
+  [ "$(grep -c '^- Used:' "$wmr")" -eq 1 ] && ok "$label a second retro does not repeat the lines" || bad "$label retro lines repeated"
+  assert_success "$label done closes the task once the retro is recorded" run done "$bn" claude-spec F09-E01-T01 "spec" "docs/" "exit=0"
+  done_ts="$(grep -E '^## \[.*\] \| claude-spec \| F09-E01-T01 \| DONE' "$bn/docs/Agentslog.md" | sed 's/^## \[\([0-9-]*\)T.*/\1/')"
+  grep -q '^- Brain: used LRN-001, LRN-003; learned LRN-004$' "$bn/docs/Agentslog.md" && ok "$label the DONE entry says what was used and learned" || bad "$label Brain line missing: $(grep '^- Brain' "$bn/docs/Agentslog.md")"
+  grep -qxF "| LRN-001 | Prefer the most reversible option | DEFAULT | * | When two options are equivalent choose the one cheaper to undo and record it as an ADR | seed | CONFIRMED | 1 | $done_ts |" "$bnb" && ok "$label a used lesson gets one hit and the date" || bad "$label hits wrong: $(grep LRN-001 "$bnb")"
+  grep '^| LRN-003 ' "$bnb" | grep -q "| 1 | $done_ts |\$" && ok "$label every used lesson is updated" || bad "$label LRN-003 not updated: $(grep LRN-003 "$bnb")"
+  grep '^| LRN-002 ' "$bnb" | grep -q '| 0 | — |$' && ok "$label a lesson that was not used keeps its hits" || bad "$label LRN-002 changed"
+  [ ! -e "$wmr" ] && ok "$label done deletes the working memory" || bad "$label working memory left behind"
+  ! grep -q 'F09-E01-T01' "$bn/docs/Roadmap.md" && ok "$label done still removes the Roadmap row" || bad "$label Roadmap row left"
+  assert_success "$label a project after done and retro passes check" run check "$bn"
+
+  rt_proj r_none
+  rt_review
+  assert_success "$label retro none none is fine for a task without trouble" run retro "$bn" claude-spec F09-E01-T01 none none
+  assert_success "$label done after retro none none" run done "$bn" claude-spec F09-E01-T01 "spec" "docs/" "exit=0"
+  grep -q '^- Brain: used none; learned none$' "$bn/docs/Agentslog.md" && ok "$label the DONE entry says none and none" || bad "$label none Brain line missing"
+
+  rt_proj r_fail
+  seed_entry "$bn" "$(now_ts)" claude-qa F09-E01-T01 REVIEW "Export invoices as CSV" '- Summary: review\n- Review: FAIL - not yet\n'
+  brain_refused "retro refuses learned none after a Review FAIL" "retro failed: F09-E01-T01 had a Review: FAIL, a BLOQUEO or a move back to RED; record what was learned with learn first" retro "$bn" claude-spec F09-E01-T01 none none
+  assert_success "$label retro with a learned lesson is accepted after a FAIL" run retro "$bn" claude-spec F09-E01-T01 none LRN-004
+  rt_proj r_rotate
+  seed_entry "$bn" "$(now_ts)" claude-qa F09-E01-T01 REVIEW "Export invoices as CSV" '- Summary: review\n- Review: FAIL - not yet\n'
+  seed_fill "$bn" F09-FILL-06 205
+  run rotate "$bn" >/dev/null 2>&1
+  grep -q '^- Struggled: yes$' "$bn/docs/Agentslog.md" && ok "$label rotate carries the struggled flag" || bad "$label struggled flag lost in rotate"
+  brain_refused "the lesson rule still holds after rotate" "retro failed: F09-E01-T01 had a Review: FAIL" retro "$bn" claude-spec F09-E01-T01 none none
+  rt_proj r_pause
+  seed_entry "$bn" "$(now_ts)" claude-spec F09-E01-T01 PAUSE "Export invoices as CSV" '- Pause: BLOQUEO - stuck\n'
+  brain_refused "a BLOQUEO also asks for a lesson" "retro failed: F09-E01-T01 had a Review: FAIL, a BLOQUEO or a move back to RED" retro "$bn" claude-spec F09-E01-T01 none none
+
+  # ---- brain gc in rotate and the promotion warning ------------------------------------------------
+  gc_proj() {  # gc_proj <name> <max>: a brain with twelve rows of known hits and dates
+    bn_proj "$1"
+    set_setting "$bn" "Brain max entries | $2"
+    { printf '%s\n' "# Brain" "" "## Operational summary" "" "- Entries: 12 of $2" "- Last gc: —" "" "<!-- context:end -->" "" "## Entries" "" "| ID | Name | Kind | Trigger | Lesson | Evidence | Status | Hits | Last used |" "|---|---|---|---|---|---|---|---|---|"
+      printf '%s\n' "| LRN-001 | Prefer the most reversible option | DEFAULT | * | Choose the option cheaper to undo | seed | CONFIRMED | 0 | — |" \
+        "| LRN-002 | Ambiguous rule takes the stricter behavior | DEFAULT | * | Record a HYPOTHESIS BR row | seed | CONFIRMED | 0 | — |" \
+        "| LRN-003 | Never used and never dated | PATTERN | alpha | Lesson three | log:A | HYPOTHESIS | 0 | — |" \
+        "| LRN-004 | Used five times lately | PATTERN | beta | Lesson four | log:B | CONFIRMED | 5 | 2026-10-01 |" \
+        "| LRN-005 | Never used but dated early | PITFALL | gamma | Lesson five | log:C | HYPOTHESIS | 0 | 2026-09-01 |" \
+        "| LRN-006 | Used twice long ago | RECIPE | delta | Lesson six | log:D | HYPOTHESIS | 2 | 2026-10-10 |" \
+        "| LRN-007 | Never used and never dated too | MAP | epsilon | Lesson seven | log:E | HYPOTHESIS | 0 | — |" \
+        "| LRN-008 | Used twice a bit earlier | PITFALL | zeta | Lesson eight | log:F | HYPOTHESIS | 2 | 2026-10-05 |" \
+        "| LRN-009 | Used once | PATTERN | eta | Lesson nine | log:G | HYPOTHESIS | 1 | — |" \
+        "| LRN-010 | Used nine times | RECIPE | theta | Lesson ten | log:H | CONFIRMED | 9 | 2026-10-20 |" \
+        "| LRN-011 | Never used dated late | MAP | iota | Lesson eleven | log:I | HYPOTHESIS | 0 | 2026-10-02 |" \
+        "| LRN-012 | Used three times | PITFALL | kappa | Lesson twelve | log:J | HYPOTHESIS | 3 | 2026-10-03 |"; } > "$bnb"
+  }
+  gc_proj g_main 8
+  assert_failure "$label a brain over its limit fails check" run check "$bn"
+  out_has "docs/Brain.md has 12 entries, over the Brain max entries limit of 8" && ok "$label check names the cap" || bad "$label cap text wrong: $(grep Brain "$WORK/.out")"
+  out_has "WARN: docs/Brain.md row 'LRN-004' is CONFIRMED with 5 hits; promote it to a rule in AGENTS.md, an ADR or a BR" && out_has "row 'LRN-010' is CONFIRMED with 9 hits" && ok "$label check warns about CONFIRMED lessons with five hits or more" || bad "$label promotion warnings wrong: $(grep WARN "$WORK/.out")"
+  ! out_has "row 'LRN-001' is CONFIRMED with" && ok "$label a CONFIRMED lesson with no hits is not a candidate" || bad "$label LRN-001 warned"
+  assert_success "$label rotate archives the least used rows of a brain over its limit" run rotate "$bn"
+  gcname="$(ls "$bn/docs/history" | grep '^brain-archive-' | head -n 1)"
+  out_has "project_docs rotate: brain archived 6 entries to $gcname" && ok "$label rotate says how many rows it archived and where" || bad "$label gc output wrong: $(cat "$WORK/.out")"
+  for gid in 003 007 005 011 009 008; do ! grep -q "^| LRN-$gid " "$bnb" && grep -q "^| LRN-$gid " "$bn/docs/history/$gcname" || bad "$label LRN-$gid was not moved"; done
+  for gid in 001 002 004 006 010 012; do grep -q "^| LRN-$gid " "$bnb" || bad "$label LRN-$gid left the brain"; done
+  [ "$(grep -c '^| LRN-' "$bnb")" -eq 6 ] && [ "$(grep -c '^| LRN-' "$bn/docs/history/$gcname")" -eq 6 ] && ok "$label the six least used rows moved: fewest hits, then oldest, then lowest id; the DEFAULT rows with * stayed" || bad "$label gc moved the wrong rows: $(grep '^| LRN-' "$bnb" | cut -c1-9 | tr '\n' ' ')"
+  grep -q '^- Entries: 6 of 8$' "$bnb" && ok "$label the entry count follows the archive" || bad "$label count after gc: $(grep Entries: "$bnb")"
+  gchash="$(file_hash "$bn/docs/history/$gcname")"
+  grep -q "^- Last gc: [0-9-]* (6 archived to docs/history/$gcname, SHA-256 $gchash)\$" "$bnb" && ok "$label the summary records the archive and its SHA-256" || bad "$label Last gc line wrong: $(grep 'Last gc' "$bnb")"
+  assert_success "$label the brain passes check after the archive" run check "$bn"
+  assert_success "$label rotate says not required once the brain fits" run rotate "$bn"
+  out_has "project_docs rotate: not required" && ok "$label nothing left to archive" || bad "$label second rotate text: $(cat "$WORK/.out")"
+  assert_success "$label a lesson added after the archive does not reuse an archived id" run learn "$bn" claude-dev F09-E01-T01 PITFALL "A new lesson after the archive" "omega" "Keep going"
+  out_has "LRN-013 added" && ok "$label the next id is above every archived id" || bad "$label id after gc wrong: $(cat "$WORK/.out")"
+  gc_proj g_protected 2
+  run rotate "$bn" >/dev/null 2>&1
+  grep -q '^| LRN-001 ' "$bnb" && grep -q '^| LRN-002 ' "$bnb" && ok "$label DEFAULT rows with * are never archived, even over a tiny limit" || bad "$label a protected row was archived"
+  ip_new g_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  assert_success "$label classic rotate on a small ledger is unchanged" run rotate "$ip"
+  [ "$(tr -d '\r' < "$WORK/.out")" = "project_docs rotate: not required" ] && ok "$label classic rotate prints only its own line" || bad "$label classic rotate text: $(cat "$WORK/.out")"
+
+  echo "== $label: the exit marker is strict and the test comparison fails closed (F06-E02-T04 retake) =="
+  gr_proj x_exit git
+  refused "an exit marker inside a longer word is not a marker" "handoff failed: the verify needs exit=N (exit=0 when the checks pass)" handoff "$av" claude-dev F09-E01-T01 "impl" "preexit=0 and exit=0x2" claude-qa
+  refused "exit=0 followed by letters is not a marker" "handoff failed: the verify needs exit=N (exit=0 when the checks pass)" handoff "$av" claude-dev F09-E01-T01 "impl" "suite exit=0x2" claude-qa
+  refused "EXIT in capitals is not a marker" "handoff failed: the verify needs exit=N (exit=0 when the checks pass)" handoff "$av" claude-dev F09-E01-T01 "impl" "EXIT=0" claude-qa
+  assert_success "$label a bad marker followed by a good one counts the good one" run handoff "$av" claude-dev F09-E01-T01 "impl" "run one exit=1x, run two exit=0" claude-qa
+
+  gr_proj x_many git
+  awk 'BEGIN { for (i = 1; i <= 2500; i++) printf "tests/gen/case%04d.sh ", i; printf "tests/billing/export.spec.sh" }' > "$WORK/.many"
+  seed_entry "$av" "$(now_ts)" claude-dev F09-E01-T01 IN_PROGRESS "Advance task" "- Summary: more tests\n- Verify: pending\n- Phase: GREEN\n- Tests: $(cat "$WORK/.many")\n"
+  assert_success "$label a very long list of test paths is compared without trouble" run handoff "$av" claude-dev F09-E01-T01 "impl" "exit=0" claude-qa
+  seed_entry "$av" "$(now_ts)" claude-qa F09-E01-T01 REVIEW "Advance task" '- Summary: review\n- Review: FAIL - once more\n'
+  run claim "$av" claude-dev F09-E01-T01 "again" >/dev/null 2>&1
+  printf '# edited\n' >> "$av/tests/billing/export.spec.sh"
+  refused "a changed test is still found among thousands of paths" "handoff failed: test file(s) changed since RED ($red_sha): tests/billing/export.spec.sh" handoff "$av" claude-dev F09-E01-T01 "impl" "exit=0" claude-qa
+
+  echo "== $label: next and the fast lane (F06-E01-T04, F06-E02-T06) =="
+  nx_proj() { nx="$WORK/${label}_nx_$1"; rm -rf "$nx"; mkdir -p "$nx"; run init "$nx" >/dev/null 2>&1; }
+  nx_is() {  # nx_is <description> <agent> <expected>
+    runo next "$nx" "$2"
+    nx_got="$(head -n 1 "$WORK/.out" | tr -d '\r')"
+    [ "$nx_got" = "$3" ] && ok "$label $1" || bad "$label $1: got [$nx_got], wanted [$3]"
+  }
+  add_agent() {  # add_agent <project> "<roster row>": puts the row after claude-qa
+    aa_f="$1/AGENTS.md"
+    awk -v row="$2" '{ print } /^\| claude-qa \|/ { print row }' "$aa_f" > "$aa_f.tmp" && mv "$aa_f.tmp" "$aa_f"
+  }
+  # the template's own TODO row would be everybody's first task: close it (seed_plan_row needs the row as its anchor)
+  drop_template_row() { seed_replace "$1/docs/Roadmap.md" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | TODO |" "| F01-E01-T01 | UNKNOWN | UNKNOWN | UNKNOWN | DONE |"; }
+
+  nx_proj n_fresh
+  nx_is "next gives a SPEC agent the first TODO row" claude-spec F01-E01-T01
+  nx_is "next gives a DEV agent nothing when there is no FAST row" claude-dev none
+  nx_is "next gives a TEST agent nothing" claude-test none
+  nx_is "next gives a QA agent nothing" claude-qa none
+  nx_is "next gives the other QA agent nothing" gemini-qa none
+  add_agent "$nx" "| claude-all | AI | Claude | BOTH | — |"
+  nx_is "next gives a BOTH agent the first TODO row" claude-all F01-E01-T01
+  assert_failure "$label next refuses an agent that is not in the roster" run next "$nx" nobody
+  out_has "next failed: nobody is not in the Agent identity table; Factory mode needs a role for each agent" && ok "$label the unknown agent is named" || bad "$label unknown agent text: $(cat "$WORK/.out")"
+  assert_failure "$label next needs an agent" run next "$nx"
+  out_has "next requires: agent" && ok "$label the usage is named" || bad "$label next usage text: $(cat "$WORK/.out")"
+  ip_new n_classic
+  run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
+  assert_failure "$label next does not run in classic mode" run next "$ip" claude-spec
+  out_has "next needs Factory mode" && ok "$label classic mode says so" || bad "$label classic next text: $(cat "$WORK/.out")"
+
+  nx_proj n_lanes
+  drop_template_row "$nx"
+  seed_plan_row "$nx" F09-E01-T01 "Build the feature"
+  seed_plan_row "$nx" F09-E01-T02 "Fix a typo"
+  seed_replace "$nx/docs/Roadmap.md" "| F09-E01-T02 | Fix a typo | details | works |" "| F09-E01-T02 | Fix a typo | Fix a typo in the README. Lane: FAST | works |"
+  seed_replace "$nx/docs/Roadmap.md" "| F09-E01-T01 | Build the feature | details | works | TODO | — | — | — |" "| F09-E01-T01 | Build the feature | details | works | TODO | — | F09-E01-T03 | — |"
+  seed_plan_row "$nx" F09-E01-T03 "Prepare the ground"
+  nx_is "a row blocked by an open dependency is skipped" claude-spec F09-E01-T03
+  nx_is "a FAST row goes to a DEV agent" claude-dev F09-E01-T02
+  run claim "$nx" claude-spec F09-E01-T03 "prepare" >/dev/null 2>&1
+  nx_is "an agent is sent back to the task it holds" claude-spec F09-E01-T03
+  add_agent "$nx" "| claude-all | AI | Claude | BOTH | — |"
+  nx_is "a task whose dependency is still open stays blocked, the FAST row is next for a BOTH agent" claude-all F09-E01-T02
+
+  nx_proj n_order
+  drop_template_row "$nx"
+  add_agent "$nx" "| claude-all | AI | Claude | BOTH | — |"
+  seed_plan_row "$nx" F09-E01-T09 "A todo task"
+  nx_is "with only a TODO row that is the answer" claude-all F09-E01-T09
+  seed_plan_row "$nx" F09-E01-T05 "Assigned to another"
+  seed_entry "$nx" "$(now_ts)" claude-spec F09-E01-T05 ASSIGNED "Assigned to another" '- Assign: claude-dev\n- Phase: GREEN\n'
+  nx_is "a task assigned to another agent of the role comes before a TODO row" claude-all F09-E01-T05
+  seed_plan_row "$nx" F09-E01-T04 "Paused by a limit"
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T04 IN_PROGRESS "Paused by a limit" '- Summary: work\n- Verify: pending\n- Phase: GREEN\n'
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T04 PAUSE "Paused by a limit" '- Pause: LIMITE - limit until later\n'
+  nx_is "a task paused by a limit comes before a task assigned to another" claude-all F09-E01-T04
+  seed_plan_row "$nx" F09-E01-T03 "Waiting for review"
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T03 IN_PROGRESS "Waiting for review" '- Summary: work\n- Verify: pending\n- Phase: GREEN\n'
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T03 REVIEW "Waiting for review" '- Summary: ready\n- Verify: exit=0\n- Handoff: claude-all\n'
+  nx_is "a review waiting for the agent comes before a paused task" claude-all F09-E01-T03
+  seed_plan_row "$nx" F09-E01-T02 "Assigned to me"
+  seed_entry "$nx" "$(now_ts)" claude-spec F09-E01-T02 ASSIGNED "Assigned to me" '- Assign: claude-all\n- Phase: GREEN\n'
+  nx_is "a task assigned to the agent comes before a review" claude-all F09-E01-T02
+  seed_plan_row "$nx" F09-E01-T01 "Mine in progress"
+  seed_entry "$nx" "$(now_ts)" claude-all F09-E01-T01 IN_PROGRESS "Mine in progress" '- Summary: work\n- Verify: pending\n- Phase: GREEN\n'
+  nx_is "a task the agent already holds comes first" claude-all F09-E01-T01
+
+  nx_proj n_review
+  drop_template_row "$nx"
+  seed_plan_row "$nx" F09-E01-T01 "Reviewed by claude-qa"
+  seed_plan_row "$nx" F09-E01-T02 "Reviewed by anyone"
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T01 IN_PROGRESS "Reviewed by claude-qa" '- Summary: work\n- Verify: pending\n- Phase: GREEN\n'
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T01 REVIEW "Reviewed by claude-qa" '- Summary: ready\n- Verify: exit=0\n- Handoff: claude-qa\n'
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T02 IN_PROGRESS "Reviewed by anyone" '- Summary: work\n- Verify: pending\n- Phase: GREEN\n'
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T02 REVIEW "Reviewed by anyone" '- Summary: ready\n- Verify: exit=0\n'
+  nx_is "a review handed to an agent is that agent's" claude-qa F09-E01-T01
+  nx_is "a review handed to nobody goes to the other QA agent" gemini-qa F09-E01-T02
+  nx_is "a DEV agent is not offered the review of its own work" claude-dev none
+  nx_is "a SPEC agent is not offered the review of a GREEN task" claude-spec none
+  seed_entry "$nx" "$(now_ts)" claude-qa F09-E01-T01 REVIEW "Reviewed by claude-qa" '- Summary: review\n- Review: PASS - fine\n'
+  nx_is "a review that was answered is not offered again" claude-qa F09-E01-T02
+
+  nx_proj n_pause
+  drop_template_row "$nx"
+  seed_plan_row "$nx" F09-E01-T01 "Paused by a limit"
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T01 IN_PROGRESS "Paused by a limit" '- Summary: work\n- Verify: pending\n- Phase: GREEN\n'
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T01 PAUSE "Paused by a limit" '- Pause: LIMITE - limit until later\n'
+  nx_is "any agent of the role may resume a task paused by a limit" claude-dev F09-E01-T01
+  nx_is "an agent of another role may not" claude-test none
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T01 PAUSE "Paused by a limit" '- Pause: BLOQUEO - needs a decision\n'
+  nx_is "a task paused with BLOQUEO is skipped" claude-dev none
+  seed_entry "$nx" "$(now_ts)" claude-dev F09-E01-T01 PAUSE "Paused by a limit" '- Pause: ESPERA_RESPUESTA - RED-LINE: production deploy\n'
+  nx_is "a red line is skipped" claude-dev none
+
+  nx_proj n_attempts
+  drop_template_row "$nx"
+  seed_plan_row "$nx" F09-E01-T01 "Out of attempts"
+  seed_entry "$nx" "$(now_ts)" claude-test F09-E01-T01 ASSIGNED "Out of attempts" '- Assign: claude-dev\n- Phase: GREEN\n- Attempts: 3\n'
+  nx_is "a task with no attempts left is not offered" claude-dev none
+  seed_replace "$nx/AGENTS.md" "| Max fix attempts | 3 |" "| Max fix attempts | 4 |"
+  nx_is "the limit comes from the settings table" claude-dev F09-E01-T01
+
+  # ---- the fast lane ---------------------------------------------------------------------------------
+  ft_proj() {  # ft_proj <name> <git|nogit>: a FAST task of claude-dev; two files and ten lines are the limits
+    ft="$WORK/${label}_ft_$1"; rm -rf "$ft"; mkdir -p "$ft"; run init "$ft" >/dev/null 2>&1
+    drop_template_row "$ft"
+    seed_plan_row "$ft" F09-E01-T01 "Fix the typo"
+    seed_replace "$ft/docs/Roadmap.md" "| F09-E01-T01 | Fix the typo | details | works |" "| F09-E01-T01 | Fix the typo | Fix the typo in the README. Lane: FAST | works |"
+    set_setting "$ft" "Fast lane max files | 2"
+    set_setting "$ft" "Fast lane max lines | 10"
+    mkdir -p "$ft/src"; printf 'one\n' > "$ft/src/base.sh"
+    if [ "$2" = "git" ]; then git -C "$ft" init -q >/dev/null 2>&1; git_commit "$ft" "base"; fast_base="$(git -C "$ft" rev-parse HEAD)"; fi
+  }
+  ft_refused() {  # ft_refused <description> <expected text> <command...>
+    fr_desc="$1"; fr_want="$2"; shift 2
+    fr_before="$(grep -c '^## \[' "$ft/docs/Agentslog.md" | tr -d ' ')"
+    assert_failure "$label $fr_desc" run "$@"
+    out_has "$fr_want" && ok "$label $fr_desc: the message names it" || bad "$label $fr_desc: text wrong, wanted [$fr_want]: $(cat "$WORK/.out")"
+    [ "$(grep -c '^## \[' "$ft/docs/Agentslog.md" | tr -d ' ')" = "$fr_before" ] && ok "$label $fr_desc: nothing is written" || bad "$label $fr_desc: an entry was written"
+  }
+  ft_proj f_main git
+  assert_failure "$label a SPEC agent cannot claim a FAST task" run claim "$ft" claude-spec F09-E01-T01 "wrong role"
+  out_has "claude-spec has role SPEC, but phase GREEN of F09-E01-T01 needs DEV (or BOTH)" && ok "$label a FAST task is DEV work" || bad "$label FAST role text: $(cat "$WORK/.out")"
+  assert_success "$label a DEV agent claims a FAST task" run claim "$ft" claude-dev F09-E01-T01 "fix it"
+  last_entry_of() { awk '/^## \[/ { buf="" } { buf = buf $0 "\n" } END { printf "%s", buf }' "$1/docs/Agentslog.md" | tr -d '\r'; }
+  last_entry_of "$ft" > "$WORK/.last"
+  grep -q '^- Phase: GREEN$' "$WORK/.last" && grep -q '^- Lane: FAST$' "$WORK/.last" && grep -q "^- Base: $fast_base\$" "$WORK/.last" && ok "$label the claim records the lane, the phase GREEN and the Base sha" || bad "$label FAST claim entry wrong: $(cat "$WORK/.last")"
+  run checkpoint "$ft" claude-dev F09-E01-T01 "started" "fix the typo" >/dev/null 2>&1
+  ft_refused "advance cannot take a FAST task to RED" "advance failed: F09-E01-T01 is a FAST task; it only goes back to SPEC, when it outgrew the lane" advance "$ft" claude-dev F09-E01-T01 RED "exit=1"
+  printf 'a\n' > "$ft/src/a.sh"; printf 'b\n' > "$ft/src/b.sh"; printf 'c\n' > "$ft/src/c.sh"
+  ft_refused "handoff refuses a FAST task that touches too many files" "handoff failed: task outgrew FAST lane (3 files, the limit is 2); save the work in the branch wip/F09-E01-T01, take Lane: FAST out of its row, go back to $fast_base and move the task to SPEC with advance" handoff "$ft" claude-dev F09-E01-T01 "fixed" "exit=0" claude-qa
+  rm -f "$ft/src/c.sh"
+  awk 'BEGIN { for (i = 1; i <= 12; i++) print i }' > "$ft/src/a.sh"
+  ft_refused "handoff refuses a FAST task with too many lines" "task outgrew FAST lane (13 lines, the limit is 10)" handoff "$ft" claude-dev F09-E01-T01 "fixed" "exit=0" claude-qa
+  printf 'a\n' > "$ft/src/a.sh"; rm -f "$ft/src/b.sh"
+  mkdir -p "$ft/src/auth"; printf 'x\n' > "$ft/src/auth/login.sh"
+  ft_refused "handoff refuses a FAST task that touches a protected path" "task outgrew FAST lane (it touches the protected path src/auth/login.sh)" handoff "$ft" claude-dev F09-E01-T01 "fixed" "exit=0" claude-qa
+  rm -rf "$ft/src/auth"
+  assert_success "$label handoff accepts a FAST task inside the limits (the ledger and the working memory do not count)" run handoff "$ft" claude-dev F09-E01-T01 "fixed" "exit=0" claude-qa
+  assert_success "$label review PASS of a FAST task with git needs no extra words" run review "$ft" claude-qa F09-E01-T01 PASS "fine" "exit=0"
+  assert_success "$label retro none none is enough for a FAST task without trouble" run retro "$ft" claude-dev F09-E01-T01 none none
+  assert_success "$label done closes a FAST task with no spec and no RED" run done "$ft" claude-dev F09-E01-T01 "fixed" "src/" "exit=0"
+  assert_success "$label a project with a closed FAST task passes check" run check "$ft"
+
+  ft_proj f_bug git
+  seed_plan_row "$ft" F09-BUG-01 "A bug in the parser"
+  seed_replace "$ft/docs/Roadmap.md" "| F09-BUG-01 | A bug in the parser | details | works |" "| F09-BUG-01 | A bug in the parser | The parser drops a line. Lane: FAST | works |"
+  run claim "$ft" claude-dev F09-BUG-01 "fix the bug" >/dev/null 2>&1
+  run checkpoint "$ft" claude-dev F09-BUG-01 "started" "fix" >/dev/null 2>&1
+  printf 'fixed\n' > "$ft/src/parser.sh"
+  ft_refused "a FAST BUG needs a test file in the change" "task outgrew FAST lane (a BUG needs a test file in the change)" handoff "$ft" claude-dev F09-BUG-01 "fixed" "exit=0" claude-qa
+  mkdir -p "$ft/tests"; printf 't\n' > "$ft/tests/parser.test.sh"
+  assert_success "$label a FAST BUG with a test file in the change is accepted" run handoff "$ft" claude-dev F09-BUG-01 "fixed" "exit=0" claude-qa
+
+  ft_proj f_promote git
+  run claim "$ft" claude-dev F09-E01-T01 "fix it" >/dev/null 2>&1
+  run checkpoint "$ft" claude-dev F09-E01-T01 "started" "fix the typo" >/dev/null 2>&1
+  printf 'a\n' > "$ft/src/a.sh"; printf 'b\n' > "$ft/src/b.sh"; printf 'c\n' > "$ft/src/c.sh"
+  ft_refused "the FAST task outgrows the lane" "task outgrew FAST lane (3 files, the limit is 2)" handoff "$ft" claude-dev F09-E01-T01 "fixed" "exit=0" claude-qa
+  git -C "$ft" branch wip/F09-E01-T01 >/dev/null 2>&1
+  assert_success "$label the outgrown task goes back to SPEC with advance" run advance "$ft" claude-dev F09-E01-T01 SPEC "outgrew the lane, exit=1"
+  out_has "moved to SPEC, assigned to claude-spec" && ok "$label it is assigned to the SPEC agent" || bad "$label promotion output: $(cat "$WORK/.out")"
+  assert_failure "$label while the row still says FAST the SPEC agent cannot take it" run claim "$ft" claude-spec F09-E01-T01 "spec it"
+  seed_replace "$ft/docs/Roadmap.md" "Fix the typo in the README. Lane: FAST" "Fix the typo in the README"
+  assert_success "$label once Lane: FAST is out of the row the SPEC agent claims it" run claim "$ft" claude-spec F09-E01-T01 "spec it"
+  last_entry_of "$ft" > "$WORK/.last"
+  grep -q '^- Phase: SPEC$' "$WORK/.last" && grep -q '^- Lane: NORMAL$' "$WORK/.last" && ! grep -q '^- Base:' "$WORK/.last" && ok "$label the claim starts the normal lane in SPEC" || bad "$label promotion claim entry: $(cat "$WORK/.last")"
+  assert_success "$label check is green after the way back to SPEC" run check "$ft"
+
+  ft_proj f_nogit nogit
+  run claim "$ft" claude-dev F09-E01-T01 "fix it" >/dev/null 2>&1
+  run checkpoint "$ft" claude-dev F09-E01-T01 "started" "fix the typo" >/dev/null 2>&1
+  last_entry_of "$ft" > "$WORK/.last"
+  grep -q '^- Lane: FAST$' "$WORK/.last" && ! grep -q '^- Base:' "$WORK/.last" && ok "$label without git the claim records the lane and no Base" || bad "$label no-git claim entry: $(cat "$WORK/.last")"
+  assert_success "$label handoff of a FAST task without git warns" run handoff "$ft" claude-dev F09-E01-T01 "fixed" "exit=0" claude-qa
+  out_has "WARN: git is not available here, so the size of the change cannot be checked; the reviewer must write 'fast lane ok' in the review note" && ok "$label the warning tells the reviewer what to write" || bad "$label FAST no-git warning: $(cat "$WORK/.out")"
+  ft_refused "review PASS needs 'fast lane ok' when git could not check" "review failed: git could not check the size of the change of F09-E01-T01; the note must say 'fast lane ok'" review "$ft" claude-qa F09-E01-T01 PASS "fine" "exit=0"
+  assert_success "$label review PASS with 'fast lane ok' in the note" run review "$ft" claude-qa F09-E01-T01 PASS "Fast Lane OK, tiny change" "exit=0"
+
+  ft_proj f_rotate git
+  run claim "$ft" claude-dev F09-E01-T01 "fix it" >/dev/null 2>&1
+  run checkpoint "$ft" claude-dev F09-E01-T01 "started" "fix the typo" >/dev/null 2>&1
+  seed_fill "$ft" F09-FILL-07 205
+  run rotate "$ft" >/dev/null 2>&1
+  grep -q '^- Lane: FAST$' "$ft/docs/Agentslog.md" && grep -q "^- Base: $fast_base\$" "$ft/docs/Agentslog.md" && ok "$label rotate carries the lane and the Base sha" || bad "$label lane lost in rotate: $(grep -E '^- (Lane|Base)' "$ft/docs/Agentslog.md" | tr '\n' ' ')"
+  printf 'a\n' > "$ft/src/a.sh"; printf 'b\n' > "$ft/src/b.sh"; printf 'c\n' > "$ft/src/c.sh"
+  ft_refused "the size limits still apply after rotate" "task outgrew FAST lane (3 files, the limit is 2)" handoff "$ft" claude-dev F09-E01-T01 "fixed" "exit=0" claude-qa
+
+  ft_proj f_again git
+  run claim "$ft" claude-dev F09-E01-T01 "fix it" >/dev/null 2>&1
+  run checkpoint "$ft" claude-dev F09-E01-T01 "started" "fix the typo" >/dev/null 2>&1
+  printf 'a\n' > "$ft/src/a.sh"
+  git_commit "$ft" "moves the head past the Base"
+  run handoff "$ft" claude-dev F09-E01-T01 "fixed" "exit=0" claude-qa >/dev/null 2>&1
+  run review "$ft" claude-qa F09-E01-T01 FAIL "not yet" "exit=1" >/dev/null 2>&1
+  run claim "$ft" claude-dev F09-E01-T01 "again" >/dev/null 2>&1
+  [ "$(grep -c "^- Base: $fast_base\$" "$ft/docs/Agentslog.md")" -eq 2 ] && ok "$label a new claim keeps the original Base, not the new head" || bad "$label Base changed: $(grep '^- Base' "$ft/docs/Agentslog.md" | tr '\n' ' ')"
+
+  # ---- check: RED and GREEN of the normal lane need a spec ------------------------------------------------
+  ps_proj() { ps="$WORK/${label}_ps_$1"; rm -rf "$ps"; mkdir -p "$ps"; run init "$ps" >/dev/null 2>&1; drop_template_row "$ps"; seed_plan_row "$ps" F09-E01-T01 "A normal task"; }
+  ps_proj no_spec
+  seed_entry "$ps" "$(now_ts)" claude-test F09-E01-T01 ASSIGNED "A normal task" '- Assign: claude-dev\n- Phase: GREEN\n'
+  assert_failure "$label a task in GREEN with no spec fails check" run check "$ps"
+  out_has "ERROR: F09-E01-T01 is in phase GREEN but docs/specs/F09-E01-T01.md does not exist" && ok "$label check names the missing spec" || bad "$label missing spec text: $(grep ERROR "$WORK/.out")"
+  sed -e 's/{TASK}/F09-E01-T01/' -e 's/{NAME}/A normal task/' "$SCRIPT_DIR/../templates/Spec.md" > "$ps/docs/specs/F09-E01-T01.md"
+  assert_failure "$label a spec with UNKNOWN fields is not enough in GREEN" run check "$ps"
+  out_has "ERROR: F09-E01-T01 is in phase GREEN but docs/specs/F09-E01-T01.md still has 4 UNKNOWN field(s)" && ok "$label check names the UNKNOWN fields" || bad "$label UNKNOWN text: $(grep ERROR "$WORK/.out")"
+  mkspec "$ps" F09-E01-T01
+  assert_success "$label a valid spec satisfies the phase rule" run check "$ps"
+  ps_proj spec_phase
+  seed_entry "$ps" "$(now_ts)" claude-spec F09-E01-T01 IN_PROGRESS "A normal task" '- Summary: spec\n- Verify: pending\n- Phase: SPEC\n- Lane: NORMAL\n'
+  assert_success "$label a task still in SPEC needs no finished spec" run check "$ps"
+  ps_proj fast_exempt
+  seed_entry "$ps" "$(now_ts)" claude-dev F09-E01-T01 IN_PROGRESS "A normal task" '- Summary: fix\n- Verify: pending\n- Phase: GREEN\n- Lane: FAST\n'
+  assert_success "$label a FAST task in GREEN needs no spec" run check "$ps"
 
 #FACTORY_CASES
 }

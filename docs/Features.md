@@ -2,8 +2,8 @@
 
 ## Operational summary
 
-- Verified capabilities: 34
-- Latest verification: `smoke 1494 pass 0 fail; QA PASS factory 458 each; lock race fixed` (2026-10-26)
+- Verified capabilities: 37
+- Latest verification: `smoke 1700 pass 0 fail; QA PASS races, rotate, BLOQUEO reset` (2026-10-27)
 - Known limitation: the AGENTS.md/Agents.md case collision cannot be tested end to end on Windows or macOS.
 
 <!-- context:end -->
@@ -49,3 +49,6 @@ Use one row per stable capability. Link long specifications or runbooks from
 | F06-E02-T03 | Phase roles in roster and claim; rotate carries phase | smoke 1238 pass 0 fail; QA PASS factory 330 each; rotate classic identical | log:F06-E02-T03 | 2026-10-26 |
 | F06-E02-T01 | Spec template and Factory-only spec validation | smoke 1494 pass 0 fail; QA PASS factory 458 each; sh==ps1 25 fixtures | log:F06-E02-T01 | 2026-10-26 |
 | F06-E03-T02 | Working memory, checkpoint command, pause gate | smoke 1494 pass 0 fail; QA PASS factory 458 each; lock race fixed | log:F06-E03-T02 | 2026-10-26 |
+| F06-E02-T02 | advance command with SPEC and RED gates | smoke 1700 pass 0 fail; QA PASS retake: classic rotate identical | log:F06-E02-T02 | 2026-10-27 |
+| F06-E02-T05 | Review warnings are errors in Factory mode | smoke 1700 pass 0 fail; QA PASS factory 561 sh; classic flow identical | log:F06-E02-T05 | 2026-10-27 |
+| F06-E01-T05 | WIP per agent and fix attempts in claim | smoke 1700 pass 0 fail; QA PASS races, rotate, BLOQUEO reset | log:F06-E01-T05 | 2026-10-27 |

@@ -532,7 +532,7 @@ all_task_states() {
       dash=index(line," - ")
       if (dash>0) p=substr(line,1,dash-1); else p=line
       last_pause[cur]=p
-      if (fac && p == "BLOQUEO") att[cur]=0
+      if (fac && p == "BLOQUEO") { att[cur]=0; struggled[cur]=1 }
       next
     }
     in_entries && cur!="" && /^- Assign:/ {
@@ -559,6 +559,23 @@ all_task_states() {
       tests[cur]=line
       next
     }
+    in_entries && cur!="" && fac && /^- Lane:/ {
+      line=$0
+      sub(/^- Lane:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
+      lane[cur]=line
+      if (line != "FAST") base[cur]=""
+      next
+    }
+    in_entries && cur!="" && fac && /^- Base:/ {
+      line=$0
+      sub(/^- Base:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
+      base[cur]=line
+      next
+    }
+    in_entries && cur!="" && fac && /^- Struggled:/ {
+      struggled[cur]=1
+      next
+    }
     in_entries && cur!="" && fac && /^- Attempts:/ {
       line=$0
       sub(/^- Attempts:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
@@ -575,7 +592,7 @@ all_task_states() {
       line=$0
       sub(/^- Phase:[ \t]*/,"",line); gsub(/[ \t]+$/,"",line)
       if (line == "SPEC" && last_phase[cur] != "" && last_phase[cur] != "SPEC") spec_pass[cur]=""
-      if (line == "RED" && last_phase[cur] == "GREEN") att[cur]++
+      if (line == "RED" && last_phase[cur] == "GREEN") { att[cur]++; struggled[cur]=1 }
       if (line == "RED" || line == "SPEC") { red[cur]=""; tests[cur]="" }
       last_phase[cur]=line
       next
@@ -589,13 +606,13 @@ all_task_states() {
       last_review[cur]=p
       ph=last_phase[cur]; if (ph == "") ph="SPEC"
       if (fac && ph == "SPEC") { if (p ~ /^PASS/) spec_pass[cur]=last_agent[cur]; else spec_pass[cur]="" }
-      if (fac && p ~ /^FAIL/) att[cur]++
+      if (fac && p ~ /^FAIL/) { att[cur]++; struggled[cur]=1 }
       next
     }
     END {
       for (i=1;i<=cnt;i++) {
         t=order[i]
-        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t], (t in hold ? hold[t] : last_agent[t]), last_handoff[t], last_review[t], last_phase[t], spec_pass[t], red[t], tests[t], att[t] + 0
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t, last_status[t], last_agent[t], last_ts[t], last_pause[t], conflict[t], (t in ever_done ? "1" : "0"), last_name[t], (t in hold ? hold[t] : last_agent[t]), last_handoff[t], last_review[t], last_phase[t], spec_pass[t], red[t], tests[t], att[t] + 0, struggled[t] + 0, lane[t], base[t]
       }
     }
   ' "$DOCS_DIR/Agentslog.md"
@@ -869,7 +886,7 @@ stage_label() {
 open_tasks_line() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || return 0
   open_task_states | tr '\t' '\037' |
-  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts rest; do
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base rest; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -1210,6 +1227,20 @@ cmd_claim() {
   if factory_on; then
     claim_phase="$(printf '%s' "${state:-}" | cut -f12)"
     [ -n "$claim_phase" ] || claim_phase="SPEC"
+    claim_prev_lane="$(printf '%s' "${state:-}" | cut -f18)"
+    claim_lane="NORMAL"
+    case "$(roadmap_row_field "$task" Description)" in *"Lane: FAST"*) claim_lane="FAST" ;; esac
+    claim_base=""
+    if [ "$claim_lane" = "FAST" ]; then
+      if [ "$claim_prev_lane" != "FAST" ] && [ -n "$(printf '%s' "${state:-}" | cut -f12)" ] && [ "$claim_phase" != "SPEC" ]; then
+        die "claim failed: $task already went through the normal lane (phase $claim_phase); take Lane: FAST out of its row"
+      fi
+      claim_phase="GREEN"
+      if [ "$claim_prev_lane" = "FAST" ]; then claim_base="$(printf '%s' "${state:-}" | cut -f19)"; fi
+      if [ -z "$claim_base" ] && git_ready; then claim_base="$(git -C "$PROJECT" rev-parse HEAD 2>/dev/null)" || claim_base=""; fi
+    elif [ "$claim_prev_lane" = "FAST" ]; then
+      claim_phase="SPEC"
+    fi
     require_phase_role "$agent" "$claim_phase" "$task"
     claim_att="$(printf '%s' "${state:-}" | cut -f16)"
     claim_max="$(factory_number "Max fix attempts")"
@@ -1229,7 +1260,11 @@ cmd_claim() {
     echo "## [$timestamp] | $agent | $task | IN_PROGRESS | $name"
     echo "- Summary: $summary"
     echo "- Verify: pending"
-    if factory_on; then echo "- Phase: $claim_phase"; fi
+    if factory_on; then
+      echo "- Phase: $claim_phase"
+      echo "- Lane: $claim_lane"
+      if [ -n "$claim_base" ]; then echo "- Base: $claim_base"; fi
+    fi
   } >> "$DOCS_DIR/Agentslog.md"
   roadmap_claim_row "$task" "$agent" "$timestamp"
   echo "project_docs claim: $task claimed by $agent"
@@ -1271,8 +1306,11 @@ require_tests_unchanged() {
   rt_red="$(printf '%s' "$2" | cut -f14)"
   if [ -n "$rt_red" ] && git_ready; then
     git -C "$PROJECT" cat-file -e "$rt_red^{commit}" 2>/dev/null || die "handoff failed: the Red sha $rt_red is not in this repository"
-    # shellcheck disable=SC2086
-    rt_changed="$(git -C "$PROJECT" diff --name-only "$rt_red" -- $rt_tests 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+    rt_diff="$(git -C "$PROJECT" -c core.quotepath=false diff --relative --name-only "$rt_red" 2>/dev/null)" || die "handoff failed: git could not compare the files with the Red sha $rt_red"
+    rt_list="$(mktemp "${TMPDIR:-/tmp}/project-docs-tests.XXXXXX")"
+    printf '%s\n' "$rt_tests" | tr ' ' '\n' > "$rt_list"
+    rt_changed="$(printf '%s\n' "$rt_diff" | awk -v tf="$rt_list" 'BEGIN { while ((getline p < tf) > 0) if (p != "") want[p] = 1 } ($0 in want) { printf "%s%s", sep, $0; sep = " " }')"
+    rm -f "$rt_list"
     [ -z "$rt_changed" ] || die "handoff failed: test file(s) changed since RED ($rt_red): $rt_changed; a wrong test goes back to SPEC with advance"
   else
     echo "WARN: git is not available here, so the tests cannot be checked as unchanged since RED; the reviewer must write 'tests unchanged' in the review note" >&2
@@ -1287,6 +1325,485 @@ require_tests_note() {
   [ "$(printf '%s' "$2" | cut -f12)" = "GREEN" ] || return 0
   if [ -n "$(printf '%s' "$2" | cut -f14)" ] && git_ready; then return 0; fi
   printf '%s' "$3" | tr 'A-Z' 'a-z' | grep -q 'tests unchanged' || die "review failed: git could not check the tests of $1; the note must say 'tests unchanged'"
+}
+
+# ---------------------------------------------------------------------------
+# The brain: docs/Brain.md rows read by recall, written by learn and retro, archived by
+# rotate (F06-E03-T03 to T05). Only Factory mode.
+# ---------------------------------------------------------------------------
+# brain_rows_tsv: one line per well-formed row of the Entries table: the nine cells and
+# then the row as written, separated by tabs.
+brain_rows_tsv() {
+  [ -f "$DOCS_DIR/Brain.md" ] || return 0
+  clean_stream < "$DOCS_DIR/Brain.md" | awk '
+    $0 == "## Entries" { insec=1; next }
+    insec && /^## / { insec=0 }
+    insec && /^\|/ {
+      line=$0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line)
+      n=split(line, c, "|")
+      for (i=1; i<=n; i++) gsub(/^[ \t]+|[ \t]+$/, "", c[i])
+      if (c[1] == "ID" || c[1] ~ /^-+$/ || c[1] == "—" || n != 9) next
+      orig=$0; gsub(/[ \t]+$/, "", orig)
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], orig
+    }
+  '
+}
+
+# brain_next_id: the next LRN id; ids of archived rows count, so an id is never reused.
+brain_next_id() {
+  bn_max="$( { cat "$DOCS_DIR/Brain.md" 2>/dev/null; cat "$DOCS_DIR"/history/brain-archive-*.md 2>/dev/null; } | tr -d '\r' | awk '
+    /^\| LRN-[0-9]+ / { id=$2; sub(/^LRN-/, "", id); if (id + 0 > m) m = id + 0 }
+    END { print m + 0 }
+  ')"
+  printf 'LRN-%03d' "$((bn_max + 1))"
+}
+
+# recall_words TEXT: the lower case ASCII words of four or more letters, one per line.
+recall_words() {
+  printf '%s' "$1" | LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C tr -c 'a-z' '\n' | LC_ALL=C awk 'length($0) >= 4'
+}
+
+# recall <project> <task-id>: what to read before working on a task, within the recall
+# budget: the Roadmap row, the spec summary, the working memory and the brain rows
+# whose Trigger matches the task, best first, whole rows only.
+cmd_recall() {
+  shift 2
+  require_factory recall
+  [ "$#" -ge 1 ] || die "recall requires: task-id"
+  rc_task="$(clean_field_text "$1")"
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  roadmap_has_id "$rc_task" || die "recall failed: $rc_task not found in docs/Roadmap.md"
+  rc_budget="$(factory_number "Recall budget bytes")"
+  rc_name="$(roadmap_row_field "$rc_task" Name)"
+  rc_desc="$(roadmap_row_field "$rc_task" Description)"
+  rc_acc="$(roadmap_row_field "$rc_task" "Acceptance check")"
+  rc_status="$(roadmap_row_field "$rc_task" Status)"
+  rc_owner="$(roadmap_row_field "$rc_task" Owner)"
+  rc_deps="$(roadmap_row_field "$rc_task" "Depends on")"
+  rc_spec="$DOCS_DIR/specs/$rc_task.md"
+  rc_wm="$(working_memory_path "$rc_task")"
+  rc_fixed="$(mktemp "${TMPDIR:-/tmp}/project-docs-recall.XXXXXX")"
+  {
+    echo "## Task"
+    echo "- ID: $rc_task"
+    echo "- Name: $rc_name"
+    echo "- Description: ${rc_desc:-—}"
+    if [ -n "$rc_acc" ]; then echo "- Acceptance check: $rc_acc"; fi
+    echo "- Status: ${rc_status:-—}; Owner: ${rc_owner:-—}; Depends on: ${rc_deps:-—}"
+    echo "## Spec summary"
+    if [ -f "$rc_spec" ]; then
+      clean_stream < "$rc_spec" | awk '
+        /^## / { insec = ($0 == "## Summary"); next }
+        insec && $0 != "<!-- context:end -->" && $0 != "" { print }
+      '
+    else
+      echo "(no spec yet)"
+    fi
+    echo "## Now"
+    if [ -f "$rc_wm" ] && has_working_now "$rc_task"; then
+      clean_stream < "$rc_wm" | awk '
+        /^## / { insec = ($0 == "## Now"); next }
+        insec && $0 != "" { print }
+      '
+    else
+      echo "(no working memory yet)"
+    fi
+    echo "## Brain"
+  } > "$rc_fixed"
+  rc_tags=""
+  if [ -f "$rc_spec" ]; then
+    rc_tags="$(clean_stream < "$rc_spec" | awk '/^- Tags:/ { sub(/^- Tags:[ \t]*/, ""); print; exit }')"
+  fi
+  rc_tokens="$( { recall_words "$rc_name $rc_desc $rc_deps"; printf '%s' "$rc_tags" | LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C tr -s ' \t' '\n\n'; } | LC_ALL=C awk 'NF { print }' | LC_ALL=C sort -u | tr '\n' ' ')"
+  rc_rows="$(brain_rows_tsv)"
+  rc_total="$(printf '%s\n' "$rc_rows" | awk 'length($0) > 0 { n++ } END { print n + 0 }')"
+  rc_used="$(LC_ALL=C wc -c < "$rc_fixed" | tr -d ' ')"
+  rc_min=$(( rc_used + $(printf 'recall: 0 of %s brain entries shown\n' "$rc_total" | LC_ALL=C wc -c | tr -d ' ') ))
+  if [ "$rc_min" -gt "$rc_budget" ]; then
+    rm -f "$rc_fixed"
+    die "recall failed: the task, the spec summary and the working memory take $rc_min bytes, over the Recall budget bytes of $rc_budget; shorten the spec Summary or the working memory"
+  fi
+  cat "$rc_fixed"
+  rm -f "$rc_fixed"
+  printf '%s\n' "$rc_rows" | LC_ALL=C awk -F'\t' -v tokens="$rc_tokens" -v used="$rc_used" -v budget="$rc_budget" -v total="$rc_total" '
+    BEGIN { ntok = split(tokens, tk, " "); for (i = 1; i <= ntok; i++) has[tk[i]] = 1 }
+    NF == 0 { next }
+    {
+      trig=tolower($4); score=0
+      if (trig == "*") score = 1
+      else {
+        m = split(trig, tt, " "); split("", seen)
+        for (j = 1; j <= m; j++) {
+          t = tt[j]
+          if (t == "" || (t in seen)) continue
+          seen[t] = 1; hit = 0
+          if (index(t, "/") > 0) { for (x in has) if (index(x, t) == 1) { hit = 1; break } }
+          else if (t in has) hit = 1
+          if (hit) score++
+        }
+      }
+      if (score >= 1) { n++; S[n] = score; H[n] = $8 + 0; I[n] = $1; L[n] = $10 }
+    }
+    END {
+      for (a = 2; a <= n; a++) {
+        s = S[a]; h = H[a]; id2 = I[a]; l = L[a]; b = a - 1
+        while (b >= 1 && (S[b] < s || (S[b] == s && (H[b] < h || (H[b] == h && I[b] > id2))))) { S[b+1] = S[b]; H[b+1] = H[b]; I[b+1] = I[b]; L[b+1] = L[b]; b-- }
+        S[b+1] = s; H[b+1] = h; I[b+1] = id2; L[b+1] = l
+      }
+      bytes = used; k = 0
+      for (a = 1; a <= n; a++) {
+        final = "recall: " a " of " total " brain entries shown"
+        if (bytes + length(L[a]) + 1 + length(final) + 1 > budget) break
+        bytes += length(L[a]) + 1; k = a
+      }
+      for (a = 1; a <= k; a++) print L[a]
+      print "recall: " k " of " total " brain entries shown"
+    }
+  '
+}
+
+# learn <project> <agent> <task-id> <kind> <name> <trigger> <lesson>: adds a lesson to the brain.
+cmd_learn() {
+  shift 2
+  require_factory learn
+  [ "$#" -ge 6 ] || die "learn requires: agent task-id kind name trigger lesson"
+  for ln_a in "$@"; do
+    case "$ln_a" in *'|'*) die "learn failed: no argument may contain a vertical bar" ;; esac
+  done
+  ln_agent="$(canonical_agent "$(clean_field_text "$1")")"
+  ln_task="$(clean_field_text "$2")"
+  ln_kind="$(clean_field_text "$3")"
+  ln_name="$(clean_field_text "$4")"
+  ln_trigger="$(clean_field_text "$5" | LC_ALL=C tr 'A-Z' 'a-z')"
+  ln_lesson="$(clean_field_text "$6")"
+  case "$ln_kind" in
+    PITFALL|PATTERN|RECIPE|DEFAULT|MAP) ;;
+    *) die "learn failed: kind must be PITFALL, PATTERN, RECIPE, DEFAULT or MAP" ;;
+  esac
+  [ -n "$ln_name" ] || die "learn failed: the name is empty"
+  ln_words="$(word_count "$ln_name")"
+  [ "$ln_words" -le 10 ] || die "learn failed: the name is $ln_words words, over the 10-word limit"
+  [ -n "$ln_trigger" ] || die "learn failed: the trigger is empty"
+  [ -n "$ln_lesson" ] || die "learn failed: the lesson is empty"
+  if [ "$ln_trigger" = "*" ] && [ "$ln_kind" != "DEFAULT" ]; then
+    die "learn failed: the trigger * is only for DEFAULT lessons"
+  fi
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  [ -f "$DOCS_DIR/Brain.md" ] || die "learn failed: docs/Brain.md does not exist (run migrate --factory)"
+  if ! roadmap_has_id "$ln_task" && ! task_state "$ln_task" >/dev/null 2>&1; then
+    die "learn failed: $ln_task is not a task of this project"
+  fi
+  with_lock
+  ln_rows="$(brain_rows_tsv)"
+  ln_count="$(printf '%s\n' "$ln_rows" | awk 'length($0) > 0 { n++ } END { print n + 0 }')"
+  ln_max="$(factory_number "Brain max entries")"
+  ln_dup="$(printf '%s\n' "$ln_rows" | LC_ALL=C awk -F'\t' -v want="$(printf '%s' "$ln_name" | LC_ALL=C tr 'A-Z' 'a-z')" 'tolower($2) == want { print $1; exit }')"
+  [ -z "$ln_dup" ] || die "learn failed: $ln_dup already has the name \"$ln_name\""
+  if [ "$ln_count" -ge "$ln_max" ]; then
+    die "learn failed: the brain already has $ln_count entries (Brain max entries is $ln_max); run rotate to archive the least used"
+  fi
+  ln_id="$(brain_next_id)"
+  ln_row="| $ln_id | $ln_name | $ln_kind | $ln_trigger | $ln_lesson | log:$ln_task | HYPOTHESIS | 0 | — |"
+  ln_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-brain.XXXXXX")"
+  clean_stream < "$DOCS_DIR/Brain.md" | LRN_ROW="$ln_row" awk -v n="$((ln_count + 1))" -v max="$ln_max" '
+    { lines[NR] = $0 }
+    END {
+      insec = 0; last = 0
+      for (i = 1; i <= NR; i++) {
+        if (lines[i] == "## Entries") insec = 1
+        else if (insec && lines[i] ~ /^## /) insec = 0
+        if (insec && lines[i] ~ /^\|/) last = i
+      }
+      for (i = 1; i <= NR; i++) {
+        l = lines[i]
+        if (l ~ /^- Entries: /) l = "- Entries: " n " of " max
+        print l
+        if (i == last) print ENVIRON["LRN_ROW"]
+      }
+    }
+  ' > "$ln_tmp"
+  mv "$ln_tmp" "$DOCS_DIR/Brain.md"
+  echo "project_docs learn: $ln_id added"
+}
+
+# brain_ids LIST: validates a list of lesson ids (or the word none) and prints it
+# sorted and without repeats, as "LRN-001, LRN-003" or "none".
+brain_ids() {
+  bi_in="$(printf '%s' "$1" | tr ',' ' ')"
+  if [ "$bi_in" = "none" ] || [ -z "$(printf '%s' "$bi_in" | tr -d ' ')" ]; then printf 'none'; return 0; fi
+  bi_out=""
+  for bi_t in $bi_in; do
+    printf '%s' "$bi_t" | grep -Eq '^LRN-[0-9]{3,}$' || die "retro failed: \"$bi_t\" is not a lesson id like LRN-001 or the word none"
+    bi_out="$bi_out$bi_t
+"
+  done
+  printf '%s' "$bi_out" | LC_ALL=C sort -u | tr '\n' ',' | sed 's/,$//; s/,/, /g'
+}
+
+# retro <project> <agent> <task-id> <used-ids|none> <learned-ids|none>: records which lessons
+# the task used and which it left behind in the ## Retro of its working memory.
+cmd_retro() {
+  shift 2
+  require_factory retro
+  [ "$#" -ge 4 ] || die "retro requires: agent task-id used-ids|none learned-ids|none"
+  rt_agent="$(canonical_agent "$(clean_field_text "$1")")"
+  rt_task="$(clean_field_text "$2")"
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  if ! roadmap_has_id "$rt_task" && ! task_state "$rt_task" >/dev/null 2>&1; then
+    die "retro failed: $rt_task is not a task of this project"
+  fi
+  has_working_now "$rt_task" || die "retro failed: $rt_task has no working memory yet (## Now); run checkpoint first"
+  rt_used="$(brain_ids "$(clean_field_text "$3")")"
+  rt_learned="$(brain_ids "$(clean_field_text "$4")")"
+  rt_rows="$(brain_rows_tsv)"
+  if [ "$rt_used" != "none" ]; then
+    for rt_id in $(printf '%s' "$rt_used" | tr -d ','); do
+      printf '%s\n' "$rt_rows" | awk -F'\t' -v id="$rt_id" '$1 == id { f = 1 } END { exit f ? 0 : 1 }' || die "retro failed: $rt_id is not in docs/Brain.md"
+    done
+  fi
+  if [ "$rt_learned" != "none" ]; then
+    for rt_id in $(printf '%s' "$rt_learned" | tr -d ','); do
+      rt_ev="$(printf '%s\n' "$rt_rows" | awk -F'\t' -v id="$rt_id" '$1 == id { print $6; f = 1 } END { exit f ? 0 : 1 }')" || die "retro failed: $rt_id is not in docs/Brain.md"
+      [ "$rt_ev" = "log:$rt_task" ] || die "retro failed: $rt_id was not learned for $rt_task (its Evidence is $rt_ev)"
+    done
+  fi
+  if [ "$rt_learned" = "none" ]; then
+    rt_struggled="$(task_state "$rt_task" 2>/dev/null | cut -f17)" || true
+    if [ "${rt_struggled:-0}" = "1" ]; then
+      die "retro failed: $rt_task had a Review: FAIL, a BLOQUEO or a move back to RED; record what was learned with learn first"
+    fi
+  fi
+  with_lock
+  rt_wm="$(working_memory_path "$rt_task")"
+  rt_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-retro.XXXXXX")"
+  clean_stream < "$rt_wm" | RT_USED="$rt_used" RT_LEARNED="$rt_learned" awk '
+    function emit() { if (!done) { print "- Used: " ENVIRON["RT_USED"]; print "- Learned: " ENVIRON["RT_LEARNED"]; done = 1 } }
+    /^## / { if (inretro) emit(); inretro = ($0 == "## Retro"); if (inretro) seen = 1; print; if (inretro) emit(); next }
+    inretro && (/^- Used:/ || /^- Learned:/) { next }
+    { print }
+    END { if (!seen) exit 3 }
+  ' > "$rt_tmp" || { rm -f "$rt_tmp"; die "retro failed: docs/brain/tasks/$rt_task.md has no ## Retro section"; }
+  mv "$rt_tmp" "$rt_wm"
+  echo "project_docs retro: $rt_task recorded (used: $rt_used; learned: $rt_learned)"
+}
+
+# retro_read TASK: sets DONE_USED and DONE_LEARNED from the ## Retro of the working memory;
+# dies when no retro was recorded (done in Factory mode needs it).
+retro_read() {
+  rr_wm="$(working_memory_path "$1")"
+  DONE_USED=""
+  DONE_LEARNED=""
+  if [ -f "$rr_wm" ]; then
+    DONE_USED="$(clean_stream < "$rr_wm" | awk '/^## / { insec = ($0 == "## Retro"); next } insec && /^- Used:/ { sub(/^- Used:[ \t]*/, ""); print; exit }')"
+    DONE_LEARNED="$(clean_stream < "$rr_wm" | awk '/^## / { insec = ($0 == "## Retro"); next } insec && /^- Learned:/ { sub(/^- Learned:[ \t]*/, ""); print; exit }')"
+  fi
+  if [ -z "$DONE_USED" ] || [ "$DONE_USED" = "—" ] || [ -z "$DONE_LEARNED" ] || [ "$DONE_LEARNED" = "—" ]; then
+    die "done failed: $1 has no retro yet; run retro first"
+  fi
+}
+
+# brain_apply_hits IDS DATE: adds one hit and the date to every listed lesson (done in Factory mode).
+brain_apply_hits() {
+  [ "$1" != "none" ] || return 0
+  [ -f "$DOCS_DIR/Brain.md" ] || return 0
+  ah_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-hits.XXXXXX")"
+  clean_stream < "$DOCS_DIR/Brain.md" | AH_IDS="$1" awk -v day="$2" '
+    BEGIN { n = split(ENVIRON["AH_IDS"], a, /, */); for (i = 1; i <= n; i++) want[a[i]] = 1 }
+    $0 == "## Entries" { insec = 1 }
+    insec && /^## / && $0 != "## Entries" { insec = 0 }
+    insec && /^\|/ {
+      line = $0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line)
+      cn = split(line, c, "|")
+      for (i = 1; i <= cn; i++) gsub(/^[ \t]+|[ \t]+$/, "", c[i])
+      if (cn == 9 && (c[1] in want)) {
+        c[8] = c[8] + 1; c[9] = day
+        printf "| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9]
+        next
+      }
+    }
+    { print }
+  ' > "$ah_tmp"
+  mv "$ah_tmp" "$DOCS_DIR/Brain.md"
+}
+
+# brain_gc: rotate in Factory mode. When the brain has more rows than Brain max entries,
+# archives the least used rows (fewest hits, then oldest last use, then lowest id; never a
+# DEFAULT with the trigger *) to docs/history until 75 percent of the maximum is left.
+# Returns 0 and prints a line when it archived rows, 1 when there was nothing to do.
+brain_gc() {
+  factory_on || return 1
+  [ -f "$DOCS_DIR/Brain.md" ] || return 1
+  bg_max="$(factory_number "Brain max entries")"
+  bg_rows="$(brain_rows_tsv)"
+  bg_count="$(printf '%s\n' "$bg_rows" | awk 'length($0) > 0 { n++ } END { print n + 0 }')"
+  [ "$bg_count" -gt "$bg_max" ] || return 1
+  bg_target=$(( bg_max * 75 / 100 ))
+  bg_drop=$(( bg_count - bg_target ))
+  bg_ids="$(printf '%s\n' "$bg_rows" | awk -F'\t' '
+    $3 == "DEFAULT" && $4 == "*" { next }
+    NF == 0 { next }
+    { d = $9; if (d == "—") d = "0000-00-00"; printf "%09d\t%s\t%s\n", $8, d, $1 }
+  ' | LC_ALL=C sort | head -n "$bg_drop" | awk -F'\t' '{ print $3 }')"
+  [ -n "$bg_ids" ] || return 1
+  bg_stamp="$(date -u +'%Y%m%d')"
+  bg_day="$(date -u +'%Y-%m-%d')"
+  mkdir -p "$HISTORY_DIR"
+  bg_seq=1
+  while :; do
+    bg_name="brain-archive-$bg_stamp-$(printf '%03d' "$bg_seq").md"
+    [ ! -e "$HISTORY_DIR/$bg_name" ] && break
+    bg_seq=$((bg_seq + 1))
+  done
+  bg_src="$(mktemp "${TMPDIR:-/tmp}/project-docs-brainarchive.XXXXXX")"
+  {
+    echo "# Brain archive $bg_day"
+    echo
+    echo "Rows archived from docs/Brain.md by rotate on $bg_day. Their ids are never reused."
+    echo
+    echo "| ID | Name | Kind | Trigger | Lesson | Evidence | Status | Hits | Last used |"
+    echo "|---|---|---|---|---|---|---|---|---|"
+    printf '%s\n' "$bg_rows" | BG_IDS="$bg_ids" awk -F'\t' 'BEGIN { n = split(ENVIRON["BG_IDS"], a, "\n"); for (i = 1; i <= n; i++) want[a[i]] = 1 } ($1 in want) { print $10 }'
+  } > "$bg_src"
+  cp "$bg_src" "$HISTORY_DIR/$bg_name"
+  bg_h1="$(file_hash "$bg_src")"
+  bg_h2="$(file_hash "$HISTORY_DIR/$bg_name")"
+  rm -f "$bg_src"
+  [ "$bg_h1" = "$bg_h2" ] || die "brain archive hash verification failed"
+  bg_n="$(printf '%s\n' "$bg_ids" | awk 'length($0) > 0 { n++ } END { print n + 0 }')"
+  bg_tmp="$(mktemp "${TMPDIR:-/tmp}/project-docs-brain.XXXXXX")"
+  clean_stream < "$DOCS_DIR/Brain.md" | BG_IDS="$bg_ids" awk -v left="$((bg_count - bg_n))" -v max="$bg_max" -v day="$bg_day" -v name="$bg_name" -v hash="$bg_h2" -v moved="$bg_n" '
+    BEGIN { n = split(ENVIRON["BG_IDS"], a, "\n"); for (i = 1; i <= n; i++) want[a[i]] = 1 }
+    $0 == "## Entries" { insec = 1 }
+    insec && /^## / && $0 != "## Entries" { insec = 0 }
+    /^- Entries: / { print "- Entries: " left " of " max; next }
+    /^- Last gc: / { print "- Last gc: " day " (" moved " archived to docs/history/" name ", SHA-256 " hash ")"; next }
+    insec && /^\|/ {
+      line = $0; sub(/^\|/, "", line)
+      split(line, c, "|"); id = c[1]; gsub(/^[ \t]+|[ \t]+$/, "", id)
+      if (id in want) next
+    }
+    { print }
+  ' > "$bg_tmp"
+  mv "$bg_tmp" "$DOCS_DIR/Brain.md"
+  echo "project_docs rotate: brain archived $bg_n entries to $bg_name"
+  return 0
+}
+
+# require_fast_size TASK STATE: handoff of a FAST task. The change since the Base sha must
+# stay inside the lane: at most Fast lane max files files and Fast lane max lines lines,
+# nothing under Fast lane protected paths, and for a BUG row at least one test file. The
+# files the scripts maintain (ledger, Roadmap, Features, Brain, working memory, history,
+# specs) do not count. Without git it only warns.
+require_fast_size() {
+  rf_base="$(printf '%s' "$2" | cut -f19)"
+  if [ -z "$rf_base" ] || ! git_ready; then
+    echo "WARN: git is not available here, so the size of the change cannot be checked; the reviewer must write 'fast lane ok' in the review note" >&2
+    return 0
+  fi
+  git -C "$PROJECT" cat-file -e "$rf_base^{commit}" 2>/dev/null || die "handoff failed: the Base sha $rf_base is not in this repository"
+  rf_names="$( { git -C "$PROJECT" -c core.quotepath=false diff --relative --name-only "$rf_base" -- . ':(exclude)docs/Agentslog.md' ':(exclude)docs/Roadmap.md' ':(exclude)docs/Features.md' ':(exclude)docs/Brain.md' ':(exclude)docs/brain' ':(exclude)docs/history' ':(exclude)docs/specs' ':(exclude)docs/.lock' 2>/dev/null; git -C "$PROJECT" -c core.quotepath=false ls-files --others --exclude-standard -- . ':(exclude)docs/Agentslog.md' ':(exclude)docs/Roadmap.md' ':(exclude)docs/Features.md' ':(exclude)docs/Brain.md' ':(exclude)docs/brain' ':(exclude)docs/history' ':(exclude)docs/specs' ':(exclude)docs/.lock' 2>/dev/null; } | LC_ALL=C sort -u | awk 'length($0) > 0')"
+  rf_files="$(printf '%s\n' "$rf_names" | awk 'length($0) > 0 { n++ } END { print n + 0 }')"
+  rf_lines="$(git -C "$PROJECT" diff --relative --numstat "$rf_base" -- . ':(exclude)docs/Agentslog.md' ':(exclude)docs/Roadmap.md' ':(exclude)docs/Features.md' ':(exclude)docs/Brain.md' ':(exclude)docs/brain' ':(exclude)docs/history' ':(exclude)docs/specs' ':(exclude)docs/.lock' 2>/dev/null | awk -F'\t' '$1 ~ /^[0-9]+$/ { n += $1 + $2 } END { print n + 0 }')"
+  rf_untracked_lines=0
+  for rf_u in $(git -C "$PROJECT" -c core.quotepath=false ls-files --others --exclude-standard -- . ':(exclude)docs/Agentslog.md' ':(exclude)docs/Roadmap.md' ':(exclude)docs/Features.md' ':(exclude)docs/Brain.md' ':(exclude)docs/brain' ':(exclude)docs/history' ':(exclude)docs/specs' ':(exclude)docs/.lock' 2>/dev/null); do
+    rf_n="$(awk 'END { print NR }' "$PROJECT/$rf_u" 2>/dev/null)" || rf_n=0
+    rf_untracked_lines=$((rf_untracked_lines + ${rf_n:-0}))
+  done
+  rf_lines=$((rf_lines + rf_untracked_lines))
+  rf_max_files="$(factory_number "Fast lane max files")"
+  rf_max_lines="$(factory_number "Fast lane max lines")"
+  rf_hint="save the work in the branch wip/$1, take Lane: FAST out of its row, go back to $rf_base and move the task to SPEC with advance"
+  [ "$rf_files" -le "$rf_max_files" ] || die "handoff failed: task outgrew FAST lane ($rf_files files, the limit is $rf_max_files); $rf_hint"
+  [ "$rf_lines" -le "$rf_max_lines" ] || die "handoff failed: task outgrew FAST lane ($rf_lines lines, the limit is $rf_max_lines); $rf_hint"
+  rf_prot="$(factory_setting "Fast lane protected paths")"
+  for rf_p in $rf_prot; do
+    rf_hit="$(printf '%s\n' "$rf_names" | awk -v p="$rf_p" 'length($0) > 0 { s = "/" $0; if (index(s, "/" p) > 0) { print $0; exit } }')"
+    [ -z "$rf_hit" ] || die "handoff failed: task outgrew FAST lane (it touches the protected path $rf_hit); $rf_hint"
+  done
+  case "$1" in
+    F[0-9][0-9]-BUG-[0-9][0-9]*)
+      rf_tests="$(printf '%s\n' "$rf_names" | awk 'length($0) > 0 { s = "/" $0; if (index(s, ".spec.") > 0 || index(s, ".test.") > 0 || index(s, "/test/") > 0 || index(s, "/tests/") > 0 || index(s, "/e2e/") > 0) { n++ } } END { print n + 0 }')"
+      [ "$rf_tests" -gt 0 ] || die "handoff failed: task outgrew FAST lane (a BUG needs a test file in the change); $rf_hint"
+      ;;
+  esac
+}
+
+# require_fast_note TASK STATE NOTE: review PASS of a FAST handoff whose size git could not
+# check needs the words "fast lane ok" in the note.
+require_fast_note() {
+  [ "$(printf '%s' "$2" | cut -f18)" = "FAST" ] || return 0
+  if [ -n "$(printf '%s' "$2" | cut -f19)" ] && git_ready; then return 0; fi
+  printf '%s' "$3" | tr 'A-Z' 'a-z' | grep -q 'fast lane ok' || die "review failed: git could not check the size of the change of $1; the note must say 'fast lane ok'"
+}
+
+# next <project> <agent>: the id of the task this agent should work on now, or none. Order:
+# a task it already holds, a task assigned to it, a review waiting for it, a task paused by
+# a quota limit that its role can resume, a task assigned to anyone in a phase of its role,
+# and the first eligible TODO row of the Roadmap (Active work, Near term, Plan, Gaps).
+cmd_next() {
+  shift 2
+  require_factory next
+  [ "$#" -ge 1 ] || die "next requires: agent"
+  nx_agent="$(canonical_agent "$(clean_field_text "$1")")"
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  nx_raw="$(roster_role "$nx_agent")"
+  [ -n "$nx_raw" ] || die "next failed: $nx_agent is not in the Agent identity table; Factory mode needs a role for each agent"
+  nx_role="$(role_norm "$nx_raw")"
+  nx_max="$(factory_number "Max fix attempts")"
+  nx_indep=1
+  if ! factory_yes "Independent review"; then nx_indep=0; fi
+  nx_states="$(all_task_states)"
+  nx_best="$(printf '%s\n' "$nx_states" | awk -F'\t' -v agent="$nx_agent" -v role="$nx_role" -v maxatt="$nx_max" -v indep="$nx_indep" '
+    function prole(ph) { if (ph == "" || ph == "SPEC") return "SPEC"; if (ph == "RED") return "TEST"; if (ph == "GREEN") return "DEV"; if (ph == "REVIEW") return "QA"; return "" }
+    function can_work(ph,   r) { r = prole(ph); return (r != "" && (role == "BOTH" || role == r)) }
+    function can_review(ph) { return (role == "QA" || role == "BOTH" || ((ph == "" || ph == "SPEC") && role == "SPEC")) }
+    function cand(p, t) { if (best == "" || p < bestp) { best = t; bestp = p } }
+    NF == 0 { next }
+    {
+      t = $1; st = $2; ag = $3; pc = $5; hold = $9; hand = $10; rev = $11; ph = $12; att = $16 + 0
+      if (st == "IN_PROGRESS" && ag == agent) cand(0, t)
+      else if (st == "ASSIGNED" && hold == agent && can_work(ph) && att < maxatt) cand(1, t)
+      else if (st == "REVIEW" && rev == "" && can_review(ph) && (indep == 0 || hold != agent) && (hand == agent || hand == "")) cand(2, t)
+      else if (st == "PAUSE" && pc == "LIMITE" && can_work(ph) && att < maxatt) cand(3, t)
+      else if (st == "ASSIGNED" && hold != agent && can_work(ph) && att < maxatt) cand(4, t)
+    }
+    END { if (best != "") print best }
+  ')"
+  if [ -n "$nx_best" ]; then printf '%s\n' "$nx_best"; return 0; fi
+  nx_known="$(printf '%s\n' "$nx_states" | awk -F'\t' 'NF > 0 { printf "%s ", $1 }')"
+  nx_todo="$(awk -F'|' -v known="$nx_known" -v role="$nx_role" '
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    BEGIN { kn = split(known, kk, " "); for (i = 1; i <= kn; i++) isknown[kk[i]] = 1 }
+    /^## / {
+      sect = $0; rank = 0
+      if (sect ~ /^## Active work/) rank = 1
+      else if (sect ~ /^## Near term/) rank = 2
+      else if (sect ~ /^## Plan/) rank = 3
+      else if (sect ~ /^## Gaps/) rank = 4
+      hdr = 0; next
+    }
+    /^\|/ {
+      line = $0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line)
+      cn = split(line, c, "|")
+      for (i = 1; i <= cn; i++) c[i] = trim(c[i])
+      if (c[1] == "ID") { si = di = ei = 0; for (i = 1; i <= cn; i++) { if (c[i] == "Status") si = i; if (c[i] == "Depends on") ei = i; if (c[i] == "Description") di = i } hdr = 1; next }
+      if (c[1] ~ /^-+$/ || !hdr) next
+      allid[c[1]] = 1
+      if (rank > 0 && c[1] ~ /^[A-Za-z0-9]/) { rn++; RID[rn] = c[1]; RST[rn] = (si ? c[si] : ""); RDEP[rn] = (ei ? c[ei] : ""); RDESC[rn] = (di ? c[di] : ""); RK[rn] = rank }
+    }
+    END {
+      for (k = 1; k <= 4; k++) for (r = 1; r <= rn; r++) {
+        if (RK[r] != k || RST[r] != "TODO" || (RID[r] in isknown)) continue
+        need = (index(RDESC[r], "Lane: FAST") > 0) ? "DEV" : "SPEC"
+        if (role != "BOTH" && role != need) continue
+        ok = 1
+        m = split(RDEP[r], dd, /[ ,;]+/)
+        for (j = 1; j <= m; j++) if (dd[j] ~ /^F[0-9][0-9]*-/ && (dd[j] in allid)) { ok = 0; break }
+        if (ok) { print RID[r]; exit }
+      }
+    }
+  ' "$DOCS_DIR/Roadmap.md")"
+  if [ -n "$nx_todo" ]; then printf '%s\n' "$nx_todo"; else printf 'none\n'; fi
 }
 
 # Commands that exist only in Factory mode refuse to run in classic mode.
@@ -1447,6 +1964,7 @@ cmd_handoff() {
     esac
     require_exit_zero handoff "$verify"
     has_working_now "$task" || die "handoff failed: $task has no working memory yet (## Now); run checkpoint first"
+    if [ "$(printf '%s' "$state" | cut -f18)" = "FAST" ]; then require_fast_size "$task" "$state"; fi
     if [ "$handoff_phase" = "GREEN" ]; then require_tests_unchanged "$task" "$state"; fi
   fi
   name="$(require_valid_name "$task" handoff)"
@@ -1514,6 +2032,7 @@ cmd_review() {
     if [ "$result" = "PASS" ]; then
       require_exit_zero review "$verify"
       require_tests_note "$task" "$state" "$note"
+      require_fast_note "$task" "$state" "$note"
     fi
   fi
   if [ "$agent" = "$holder" ]; then
@@ -1549,7 +2068,18 @@ git_ready() {
 
 # verify_exit TEXT: the number after the first exit= marker of a verify string.
 verify_exit() {
-  printf '%s' "$1" | awk '{ if (match($0, /exit=[0-9]+/)) { print substr($0, RSTART + 5, RLENGTH - 5); exit } }'
+  printf '%s' "$1" | awk '
+    {
+      start = 1
+      while (match(substr($0, start), /exit=[0-9]+/)) {
+        abs = start + RSTART - 1; len = RLENGTH
+        pre = (abs > 1) ? substr($0, abs - 1, 1) : ""
+        post = substr($0, abs + len, 1)
+        if (pre !~ /[A-Za-z0-9]/ && post !~ /[A-Za-z0-9]/) { print substr($0, abs + 5, len - 5); exit }
+        start = abs + len
+      }
+    }
+  '
 }
 
 # exit_is_zero DIGITS: true when the digits spell zero (leading zeros ignored).
@@ -1678,6 +2208,9 @@ cmd_advance() {
     die "advance failed: $task cannot move from $cur_phase to $next_phase (allowed: SPEC to RED, RED to GREEN, back to SPEC or RED; GREEN to REVIEW is handoff)"
   fi
   has_working_now "$task" || die "advance failed: $task has no working memory yet (## Now); run checkpoint first"
+  if [ "$(printf '%s' "$state" | cut -f18)" = "FAST" ] && [ "$next_phase" != "SPEC" ]; then
+    die "advance failed: $task is a FAST task; it only goes back to SPEC, when it outgrew the lane"
+  fi
   if [ -n "$to_arg" ]; then
     to_agent="$to_arg"
     require_phase_role "$to_agent" "$next_phase" "$task" advance
@@ -1790,6 +2323,9 @@ cmd_done() {
     none|n/a|"no run"|ninguno|"—"|unknown)
       echo "WARN: verify \"$verify\" says nothing about what was checked" >&2 ;;
   esac
+  DONE_USED=""
+  DONE_LEARNED=""
+  if factory_on; then retro_read "$task"; fi
   name="$(require_valid_name "$task" done)"
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   claim_ts="$(first_claim_ts "$task")"
@@ -1805,16 +2341,21 @@ cmd_done() {
     echo "- Summary: $summary"
     echo "- Files: $files"
     echo "- Verify: $verify"
+    if factory_on; then echo "- Brain: used $DONE_USED; learned $DONE_LEARNED"; fi
   } >> "$DOCS_DIR/Agentslog.md"
   roadmap_remove_row_file "$task"
   features_add_capability "$task" "$summary" "$verify" "$timestamp"
+  if factory_on; then
+    brain_apply_hits "$DONE_USED" "$(printf '%s' "$timestamp" | cut -c1-10)"
+    rm -f "$(working_memory_path "$task")"
+  fi
   echo "project_docs done: $task closed"
 }
 
 cmd_status() {
   [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
   open_task_states | tr '\t' '\037' |
-  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts rest; do
+  while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base rest; do
     [ -n "$tid" ] || continue
     hrs="$(age_hours "$ts")"
     reason="-"
@@ -2849,12 +3390,13 @@ check_brain_rows() {
       if (c[7]!="CONFIRMED" && c[7]!="HYPOTHESIS") print pre "has invalid Status: " c[7]
       if (c[8] !~ /^[0-9]+$/) print pre "has invalid Hits: " c[8]
       if (c[9]!="—" && c[9] !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) print pre "has invalid Last used: " c[9]
+      if (c[7]=="CONFIRMED" && c[8] ~ /^[0-9]+$/ && c[8] + 0 >= 5) print "WARN: docs/Brain.md row \047" id "\047 is CONFIRMED with " c[8] " hits; promote it to a rule in AGENTS.md, an ADR or a BR"
     }
     END { if (rows>max) print "ERROR: docs/Brain.md has " rows " entries, over the Brain max entries limit of " max }
   ')"
   if [ -n "$out" ]; then
     printf '%s\n' "$out" >&2
-    CHECK_FAIL=1
+    if printf '%s\n' "$out" | grep -q '^ERROR:'; then CHECK_FAIL=1; fi
   fi
 }
 
@@ -3002,6 +3544,27 @@ check_working_memory() {
   done
 }
 
+# A task in RED or GREEN of the normal lane has a spec without UNKNOWN fields (F06-E02-T06).
+check_phase_specs() {
+  cps_list="$(open_task_states | awk -F'\t' '($12 == "RED" || $12 == "GREEN") && $18 != "FAST" { print $1 " " $12 }')"
+  [ -n "$cps_list" ] || return 0
+  while IFS=' ' read -r cps_t cps_p; do
+    [ -n "$cps_t" ] || continue
+    if [ ! -f "$DOCS_DIR/specs/$cps_t.md" ]; then
+      echo "ERROR: $cps_t is in phase $cps_p but docs/specs/$cps_t.md does not exist" >&2
+      CHECK_FAIL=1
+    else
+      cps_unk="$(spec_unknown_count "$DOCS_DIR/specs/$cps_t.md")"
+      if [ "$cps_unk" -gt 0 ]; then
+        echo "ERROR: $cps_t is in phase $cps_p but docs/specs/$cps_t.md still has $cps_unk UNKNOWN field(s)" >&2
+        CHECK_FAIL=1
+      fi
+    fi
+  done <<EOF
+$cps_list
+EOF
+}
+
 check_docs() {
   CHECK_FAIL=0
   need AGENTS.md "## Repository rules" "## Startup" "## Close"
@@ -3063,7 +3626,7 @@ check_docs() {
   check_table_status_enum docs/Stack_Tecnologies.md "CONFIRMED HYPOTHESIS UNKNOWN" "epistemic"
   check_table_status_enum docs/Roadmap.md "TODO IN_PROGRESS PAUSE DONE" "workflow"
   check_table_name_wordlimit docs/Roadmap.md 10
-  if factory_on; then check_brain_rows; check_specs; check_factory_roster; check_working_memory; fi
+  if factory_on; then check_brain_rows; check_specs; check_factory_roster; check_working_memory; check_phase_specs; fi
 
   check_warnings
 
@@ -3116,6 +3679,7 @@ rotate_log() {
   log_bytes="$(wc -c < "$log" | tr -d ' ')"
   log_entries="$(count_log_entries "$log")"
   if [ "$log_bytes" -le "$LOG_BYTES_LIMIT" ] && [ "$log_entries" -le "$LOG_ENTRIES_LIMIT" ]; then
+    if brain_gc; then return; fi
     echo "project_docs rotate: not required"
     return
   fi
@@ -3165,7 +3729,7 @@ rotate_log() {
     echo
     echo "## Entries"
     if [ -n "$open_summary" ]; then
-      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts rest; do
+      printf '%s\n' "$open_summary" | tr '\t' '\037' | while IFS="$US" read -r tid status agent ts pausecat conflict everdone name holder handoff review phase specpass red tests attempts struggled lane base rest; do
         [ -n "$tid" ] || continue
         att_carry="${attempts:-0}"
         case "$review" in
@@ -3184,6 +3748,9 @@ rotate_log() {
           if [ -n "$red" ]; then echo "- Red: $red"; fi
           if [ -n "$tests" ]; then echo "- Tests: $tests"; fi
           if [ "$att_carry" -gt 0 ]; then echo "- Attempts: $att_carry"; fi
+          if [ "${struggled:-0}" = "1" ]; then echo "- Struggled: yes"; fi
+          if [ -n "$lane" ]; then echo "- Lane: $lane"; fi
+          if [ -n "$base" ]; then echo "- Base: $base"; fi
         fi
         echo
         echo "## [$ts] | $agent | $tid | $status | $name"
@@ -3193,6 +3760,9 @@ rotate_log() {
         if [ "$status" != "REVIEW" ] && [ -n "$red" ]; then echo "- Red: $red"; fi
         if [ "$status" != "REVIEW" ] && [ -n "$tests" ]; then echo "- Tests: $tests"; fi
         if [ "$status" != "REVIEW" ] && [ "$att_carry" -gt 0 ]; then echo "- Attempts: $att_carry"; fi
+        if [ "$status" != "REVIEW" ] && [ "${struggled:-0}" = "1" ]; then echo "- Struggled: yes"; fi
+        if [ "$status" != "REVIEW" ] && [ -n "$lane" ]; then echo "- Lane: $lane"; fi
+        if [ "$status" != "REVIEW" ] && [ -n "$base" ]; then echo "- Base: $base"; fi
         if [ "$status" = "PAUSE" ]; then
           echo "- Pause: $pausecat - see docs/history/$archive_name for detail"
         fi
@@ -3209,6 +3779,7 @@ rotate_log() {
   } > "$tmp"
   mv "$tmp" "$log"
   echo "project_docs rotate: archived $archive_name"
+  brain_gc || true
 }
 
 case "$COMMAND" in
@@ -3225,11 +3796,15 @@ case "$COMMAND" in
   review) cmd_review "$@" ;;
   mode) cmd_mode ;;
   checkpoint) cmd_checkpoint "$@" ;;
+  recall) cmd_recall "$@" ;;
+  learn) cmd_learn "$@" ;;
+  retro) cmd_retro "$@" ;;
+  next) cmd_next "$@" ;;
   advance) cmd_advance "$@" ;;
   assign) cmd_assign "$@" ;;
   done) cmd_done "$@" ;;
   status) cmd_status ;;
   *)
-    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint|advance} <project> [args]"
+    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint|advance|recall|learn|retro|next} <project> [args]"
     ;;
 esac

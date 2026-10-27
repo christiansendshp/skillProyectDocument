@@ -216,3 +216,109 @@ from REVIEW in Factory mode) and writes the lesson; the count starts again after
 `BLOQUEO` pause. `rotate` carries the attempts, `Red` and `Tests` of open tasks.
 In classic mode the ledger lines `Phase`, `Spec-pass`, `Red`, `Tests` and
 `Attempts` are ignored and never carried.
+
+## Recall: what to read before a task
+
+`recall <project> <task-id>` prints, within `Recall budget bytes` (4096 by
+default), what an agent needs to start or resume a task without reading the
+history. Run it after `context` and read more only where it points.
+
+1. `## Task`: the Roadmap row (id, name, description, acceptance check, status,
+   owner, dependencies).
+2. `## Spec summary`: the `## Summary` of the spec, if there is one.
+3. `## Now`: the `## Now` of the working memory, if there is one.
+4. `## Brain`: the brain rows that match the task, then `recall: N of M brain
+   entries shown`.
+
+Which rows match is deterministic and the same in both launchers. The task
+tokens are the lower case ASCII words of four or more letters of the row name,
+description and `Depends on`, plus every word of the `- Tags:` line of the spec
+(path prefixes included). A row scores one point per distinct word of its
+`Trigger` that is a task token; a trigger word with a `/` is a path prefix and
+matches any task token that starts with it; `*` scores one. Rows with at least
+one point are ordered by score, then `Hits` (more first), then id (ascending),
+and are printed whole until the next one would not fit the budget; a row is
+never cut. If the first three parts alone do not fit, `recall` fails and asks to
+shorten the spec `Summary` or the working memory.
+
+## Learning: learn and retro
+
+`learn <project> <agent> <task-id> <kind> <name> <trigger> <lesson>` adds a row
+to `docs/Brain.md` with the next `LRN-xxx` (ids of archived rows count, so an id
+is never reused), `Evidence` `log:<task-id>`, `Status` `HYPOTHESIS` and `Hits`
+0. It refuses a `|` in any argument, an unknown kind, a name over 10 words, an
+empty name, trigger or lesson, the trigger `*` for a kind other than `DEFAULT`,
+a name the brain already has, an unknown task and a brain that already holds
+`Brain max entries` rows (run `rotate`). The trigger is stored in lower case.
+
+`retro <project> <agent> <task-id> <used-ids|none> <learned-ids|none>` records in
+the `## Retro` of the working memory which lessons the task used and which it
+left (`LRN-001, LRN-003`, sorted, without repeats). Used ids must exist in the
+brain; learned ids must have been written for this task. A task that had a
+`Review: FAIL`, a `BLOQUEO` pause or a move from GREEN back to RED cannot say
+`learned none`: it must `learn` what went wrong first. `rotate` carries that fact
+(`- Struggled: yes`).
+
+In Factory mode `done` needs the retro. It adds `- Brain: used ...; learned ...`
+to the `DONE` entry, adds one hit and today's date to each used lesson and
+deletes the working memory (git keeps its history).
+
+## The brain stays small: rotate and check
+
+`rotate` also looks at the brain. When it holds more rows than `Brain max entries`
+it moves the least used rows (fewest hits, then oldest `Last used`, then lowest id)
+to `docs/history/brain-archive-<date>-<seq>.md` until 75 percent of the maximum is
+left. It never moves a `DEFAULT` row whose trigger is `*`. The archive is
+verified with SHA-256 like the ledger archive, and the `Operational summary` of
+the brain records the count and the archive (`- Last gc:`). `check` warns about
+`CONFIRMED` rows with five or more hits: they are candidates to become a rule in
+`AGENTS.md`, an ADR or a BR.
+
+## Choosing work without asking: next
+
+`next <project> <agent>` prints the id of the task the agent should work on now,
+or `none`. An agent never asks which task to take and never idles: it runs `next`,
+then `claim`. The answer is the first of:
+
+1. a task the agent already holds (`IN_PROGRESS`), so a crashed run resumes;
+2. a task assigned to it (`ASSIGNED`) in a phase of its role;
+3. a review waiting for it: a `REVIEW` task without an answer, handed to it or to
+   nobody, that it did not develop, when its role can review that phase;
+4. a task paused by a quota limit (`PAUSE LIMITE`) in a phase of its role: any
+   agent of the role may resume it;
+5. a task assigned to another agent, in a phase of its role;
+6. the first `TODO` row of `## Active work`, `## Near term`, `## Plan` and then
+   `## Gaps, Bugs & Technical Debt`, in file order, whose `Depends on` ids are all
+   closed (no longer in the Roadmap) and whose lane fits the role (SPEC for the
+   normal lane, DEV for FAST; `BOTH` takes either).
+
+Tasks with no fix attempts left, `PAUSE` with `BLOQUEO` or a `RED-LINE`, and
+tasks that are not yours are skipped. An agent that is not in the roster gets an
+error.
+
+## The fast lane
+
+A row whose `Description` contains `Lane: FAST` skips the spec and RED. The
+agent that adds the row decides: no business rule, schema, auth or public API
+change, and small. The task is DEV work in phase GREEN from the start:
+
+- `claim` writes `- Phase: GREEN`, `- Lane: FAST` and `- Base: <sha>` (the head
+  at the first claim; later claims keep it). Without git there is no Base.
+- Work as usual, with at least one test for any change of behavior, and keep a
+  working memory (`checkpoint`).
+- `handoff` compares the change since `Base` with the lane: at most `Fast lane
+  max files` files and `Fast lane max lines` lines (added plus deleted), nothing
+  under `Fast lane protected paths` (a prefix matches at any directory), and for
+  a `Fxx-BUG-xx` row at least one test file (`.spec.`, `.test.`, `/test/`,
+  `/tests/`, `/e2e/`). The ledger, Roadmap, Features, Brain, working memory,
+  `docs/history/` and `docs/specs/` do not count. Without git it only warns, and
+  the reviewer has to write `fast lane ok` in the note.
+- Review, `retro` and `done` are the same as in the normal lane; a FAST task
+  with a `Review: FAIL` also has to `learn` something.
+
+When a task outgrows the lane `handoff` fails with `task outgrew FAST lane`.
+Save the work in the branch `wip/<TASK-ID>`, take `Lane: FAST` out of the row,
+go back to the `Base` sha and run `advance <agent> <task-id> SPEC "..."`; the
+SPEC agent claims it and the normal lane starts. `advance` takes a FAST task
+only back to SPEC. `check` requires a spec without `UNKNOWN` fields for every
+task in RED or GREEN of the normal lane, and none for a FAST task.

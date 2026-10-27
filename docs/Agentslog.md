@@ -428,3 +428,82 @@ lines or roughly 700 characters. Older segments live in `docs/history/`.
 ## [2026-10-26T23:33:47Z] | claude-sonnet-5-5 | F06-E02-T02 | IN_PROGRESS | Phase lines and advance command with gates
 - Summary: Retake after QA FAIL: classic stays byte-identical
 - Verify: pending
+
+## [2026-10-27T00:59:32Z] | claude-sonnet-5-5 | F06-E02-T02 | REVIEW | Phase lines and advance command with gates
+- Summary: Retake: classic ignores Factory lines
+- Verify: smoke 1700 pass 0 fail (sh 851 ps1 849); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-27T00:59:34Z] | claude-sonnet-5-5 | F06-E02-T04 | REVIEW | Exit markers and immutable tests from RED sha
+- Summary: Exit markers and tests unchanged since RED
+- Verify: smoke 1700 pass 0 fail (sh 851 ps1 849); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-27T00:59:35Z] | claude-sonnet-5-5 | F06-E02-T05 | REVIEW | Turn review warnings into errors in factory
+- Summary: Review warnings are errors in Factory mode
+- Verify: smoke 1700 pass 0 fail (sh 851 ps1 849); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-27T00:59:37Z] | claude-sonnet-5-5 | F06-E01-T05 | REVIEW | Enforce WIP and fix attempt limits in claim
+- Summary: WIP per agent and fix attempts in claim
+- Verify: smoke 1700 pass 0 fail (sh 851 ps1 849); differential vs master identical
+- Handoff: claude-qa
+
+## [2026-10-27T01:08:32Z] | claude-qa | F06-E02-T02 | REVIEW | Phase lines and advance command with gates
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: classic rotate old vs 6f871ae identical in sh and ps1; Factory rotate+advance OK in sh; factory smoke still running
+- Review: PASS - Retake verified at 6f871ae: classic rotate identical to master in sh and ps1 (REVIEW PASS/FAIL, hand-written Factory lines, 205+ entries); Factory rotate keeps Spec-pass, advance works after it
+
+## [2026-10-27T01:09:16Z] | claude-sonnet-5-5 | F06-E02-T02 | DONE | Phase lines and advance command with gates
+- Summary: advance command with SPEC and RED gates
+- Files: scripts/,references/factory.md
+- Verify: smoke 1700 pass 0 fail; QA PASS retake: classic rotate identical
+
+## [2026-10-27T01:09:28Z] | claude-sonnet-5-5 | F06-E03-T03 | IN_PROGRESS | Recall command with deterministic ranking and budget
+- Summary: Recall command with ranking and budget
+- Verify: pending
+
+## [2026-10-27T01:09:30Z] | claude-sonnet-5-5 | F06-E03-T04 | IN_PROGRESS | Learn and retro commands with mandatory lessons
+- Summary: Learn and retro commands, done integration
+- Verify: pending
+
+## [2026-10-27T01:09:33Z] | claude-sonnet-5-5 | F06-E03-T05 | IN_PROGRESS | Brain garbage collection in rotate and promotion warning
+- Summary: Brain gc in rotate and promotion warning
+- Verify: pending
+
+## [2026-10-27T01:11:49Z] | claude-qa | F06-E02-T04 | REVIEW | Exit markers and immutable tests from RED sha
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: GREEN handoff, 1800 Tests paths, last modified: sh passes, ps1 raw error; exit, modified/deleted/renamed, no-git, subdir cases sh==ps1
+- Review: FAIL - require_tests_unchanged ignores a failing git diff: with ~900+ Tests paths (arg limit) sh handoff passes a modified test, ps1 aborts with a raw git.exe error. Check git's exit status; batch or use a pathspec file
+
+## [2026-10-27T01:21:40Z] | claude-qa | F06-E02-T05 | REVIEW | Turn review warnings into errors in factory
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: smoke running (sh 318 ok, 0 fail so far); 16 review/done cases sh==ps1; classic flow==9302b58; races ok
+- Review: PASS - PASS: self-review, role, unknown reviewer, exit=0 and done gates error with identical sh/ps1 messages and ledger bytes; classic warnings untouched. Note: DEV holder cannot self-review even with Independent review NO
+
+## [2026-10-27T01:21:44Z] | claude-qa | F06-E01-T05 | REVIEW | Enforce WIP and fix attempt limits in claim
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: smoke running (sh 318 ok, 0 fail so far); 8 wip/attempt scenarios + 4x race rounds sh==ps1; rotate carry ok; classic==9302b58
+- Review: PASS - PASS: WIP, attempts (FAIL + GREEN to RED, rotate carry, BLOQUEO reset), pause from REVIEW, factory_number values, claim races all sh==ps1; classic untouched. Note: stale task counts for WIP; BLOQUEO needs no lesson yet
+
+## [2026-10-27T01:40:28Z] | claude-sonnet-5-5 | F06-E02-T05 | DONE | Turn review warnings into errors in factory
+- Summary: Review warnings are errors in Factory mode
+- Files: scripts/,references/factory.md
+- Verify: smoke 1700 pass 0 fail; QA PASS factory 561 sh; classic flow identical
+
+## [2026-10-27T01:40:32Z] | claude-sonnet-5-5 | F06-E01-T05 | DONE | Enforce WIP and fix attempt limits in claim
+- Summary: WIP per agent and fix attempts in claim
+- Files: scripts/,references/factory.md
+- Verify: smoke 1700 pass 0 fail; QA PASS races, rotate, BLOQUEO reset
+
+## [2026-10-27T01:49:07Z] | claude-sonnet-5-5 | F06-E02-T04 | IN_PROGRESS | Exit markers and immutable tests from RED sha
+- Summary: Retake after QA FAIL: git failures and strict marker
+- Verify: pending
+
+## [2026-10-27T01:49:08Z] | claude-sonnet-5-5 | F06-E01-T04 | IN_PROGRESS | Add next command for autonomous task selection
+- Summary: Add next command for autonomous task selection
+- Verify: pending
+
+## [2026-10-27T01:49:10Z] | claude-sonnet-5-5 | F06-E02-T06 | IN_PROGRESS | Fast lane with size limits and promotion to SPEC
+- Summary: Fast lane with size limits and promotion
+- Verify: pending

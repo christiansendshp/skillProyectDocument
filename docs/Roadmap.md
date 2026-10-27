@@ -19,10 +19,12 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E02-T02 | Phase lines and advance command with gates | Section 4.3 table; writes ASSIGNED with Phase | Every gate has a passing and a failing smoke case | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T23:33:47Z | F06-E02-T01, F06-E02-T03, F06-E03-T02 | — |
-| F06-E02-T04 | Exit markers and immutable tests from RED sha | D-06 and D-07 including the no-git warning | Changing a recorded test after RED makes handoff fail | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T23:00:13Z | F06-E02-T02 | — |
-| F06-E02-T05 | Turn review warnings into errors in factory | Self-review, close without PASS, empty verify | Same cases warn in classic and fail in factory | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T23:00:15Z | F06-E01-T01 | — |
-| F06-E01-T05 | Enforce WIP and fix attempt limits in claim | D-13 and D-14 | Smoke cases refuse the claim with a clear message | IN_PROGRESS | claude-sonnet-5-5@2026-10-26T23:00:17Z | F06-E02-T02 | — |
+| F06-E02-T04 | Exit markers and immutable tests from RED sha | D-06 and D-07 including the no-git warning | Changing a recorded test after RED makes handoff fail | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T01:49:07Z | F06-E02-T02 | — |
+| F06-E03-T03 | Recall command with deterministic ranking and budget | Algorithm in section 4.5 | Same bytes in sh and ps1; never above budget; whole rows only | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T01:09:28Z | F06-E03-T01, F06-E03-T02, F06-E02-T01 | — |
+| F06-E03-T04 | Learn and retro commands with mandatory lessons | retro rules and done integration per section 4.5 | learned none refused after a FAIL; Hits updated on done | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T01:09:30Z | F06-E03-T03 | — |
+| F06-E03-T05 | Brain garbage collection in rotate and promotion warning | Archive to 75 percent of cap with SHA-256 check | Over-cap fixture ends under cap; archive verified | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T01:09:33Z | F06-E03-T01 | — |
+| F06-E01-T04 | Add next command for autonomous task selection | Order and skips per section 4.3 | Smoke cases for every role return the expected ID | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T01:49:08Z | F06-E02-T02, F06-E02-T03 | — |
+| F06-E02-T06 | Fast lane with size limits and promotion to SPEC | Section 4.3.1; Lane and Base lines; BUG rows need a test file | Every fast lane limit has a passing and a failing smoke case | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T01:49:10Z | F06-E02-T04, F06-E02-T05 | — |
 
 <!-- context:end -->
 
@@ -83,21 +85,16 @@ Spec: docs/features/ia-factory.md (closed decisions D-01 to D-21 are ADR-023 onw
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E01-T04 | Add next command for autonomous task selection | Order and skips per section 4.3 | Smoke cases for every role return the expected ID | TODO | — | F06-E02-T02, F06-E02-T03 | — |
 
 #### F06-E02 — Spec and TDD production line
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E02-T06 | Fast lane with size limits and promotion to SPEC | Section 4.3.1; Lane and Base lines; BUG rows need a test file | Every fast lane limit has a passing and a failing smoke case | TODO | — | F06-E02-T04, F06-E02-T05 | — |
 
 #### F06-E03 — Brain and context economy
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E03-T03 | Recall command with deterministic ranking and budget | Algorithm in section 4.5 | Same bytes in sh and ps1; never above budget; whole rows only | TODO | — | F06-E03-T01, F06-E03-T02, F06-E02-T01 | — |
-| F06-E03-T04 | Learn and retro commands with mandatory lessons | retro rules and done integration per section 4.5 | learned none refused after a FAIL; Hits updated on done | TODO | — | F06-E03-T03 | — |
-| F06-E03-T05 | Brain garbage collection in rotate and promotion warning | Archive to 75 percent of cap with SHA-256 check | Over-cap fixture ends under cap; archive verified | TODO | — | F06-E03-T01 | — |
 
 #### F06-E04 — Digest and status
 
