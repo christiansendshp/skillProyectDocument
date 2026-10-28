@@ -94,3 +94,51 @@ segments live in `docs/history/`.
 - Verify: exit=0
 - Review: PASS - spec ok; sha matches
 - Cross-model: NO
+
+## [2026-10-28T13:22:08Z] | claude-sonnet-5-5 | F06-E05-T03 | IN_PROGRESS | Dogfood a full factory lifecycle end to end
+- Summary: spec passed review; to RED
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-10-28T13:22:12Z] | claude-sonnet-5-5 | F06-E05-T03 | ASSIGNED | Dogfood a full factory lifecycle end to end
+- Summary: Moved to RED, assigned to claude-sonnet-5-5
+- Phase: RED
+- Assign: claude-sonnet-5-5
+- Verify: spec reviewed; exit=0
+
+## [2026-10-28T13:22:20Z] | claude-sonnet-5-5 | F06-E05-T03 | IN_PROGRESS | Dogfood a full factory lifecycle end to end
+- Summary: RED: Level NONE, no test
+- Verify: pending
+- Phase: RED
+- Lane: NORMAL
+
+## [2026-10-28T13:22:25Z] | claude-sonnet-5-5 | F06-E05-T03 | ASSIGNED | Dogfood a full factory lifecycle end to end
+- Summary: Moved to GREEN, assigned to claude-sonnet-5-5
+- Phase: GREEN
+- Assign: claude-sonnet-5-5
+- Verify: all NONE, no failing test (ADR-091); exit=0
+
+## [2026-10-28T13:23:14Z] | claude-sonnet-5-5 | F06-E05-T03 | IN_PROGRESS | Dogfood a full factory lifecycle end to end
+- Summary: GREEN: ready for final review
+- Verify: pending
+- Phase: GREEN
+- Lane: NORMAL
+
+## [2026-10-28T13:23:21Z] | claude-sonnet-5-5 | F06-E05-T03 | REVIEW | Dogfood a full factory lifecycle end to end
+- Summary: final: append-log fix, report, adoption
+- Verify: focused sh 34 ps1 34; full9 sh 1386 ps1 1382; check OK; exit=0
+- Handoff: claude-qa
+
+## [2026-10-28T16:39:20Z] | claude-qa | F06-E05-T03 | REVIEW | Dogfood a full factory lifecycle end to end
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: exit=0
+- Review: PASS - append-log fix and report verified
+- Cross-model: NO
+
+## [2026-10-28T16:39:54Z] | claude-sonnet-5-5 | F06-E05-T03 | DONE | Dogfood a full factory lifecycle end to end
+- Summary: dogfooding report, Factory adoption, review fixes ADR-090 to ADR-094
+- Files: docs/ scripts/
+- Verify: full10 sh 1397 ps1 1393 0 failed; exit=0
+- Brain: used LRN-007; learned LRN-010
+- Cross-model: NO

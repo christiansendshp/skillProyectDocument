@@ -2,8 +2,8 @@
 
 ## Operational summary
 
-- Verified capabilities: 62
-- Latest verification: `full smoke on 1af17ab: sh 1342 passed 0 failed, ps1 1338 passed 0 failed; focused runs of the later fixes pass in sh and ps1; QA PASS on frozen copies (rounds 3 to 5); differential fail=0 in sh and ps1; exit=0` (2026-10-27)
+- Verified capabilities: 64
+- Latest verification: `full10 sh 1397 ps1 1393 0 failed; exit=0` (2026-10-28)
 - Known limitation: the AGENTS.md/Agents.md case collision cannot be tested end to end on Windows or macOS.
 
 <!-- context:end -->
@@ -77,3 +77,5 @@ Use one row per stable capability. Link long specifications or runbooks from
 | F06-E06-T03 | dispatcher loop in sh with the same behavior | full smoke on 1af17ab: sh 1342 passed 0 failed, ps1 1338 passed 0 failed; focused runs of the later fixes pass in sh and ps1; QA PASS on frozen copies (rounds 3 to 5); differential fail=0 in sh and ps1; exit=0 | log:F06-E06-T03 | 2026-10-27 |
 | F06-E06-T04 | fake CLIs and dispatcher smoke tests | full smoke on 1af17ab: sh 1342 passed 0 failed, ps1 1338 passed 0 failed; focused runs of the later fixes pass in sh and ps1; QA PASS on frozen copies (rounds 3 to 5); differential fail=0 in sh and ps1; exit=0 | log:F06-E06-T04 | 2026-10-27 |
 | F06-E06 | Epic complete | all tasks DONE | log:F06-E06-T04 | 2026-10-27 |
+| F06-E05-T03 | dogfooding report, Factory adoption, review fixes ADR-090 to ADR-094 | full10 sh 1397 ps1 1393 0 failed; exit=0 | log:F06-E05-T03 | 2026-10-28 |
+| F06-E05 | Epic complete | all tasks DONE | log:F06-E05-T03 | 2026-10-28 |

@@ -9,8 +9,8 @@ sh scripts/tests/dogfood.sh ps1   # PowerShell 5.1 launchers
 ```
 
 Each prints its expectations (`ok`/`FAIL`), then its measurements, and exits 1 if one fails.
-Last run, on the final scripts: **sh 21 passed, 0 failed; ps1 21 passed, 0 failed**, with the
-same counts in both.
+Last run, on the final scripts (`e44780f`): **sh 21 passed, 0 failed; ps1 21 passed, 0 failed**,
+with the same counts in both.
 
 ## What ran (steps 1 to 5)
 
@@ -45,8 +45,8 @@ the mode changed, `check` passed and a second `migrate --factory` changed nothin
 | Largest `context` during the run | 8185 bytes | 8186 bytes (console encoding) | 8192 |
 | `recall` of the normal task in GREEN | 913 bytes, 2 of 3 brain rows | 913 bytes, 2 of 3 | 4096 (`Recall budget bytes`) |
 | `digest` at the end | 405 bytes | 405 bytes | 4096 |
-| `context` of this repository after adopting Factory mode | 7771 bytes right after adopting it; 8078 while the last task waited for its review, already showing only the latest entry (ADR-080) | 7761; 8066 | 8192 |
-| `recall` of this task in this repository | about 1.2 KB (1174 bytes at the end), 3 of 9 brain rows | — | 4096 |
+| `context` of this repository after adopting Factory mode | 7771 bytes right after adopting it; 7974 to 8078 along the lane of the last task, already showing only the latest entry (ADR-080); once 8204, which fails (see below) | 7761; 8066 | 8192 |
+| `recall` of this task in this repository | 1305 bytes at GREEN (1373 at the final review), 3 of 10 brain rows | 1325 (1393) | 4096 |
 
 `gemini-qa` wrote two reviews (the `PASS` of the spec and the `FAIL` of the code) and its third
 run, the one that hit the quota, wrote none; of the two reviews by `claude-qa` one is the fast
@@ -116,6 +116,17 @@ The dogfooding found things the unit-level cases had not:
   infra) could not reach GREEN, and therefore could not be closed once `done` required GREEN
   (ADR-090): `advance` now lets RED go to GREEN with no failing test when every scenario is `NONE`
   and no test file is listed, except for a `Fxx-BUG-xx` row (ADR-091).
+- Retaking a task that was claimed before the project moved to Factory mode wrote a `Phase: SPEC`
+  that `done` then refused, so `claim` now keeps such a task without phase and lane (ADR-092).
+- Two dispatcher cases failed under load by one second, because the clock was read twice for one
+  decision: it is read once now (ADR-094); the dispatcher suite then passed 3 times in sh and in
+  ps1 while other runs loaded the machine.
+- The same review found that a lifecycle entry could still be written by hand with `append-log`,
+  also in `in_progress` or `Done`, which PowerShell accepts: in Factory mode `append-log` now
+  writes only `AUDIT` (ADR-093).
+- `context` of this repository failed at 8204 bytes while the only entry shown was a handoff with
+  a long `Verify`: ADR-080 shows fewer entries but not shorter ones. With `AGENTS.md` at 5.9 KB the
+  room for the latest entry is about 400 bytes, so the entries of this repository are kept short.
 
 ## Appendix: what the real run left behind (step 6)
 
