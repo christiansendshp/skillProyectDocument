@@ -3951,11 +3951,13 @@ append_log() {
   follow_up="$(clean_field "${7:-none}")"
   # In Factory mode the statuses of the lifecycle belong to its commands: a hand-written entry
   # would start, hold or close a task with no phase, spec, tests or review (BR-009, ADR-093).
+  # Only AUDIT is written, compared with the spaces around it removed, as PowerShell does.
   if factory_on; then
-    case "$status" in
-      IN_PROGRESS|PAUSE|REVIEW|ASSIGNED|DONE)
-        die "append-log failed: $status is a lifecycle status; in Factory mode use claim, pause, handoff, review, advance, assign or done (append-log is for entries outside the lifecycle, like AUDIT)" ;;
-    esac
+    status="${status#"${status%%[![:space:]]*}"}"
+    status="${status%"${status##*[![:space:]]}"}"
+    if [ "$status" != "AUDIT" ]; then
+      die "append-log failed: $status is not AUDIT; in Factory mode the statuses of the lifecycle belong to claim, pause, handoff, review, advance, assign and done (append-log is only for entries outside the lifecycle, like AUDIT)"
+    fi
   fi
   timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   {

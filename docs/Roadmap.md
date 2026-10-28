@@ -19,7 +19,7 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F06-E05-T03 | Dogfood a full factory lifecycle end to end | Section 8 | Section 9 checklist fully met | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T21:51:49Z | F06-E05-T02 | — |
+| F06-E05-T03 | Dogfood a full factory lifecycle end to end | Section 8 | Section 9 checklist fully met | IN_PROGRESS | claude-sonnet-5-5@2026-10-27T22:29:26Z | F06-E05-T02 | — |
 
 <!-- context:end -->
 

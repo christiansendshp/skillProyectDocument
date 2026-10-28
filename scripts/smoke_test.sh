@@ -2862,13 +2862,17 @@ SPEC
   bn_proj appendlog
   al_before="$(grep -c '^## \[' "$bn/docs/Agentslog.md")"
   assert_failure "$label append-log refuses to start a task in Factory mode" run append-log "$bn" claude-spec F09-E01-T01 IN_PROGRESS "manual start" docs/ pending
-  grep -q 'append-log failed: IN_PROGRESS is a lifecycle status' "$WORK/.out" && ok "$label the refusal names the status" || bad "$label append-log text wrong: $(cat "$WORK/.out")"
-  tr '\n\r' '  ' < "$WORK/.out" | tr -s ' ' | grep -qF 'use claim, pause, handoff, review, advance, assign or done' && ok "$label the refusal names the commands to use" || bad "$label append-log refusal does not name the commands: $(cat "$WORK/.out")"
-  for al_st in REVIEW PAUSE ASSIGNED DONE; do
-    assert_failure "$label append-log refuses $al_st in Factory mode" run append-log "$bn" claude-spec F09-E01-T01 "$al_st" "manual" docs/ pending
+  grep -q 'append-log failed: IN_PROGRESS is not AUDIT' "$WORK/.out" && ok "$label the refusal names the status" || bad "$label append-log text wrong: $(cat "$WORK/.out")"
+  tr '\n\r' '  ' < "$WORK/.out" | tr -s ' ' | grep -qF 'belong to claim, pause, handoff, review, advance, assign and done' && ok "$label the refusal names the commands to use" || bad "$label append-log refusal does not name the commands: $(cat "$WORK/.out")"
+  # any other spelling is refused too: other letter case, spaces around, a status that does not exist
+  for al_st in REVIEW PAUSE ASSIGNED DONE in_progress In_Progress done "IN_PROGRESS " " DONE" audit Audit BOGUS; do
+    assert_failure "$label append-log refuses '$al_st' in Factory mode" run append-log "$bn" claude-spec F09-E01-T01 "$al_st" "manual" docs/ pending
   done
   [ "$(grep -c '^## \[' "$bn/docs/Agentslog.md")" = "$al_before" ] && ok "$label a refused append-log writes nothing" || bad "$label a refused append-log wrote an entry"
   assert_success "$label append-log still records an audit in Factory mode" run append-log "$bn" claude-qa F09-E01-T01 AUDIT "audit ok" docs/ "exit=0"
+  assert_success "$label an audit with spaces around it is written as AUDIT" run append-log "$bn" claude-qa F09-E01-T01 " AUDIT " "audit again" docs/ "exit=0"
+  [ "$(grep -c '| AUDIT$' "$bn/docs/Agentslog.md")" -eq 2 ] && ok "$label both audits carry the exact status" || bad "$label an audit entry has a wrong status: $(grep '| AUDIT' "$bn/docs/Agentslog.md" | cat -A | tr '\n' ' ')"
+  assert_success "$label check accepts the ledger with the audits" run check "$bn"
   ip_new al_classic
   run_env PROJECT_DOCS_MODE=classic init "$ip" >/dev/null 2>&1
   assert_success "$label append-log in classic mode keeps accepting every status" run append-log "$ip" claude-spec F09-E01-T01 IN_PROGRESS "manual start" docs/ pending

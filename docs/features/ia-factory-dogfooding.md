@@ -89,9 +89,9 @@ to `docs/history/Agentslog-20261027-001.md`, and `migrate --factory` added the `
 section, `docs/Brain.md`, the `docs/specs/` and `docs/brain/tasks/` folders,
 `.factory/dispatch.md` and the `.gitignore` block. `Preferred reviewer` stays empty: the only QA
 agent of this repository has the model of its developer, so an audit would be a self-audit. The
-brain holds the three default lessons and six that this work taught (heredocs and
+brain holds the three default lessons and seven that this work taught (heredocs and
 backslashes, `git` renames, PowerShell case, atomic locks, focused runs, where the dispatcher
-lives). `check .` passes and `context` is 7771 bytes (sh) right after the adoption.
+lives, and trying a new gate on tasks that lack its path). `check .` passes and `context` is 7771 bytes (sh) right after the adoption.
 
 The last task of the branch, this one, was closed with the Factory rules of the repository
 itself: `checkpoint`, a `handoff` with `exit=0`, a review by `claude-qa`, `retro` with the

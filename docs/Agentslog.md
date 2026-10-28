@@ -76,3 +76,21 @@ segments live in `docs/history/`.
 - Verify: check . OK; exit=0
 - Handoff: claude-qa
 - Spec-sha: 5e2b23b6bf36e92e99c1686e7ac3aa9c01458d319541d04e3c53d1a5c36d7490
+
+## [2026-10-27T22:29:26Z] | claude-sonnet-5-5 | F06-E05-T03 | IN_PROGRESS | Dogfood a full factory lifecycle end to end
+- Summary: withdraw the spec handoff: the first draft of the spec had 3 points from QA, fixed in 2645cff
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-10-27T22:29:30Z] | claude-sonnet-5-5 | F06-E05-T03 | REVIEW | Dogfood a full factory lifecycle end to end
+- Summary: spec ready again: QA first-draft points fixed (justification wording, out of scope, S02 for the adoption)
+- Verify: check . OK; focused sh 23 and ps1 23 passed incl. append-log cases; dispatcher suites 95/95 x3 sh and 93/93 ps1 under load; exit=0
+- Handoff: claude-qa
+- Spec-sha: 229672df53478c1b49d227df9fccbf5dfa6a5f8a94352f519c01390dc49e26f7
+
+## [2026-10-28T13:21:24Z] | claude-qa | F06-E05-T03 | REVIEW | Dogfood a full factory lifecycle end to end
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: exit=0
+- Review: PASS - spec ok; sha matches
+- Cross-model: NO
