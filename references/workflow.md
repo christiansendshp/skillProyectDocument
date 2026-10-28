@@ -64,8 +64,9 @@ Read full documents only by task:
 
 ## New project
 
-1. Run `init`; it creates only missing files and links other agent files to
-   `AGENTS.md` (see Redirected agent files below).
+1. Run `init`; it creates only missing files (the seven files of Factory mode, or
+   the six with `--classic`) and links other agent files to `AGENTS.md` (see
+   Redirected agent files below).
 2. Replace known placeholders with confirmed facts from the request or
    project, using `CONFIRMED`/`HYPOTHESIS`/`UNKNOWN` honestly.
 3. Leave unknowns explicit instead of delaying harmless implementation.
@@ -92,7 +93,7 @@ Triggered when the user asks to create a new app, system, or product, and
 when installing the skill mid-project with Product/Stack still mostly
 `UNKNOWN` after reconstruction from code:
 
-1. `init` (creates the six files and links agent files); `migrate` first if
+1. `init` (creates the six files, or the seven of Factory mode, and links agent files); `migrate` first if
    the project uses the legacy `docs/Agents.md` format or a YAML Roadmap.
 2. Fill Product and Stack with whatever the request or the project already
    gives, aligning each answer to a `ProductDescription.md`/
@@ -299,6 +300,35 @@ REVIEW (reviewer)  "- Review: FAIL - detail"  --> back with the developer
   non-whitespace separator, because a tab is whitespace for `read` and merges
   empty fields.
 
+## Factory mode
+
+On when the project `AGENTS.md` has a `## Factory` section with `Mode` `FACTORY`
+(`init` writes it for a new project); without it every command above behaves
+exactly as described. `mode` prints which mode applies, and why. The full
+description (phases, specs, the brain, the fast lane, the dispatcher) is in
+`references/factory.md`. What changes in the commands above:
+
+- `claim` also checks that the role of the agent matches the phase of the task,
+  the work in progress (`WIP per agent`) and the fix attempts (`Max fix attempts`),
+  and records the phase (and, for a fast-lane row, `Lane` and `Base`).
+- `pause` from `REVIEW` is allowed to the holder, and needs a working memory
+  (`checkpoint`) so the next agent can resume.
+- `handoff`, `review` and `done` need `exit=0` in the verify; a self-review, a
+  closing without a passing review and an empty verify are errors, not warnings.
+  `handoff` of a GREEN task also checks that the tests recorded at RED did not
+  change, and of a fast-lane task its size; `review` writes `Cross-model: NO` when the
+  reviewer and the holder are the same model; `done` needs `retro`.
+- `status` ends each line with the phase and the lane. `rotate` also archives the
+  brain and carries the phase, the lane and the evidence of open tasks.
+- `check` also validates `docs/Brain.md`, the specs, the working memories, the
+  roster and the `Phase` of every open task.
+- New commands, after the project path: `next <agent>`, `checkpoint <agent> <task-id>
+  <step> <next>`, `advance <agent> <task-id> <phase> <verify> [to-agent]`, `recall
+  <task-id>`, `learn <agent> <task-id> <kind> <name> <trigger> <lesson>`, `retro <agent>
+  <task-id> <used-ids|none> <learned-ids|none>` and `digest [since]`. Environment:
+  `PROJECT_DOCS_MODE` (`classic` or `factory`) forces the mode for one run and
+  `PROJECT_DOCS_DISPATCH_NO_SLEEP=1` makes the dispatcher print its wait.
+
 ## Rotation
 
 The hot ledger rotates after 200 entries or 128 KiB (`run 'rotate'`, or
@@ -394,7 +424,10 @@ the project root `AGENTS.md` records them:
 | claude-sonnet-5-5 | AI | Claude Sonnet 5.5 | BOTH | claude, claude-sonnet-5 |
 ```
 
-`Kind` is `HUMAN` or `AI`; `Role` is `DEVELOPER`, `QA` or `BOTH`. The section
+`Kind` is `HUMAN` or `AI`; `Role` is `SPEC`, `TEST`, `DEV`, `QA`, `OPS` or `BOTH`
+(`DEVELOPER` is the old name of `DEV`; in classic mode a review by an agent whose role
+is `DEVELOPER` warns, and in Factory mode the roles decide who may take which phase).
+The section
 is not required by `check`, and `init` adds it to new projects only, never to
 an existing `AGENTS.md` block.
 
@@ -426,7 +459,8 @@ warns. Each runtime adapter must use the same id every session (see
 
 ## Gate
 
-Run `check` after documentation updates. It exits non-zero only on errors:
+Run `check` after documentation updates. It exits non-zero only on errors (in
+Factory mode also the ones listed in `references/factory.md`):
 
 - missing `AGENTS.md` at the root, a leftover `docs/Agents.md`, or more
   than one case variant of `AGENTS.md` coexisting;

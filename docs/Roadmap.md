@@ -71,6 +71,40 @@ Spec: the handoff prompt in the PM Hub repo (docs/prompts/skill-review-handoff-a
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
 
+### F06 — IA Factory mode
+
+Spec: docs/features/ia-factory.md (closed decisions D-01 to D-21 are ADR-023 onward).
+
+#### F06-E01 — Factory mode and autonomy policy
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+
+#### F06-E02 — Spec and TDD production line
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+
+#### F06-E03 — Brain and context economy
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+
+#### F06-E04 — Digest and status
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+
+#### F06-E06 — CLI dispatcher
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+
+#### F06-E05 — Docs, evals and dogfooding
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+
 ## Gaps, Bugs & Technical Debt
 
 Errors, defects, or significant technical debt found by any agent. Same

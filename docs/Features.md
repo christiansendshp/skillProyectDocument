@@ -2,8 +2,8 @@
 
 ## Operational summary
 
-- Verified capabilities: 26
-- Latest verification: `sh scripts/smoke_test.sh -> 578 passed, 0 failed (sh + PowerShell); check . -> OK; differential run old vs new scripts identical` (2026-10-13)
+- Verified capabilities: 64
+- Latest verification: `full10 sh 1397 ps1 1393 0 failed; exit=0` (2026-10-28)
 - Known limitation: the AGENTS.md/Agents.md case collision cannot be tested end to end on Windows or macOS.
 
 <!-- context:end -->
@@ -41,3 +41,41 @@ Use one row per stable capability. Link long specifications or runbooks from
 | F05-E02 | Epic complete | all tasks DONE | log:F05-E02-T03 | 2026-10-13 |
 | F05-E03-T01 | Templates, docs and evals for review, handoff and agent identity; golden regression test; evals 26 to 39 | sh scripts/smoke_test.sh -> 578 passed, 0 failed (sh + PowerShell); check . -> OK; differential run old vs new scripts identical | log:F05-E03-T01 | 2026-10-13 |
 | F05-E03 | Epic complete | all tasks DONE | log:F05-E03-T01 | 2026-10-13 |
+| F06-E01-T01 | Mode detection and mode command in sh and ps1 | smoke 632 pass 0 fail; QA PASS; differential vs master identical | log:F06-E01-T01 | 2026-10-26 |
+| F06-E03-T01 | Brain template and Factory-only check validation | smoke 704 pass 0 fail; QA PASS 81 fixtures; classic check identical | log:F06-E03-T01 | 2026-10-26 |
+| F06-E01-T02 | init defaults to Factory, init --classic, migrate --factory | smoke 812 pass 0 fail; QA PASS sh==ps1 20 scenarios; BR-008 identical | log:F06-E01-T02 | 2026-10-26 |
+| F06-E01-T03 | Decisions pointer via migrate; fresh Factory context 6750 B | smoke 856 pass 0 fail; QA PASS factory smoke 139 each; context 6750 B | log:F06-E01-T03 | 2026-10-26 |
+| F06-DEBT-01 | Cap parsing, CRLF, roster rerun and flags hardened | smoke 902 pass 0 fail; QA PASS factory 162 each; BR-008 identical | log:F06-DEBT-01 | 2026-10-26 |
+| F06-E02-T03 | Phase roles in roster and claim; rotate carries phase | smoke 1238 pass 0 fail; QA PASS factory 330 each; rotate classic identical | log:F06-E02-T03 | 2026-10-26 |
+| F06-E02-T01 | Spec template and Factory-only spec validation | smoke 1494 pass 0 fail; QA PASS factory 458 each; sh==ps1 25 fixtures | log:F06-E02-T01 | 2026-10-26 |
+| F06-E03-T02 | Working memory, checkpoint command, pause gate | smoke 1494 pass 0 fail; QA PASS factory 458 each; lock race fixed | log:F06-E03-T02 | 2026-10-26 |
+| F06-E02-T02 | advance command with SPEC and RED gates | smoke 1700 pass 0 fail; QA PASS retake: classic rotate identical | log:F06-E02-T02 | 2026-10-27 |
+| F06-E02-T05 | Review warnings are errors in Factory mode | smoke 1700 pass 0 fail; QA PASS factory 561 sh; classic flow identical | log:F06-E02-T05 | 2026-10-27 |
+| F06-E01-T05 | WIP per agent and fix attempts in claim | smoke 1700 pass 0 fail; QA PASS races, rotate, BLOQUEO reset | log:F06-E01-T05 | 2026-10-27 |
+| F06-E01-T04 | next command: the task an agent should work on by role, phase and priority; reviewed by claude-qa (PASS) | commit a711b68; full smoke sh 1069 passed 0 failed, ps1 1067 passed 0 failed; QA PASS; exit=0 | log:F06-E01-T04 | 2026-10-27 |
+| F06-E03-T03 | recall command with ranking and budget; a tab in a row is a space | commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0 | log:F06-E03-T03 | 2026-10-27 |
+| F06-E03-T04 | learn and retro with the mandatory lesson, done integration and the repeat of the rule | commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0 | log:F06-E03-T04 | 2026-10-27 |
+| F06-E03-T05 | brain gc in rotate under the docs lock and the promotion warning | commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0 | log:F06-E03-T05 | 2026-10-27 |
+| F06-E03 | Epic complete | all tasks DONE | log:F06-E03-T05 | 2026-10-27 |
+| F06-E02-T04 | strict exit markers and unchanged tests from the Red sha, renames included | commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0 | log:F06-E02-T04 | 2026-10-27 |
+| F06-E01-T06 | next gives a reviewed task back to its holder | commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0 | log:F06-E01-T06 | 2026-10-27 |
+| F06-E04-T02 | status adds the phase and the lane in Factory mode | commit 2b97a0b; smoke before the last fixes sh 1245 passed 0 failed, ps1 1243 passed 0 failed; QA PASS on a frozen copy; scripts/tests/dogfood.sh sh and ps1 21 passed 0 failed; exit=0 | log:F06-E04-T02 | 2026-10-27 |
+| F06-E02-T06 | fast lane with size limits and promotion to SPEC; renames, spaces, git failures and long paths handled | QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0 | log:F06-E02-T06 | 2026-10-27 |
+| F06-E02 | Epic complete | all tasks DONE | log:F06-E02-T06 | 2026-10-27 |
+| F06-E01-T07 | Factory context drops older entries instead of failing | QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0 | log:F06-E01-T07 | 2026-10-27 |
+| F06-E01 | Epic complete | all tasks DONE | log:F06-E01-T07 | 2026-10-27 |
+| F06-E04-T01 | digest command for the asynchronous human review | QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0 | log:F06-E04-T01 | 2026-10-27 |
+| F06-DEBT-02 | the review of a spec is bound to its SHA-256 | QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0 | log:F06-DEBT-02 | 2026-10-27 |
+| F06-DEBT-03 | test paths of a spec stay inside the project | QA PASS in rounds 2 and 3 on frozen copies; focused runs pass in sh and ps1; exit=0 | log:F06-DEBT-03 | 2026-10-27 |
+| F06-E04-T03 | cross-model marker, default reviewers, audits with a bounded audit queue | full smoke on 1af17ab: sh 1342 passed 0 failed, ps1 1338 passed 0 failed; focused runs of the later fixes pass in sh and ps1; QA PASS on frozen copies (rounds 3 to 5); differential fail=0 in sh and ps1; exit=0 | log:F06-E04-T03 | 2026-10-27 |
+| F06-E04 | Epic complete | all tasks DONE | log:F06-E04-T03 | 2026-10-27 |
+| F06-DEBT-04 | the docs lock is exclusive in PowerShell and race free in sh, with an atomic takeover | full smoke on 1af17ab: sh 1342 passed 0 failed, ps1 1338 passed 0 failed; focused runs of the later fixes pass in sh and ps1; QA PASS on frozen copies (rounds 3 to 5); differential fail=0 in sh and ps1; exit=0 | log:F06-DEBT-04 | 2026-10-27 |
+| F06-E05-T01 | Factory mode documented in SKILL, README, workflow, factory and adapters references | full smoke on 1af17ab: sh 1342 passed 0 failed, ps1 1338 passed 0 failed; focused runs of the later fixes pass in sh and ps1; QA PASS on frozen copies (rounds 3 to 5); differential fail=0 in sh and ps1; exit=0 | log:F06-E05-T01 | 2026-10-27 |
+| F06-E05-T02 | Factory evals added and the older evals pinned to classic-mode scenarios | full smoke on 1af17ab: sh 1342 passed 0 failed, ps1 1338 passed 0 failed; focused runs of the later fixes pass in sh and ps1; QA PASS on frozen copies (rounds 3 to 5); differential fail=0 in sh and ps1; exit=0 | log:F06-E05-T02 | 2026-10-27 |
+| F06-E06-T01 | init and migrate create .factory/dispatch.md and the gitignore block | full smoke on 1af17ab: sh 1342 passed 0 failed, ps1 1338 passed 0 failed; focused runs of the later fixes pass in sh and ps1; QA PASS on frozen copies (rounds 3 to 5); differential fail=0 in sh and ps1; exit=0 | log:F06-E06-T01 | 2026-10-27 |
+| F06-E06-T02 | dispatcher loop in PowerShell with limit detection | full smoke on 1af17ab: sh 1342 passed 0 failed, ps1 1338 passed 0 failed; focused runs of the later fixes pass in sh and ps1; QA PASS on frozen copies (rounds 3 to 5); differential fail=0 in sh and ps1; exit=0 | log:F06-E06-T02 | 2026-10-27 |
+| F06-E06-T03 | dispatcher loop in sh with the same behavior | full smoke on 1af17ab: sh 1342 passed 0 failed, ps1 1338 passed 0 failed; focused runs of the later fixes pass in sh and ps1; QA PASS on frozen copies (rounds 3 to 5); differential fail=0 in sh and ps1; exit=0 | log:F06-E06-T03 | 2026-10-27 |
+| F06-E06-T04 | fake CLIs and dispatcher smoke tests | full smoke on 1af17ab: sh 1342 passed 0 failed, ps1 1338 passed 0 failed; focused runs of the later fixes pass in sh and ps1; QA PASS on frozen copies (rounds 3 to 5); differential fail=0 in sh and ps1; exit=0 | log:F06-E06-T04 | 2026-10-27 |
+| F06-E06 | Epic complete | all tasks DONE | log:F06-E06-T04 | 2026-10-27 |
+| F06-E05-T03 | dogfooding report, Factory adoption, review fixes ADR-090 to ADR-094 | full10 sh 1397 ps1 1393 0 failed; exit=0 | log:F06-E05-T03 | 2026-10-28 |
+| F06-E05 | Epic complete | all tasks DONE | log:F06-E05-T03 | 2026-10-28 |
