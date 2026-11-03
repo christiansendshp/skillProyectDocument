@@ -3,7 +3,7 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Start a new application in a project path that contains spaces. Initialize the required project memory, then initialize it again after I add a custom repository rule.",
+      "prompt": "Start a new application in a project path that contains spaces. Initialize the required project memory in classic mode (init --classic), then initialize it again after I add a custom repository rule.",
       "expected_output": "Exactly six contract files are created on the first run, the second run creates none, and the custom rule is preserved byte-for-byte.",
       "files": [],
       "expectations": [
@@ -14,7 +14,7 @@
     },
     {
       "id": 2,
-      "prompt": "Open an existing project with one missing documentation file and a long agent history. Recover the missing file and prepare only the context needed to fix the active Roadmap task.",
+      "prompt": "Open an existing project with one missing documentation file and a long agent history. Recover the missing file and prepare only the context needed to fix the active Roadmap task. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "Only the missing file is created and startup context stays within 8 KiB while including repository rules, active work, summaries, and no more than five recent entries.",
       "files": [],
       "expectations": [
@@ -26,7 +26,7 @@
     },
     {
       "id": 3,
-      "prompt": "Record more than 200 logical changes, rotate the hot ledger, and validate the project memory.",
+      "prompt": "Record more than 200 logical changes, rotate the hot ledger, and validate the project memory. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "The oversized ledger is archived once, verified by SHA-256, replaced with a compact hot ledger that links to the archive, and validation passes without losing history.",
       "files": [],
       "expectations": [
@@ -39,7 +39,7 @@
     },
     {
       "id": 4,
-      "prompt": "In an empty folder, ask for 'a booking app'. Initialize project memory, answer only what the intake asks, and let the agent build the plan.",
+      "prompt": "In an empty folder, ask for 'a booking app'. Initialize project memory in classic mode (init --classic), answer only what the intake asks, and let the agent build the plan.",
       "expected_output": "Exactly six contract files exist, the agent asks only for fields not already inferable from the request, and after answering, Roadmap.md has a complete ## Plan with the first task in ## Active work.",
       "files": [],
       "expectations": [
@@ -51,7 +51,7 @@
     },
     {
       "id": 5,
-      "prompt": "In a project with an existing CLAUDE.md and .cursorrules that both contain custom rules, run link. Run it a second time.",
+      "prompt": "In a project with an existing CLAUDE.md and .cursorrules that both contain custom rules, run link. Run it a second time. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "link adds a delimited pointer block to both files without altering the rest of either file, and the second run changes nothing.",
       "files": [],
       "expectations": [
@@ -62,7 +62,7 @@
     },
     {
       "id": 6,
-      "prompt": "Two agents both run claim on the same task ID.",
+      "prompt": "Two agents both run claim on the same task ID. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "The first claim succeeds; the second fails with a clear message naming the current owner.",
       "files": [],
       "expectations": [
@@ -72,7 +72,7 @@
     },
     {
       "id": 7,
-      "prompt": "pause a task with category LIMITE, then have a different agent claim it.",
+      "prompt": "pause a task with category LIMITE, then have a different agent claim it. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "The claim is allowed and its log entry follows the paused one.",
       "files": [],
       "expectations": [
@@ -82,7 +82,7 @@
     },
     {
       "id": 8,
-      "prompt": "pause a task with category ESPERA_RESPUESTA, then have a different agent try to claim it.",
+      "prompt": "pause a task with category ESPERA_RESPUESTA, then have a different agent try to claim it. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "The claim fails until the blocking reason is resolved.",
       "files": [],
       "expectations": [
@@ -92,7 +92,7 @@
     },
     {
       "id": 9,
-      "prompt": "Claim a task, then record more than 200 log entries so the task's original claim entry falls out of the five latest, and run context.",
+      "prompt": "Claim a task, then record more than 200 log entries so the task's original claim entry falls out of the five latest, and run context. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "The open task still appears in context under its own section, even though it is not among the five latest entries.",
       "files": [],
       "expectations": [
@@ -102,7 +102,7 @@
     },
     {
       "id": 10,
-      "prompt": "Claim a task, pad the ledger past the rotation threshold, and rotate.",
+      "prompt": "Claim a task, pad the ledger past the rotation threshold, and rotate. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "The archived ledger keeps the full history; the new hot ledger carries forward a compact re-opened entry for the still-open task, and check passes.",
       "files": [],
       "expectations": [
@@ -112,7 +112,7 @@
     },
     {
       "id": 11,
-      "prompt": "Run done on a task with an empty verify argument, and separately append a log entry with an invalid status.",
+      "prompt": "Run done on a task with an empty verify argument, and separately append a log entry with an invalid status. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "check fails on both: the empty-Verify DONE entry and the invalid-status entry are each reported as errors.",
       "files": [],
       "expectations": [
@@ -122,7 +122,7 @@
     },
     {
       "id": 12,
-      "prompt": "In a project still using docs/Agents.md with a custom repository rule, run check, then migrate, then check again. Run migrate a second time.",
+      "prompt": "In a project still using docs/Agents.md with a custom repository rule, run check, then migrate, then check again. Run migrate a second time. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "check fails first, naming migrate. migrate leaves a single root AGENTS.md with the custom rule preserved and docs/Agents.md removed; check then passes. The second migrate changes nothing.",
       "files": [],
       "expectations": [
@@ -135,7 +135,7 @@
     },
     {
       "id": 13,
-      "prompt": "In a project with a hand-written root AGENTS.md containing project-specific rules, run init.",
+      "prompt": "In a project with a hand-written root AGENTS.md containing project-specific rules, run init. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "init inserts the skill's block into AGENTS.md without altering the existing content, and a second init changes nothing.",
       "files": [],
       "expectations": [
@@ -145,7 +145,7 @@
     },
     {
       "id": 14,
-      "prompt": "On a case-sensitive filesystem, create both AGENTS.md and Agents.md at the project root, then run check.",
+      "prompt": "On a case-sensitive filesystem, create both AGENTS.md and Agents.md at the project root, then run check. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "check fails, reporting that more than one case variant of AGENTS.md coexists.",
       "files": [],
       "expectations": [
@@ -155,7 +155,7 @@
     },
     {
       "id": 15,
-      "prompt": "Build a PHASE -> EPIC -> TASK hierarchy in Roadmap.md as headings plus a task-row table (a `### F01 — <phase>` heading, a `#### F01-E01 — <epic>` heading, then a table row `F01-E01-T01`), then run check.",
+      "prompt": "Build a PHASE -> EPIC -> TASK hierarchy in Roadmap.md as headings plus a task-row table (a `### F01 — <phase>` heading, a `#### F01-E01 — <epic>` heading, then a table row `F01-E01-T01`), then run check. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "check passes: the hierarchy lives in heading levels and the Fnn-Enn-Tnn ID shape, the file contains no YAML or JSON, and the scripts never parse the headings themselves.",
       "files": [],
       "expectations": [
@@ -166,7 +166,7 @@
     },
     {
       "id": 16,
-      "prompt": "In three separate projects, break one canonical ID each: a Business rules row not shaped BR-xxx, a Technical decisions row not shaped ADR-xxx, and a Plan row not starting Fnn. Run check on each.",
+      "prompt": "In three separate projects, break one canonical ID each: a Business rules row not shaped BR-xxx, a Technical decisions row not shaped ADR-xxx, and a Plan row not starting Fnn. Run check on each. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "check fails every time and names the offending ID; a freshly initialized project passes check.",
       "files": [],
       "expectations": [
@@ -177,7 +177,7 @@
     },
     {
       "id": 17,
-      "prompt": "Set a Product fact-table Status to `N/A`, and separately set a Roadmap row's Status to `CONFIRMED`, then run check on each.",
+      "prompt": "Set a Product fact-table Status to `N/A`, and separately set a Roadmap row's Status to `CONFIRMED`, then run check on each. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "check fails, naming the row and which Status vocabulary was violated: epistemic (CONFIRMED/HYPOTHESIS/UNKNOWN) in Product and Stack, workflow (TODO/IN_PROGRESS/PAUSE/DONE) in Roadmap.",
       "files": [],
       "expectations": [
@@ -188,7 +188,7 @@
     },
     {
       "id": 18,
-      "prompt": "Remove `<!-- context:end -->` from Roadmap.md, and separately remove the `## Out of scope` section from a contract file, then run check on each.",
+      "prompt": "Remove `<!-- context:end -->` from Roadmap.md, and separately remove the `## Out of scope` section from a contract file, then run check on each. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "check fails and names the missing delimiter or the missing section.",
       "files": [],
       "expectations": [
@@ -198,7 +198,7 @@
     },
     {
       "id": 19,
-      "prompt": "claim a task that sits in ## Plan, then read ## Active work and ## Plan.",
+      "prompt": "claim a task that sits in ## Plan, then read ## Active work and ## Plan. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "The row leaves ## Plan and becomes the last row of the ## Active work table, directly under another table line (no blank line between), with Status IN_PROGRESS and Owner <agent>@<timestamp>; the empty-table placeholder row is gone, so the file still renders as one Markdown table.",
       "files": [],
       "expectations": [
@@ -210,7 +210,7 @@
     },
     {
       "id": 20,
-      "prompt": "In a project whose Roadmap.md still uses the per-entry YAML format (### TYPE-ID headings plus fenced yaml blocks), run check, then migrate, then check again.",
+      "prompt": "In a project whose Roadmap.md still uses the per-entry YAML format (### TYPE-ID headings plus fenced yaml blocks), run check, then migrate, then check again. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "check fails first, naming migrate. migrate converts every entry to Markdown headings or table rows without losing an ID; an IN_PROGRESS task lands in ## Active work; an entry whose parent chain never reaches a PHASE is kept under F00-ORPHANED; check then passes; a second migrate changes nothing.",
       "files": [],
       "expectations": [
@@ -225,7 +225,7 @@
     },
     {
       "id": 21,
-      "prompt": "done the last remaining task under an epic (for example F90-E01-T01), then run check.",
+      "prompt": "done the last remaining task under an epic (for example F90-E01-T01), then run check. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "The task row is removed from Roadmap.md and recorded in Features.md; because no other Roadmap row shares the epic's ID prefix, the epic also gets a rollup row in Features.md; check passes.",
       "files": [],
       "expectations": [
@@ -237,7 +237,7 @@
     },
     {
       "id": 22,
-      "prompt": "Add a new Roadmap task whose Name is a full sentence well over 10 words, then try to claim it.",
+      "prompt": "Add a new Roadmap task whose Name is a full sentence well over 10 words, then try to claim it. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "claim refuses, naming the task, the word count, and the 10-word limit, without writing anything to Agentslog or moving the row.",
       "files": [],
       "expectations": [
@@ -249,7 +249,7 @@
     },
     {
       "id": 23,
-      "prompt": "Shorten that task's Name to 10 words or fewer, put the removed detail in Description, then claim and done it.",
+      "prompt": "Shorten that task's Name to 10 words or fewer, put the removed detail in Description, then claim and done it. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "claim and done both succeed, and every Agentslog entry for the task carries the exact same Name as the Roadmap row did at the time of the call.",
       "files": [],
       "expectations": [
@@ -260,7 +260,7 @@
     },
     {
       "id": 24,
-      "prompt": "After claiming a task, hand-edit its Roadmap row's Name to something different, then run check.",
+      "prompt": "After claiming a task, hand-edit its Roadmap row's Name to something different, then run check. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "check fails, naming the task ID and quoting both the Agentslog Name and the Roadmap Name that disagree.",
       "files": [],
       "expectations": [
@@ -271,7 +271,7 @@
     },
     {
       "id": 25,
-      "prompt": "In a project whose Roadmap.md predates the Name/Description column (the Markdown-hardened table shape with Outcome and Description but no Name), run check, then migrate, then check again.",
+      "prompt": "In a project whose Roadmap.md predates the Name/Description column (the Markdown-hardened table shape with Outcome and Description but no Name), run check, then migrate, then check again. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "check fails first, naming the table that has no Name column. migrate adds a Name column to every such table without losing any existing text: an Active work/Plan row's old Outcome becomes its Description verbatim, with a derived (first 10 words) Name; a Gaps/Bugs/Technical-Debt row's Description is kept, with a derived Name the same way; a Near term row's Outcome is renamed to Name in place. check then passes (a Near term row whose old Outcome exceeds 10 words still needs a manual shortening, and is flagged by check until fixed). A second migrate changes nothing.",
       "files": [],
       "expectations": [
@@ -284,7 +284,7 @@
     },
     {
       "id": 26,
-      "prompt": "Write a ledger entry whose state word is REVIEW with a Summary and a real Verify, then another whose state word is BOGUS, then a REVIEW entry with no Verify and one with Verify: pending. Run check on each.",
+      "prompt": "Write a ledger entry whose state word is REVIEW with a Summary and a real Verify, then another whose state word is BOGUS, then a REVIEW entry with no Verify and one with Verify: pending. Run check on each. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "check accepts the valid REVIEW entry and keeps rejecting an unknown state word. A REVIEW entry without a Verify line, or whose Verify is empty or pending, fails with a message naming the missing or pending Verify.",
       "files": [],
       "expectations": [
@@ -297,7 +297,7 @@
     },
     {
       "id": 27,
-      "prompt": "Claim a task, then run handoff as the holder naming a reviewer. Read the ledger, the Roadmap row, status and context.",
+      "prompt": "Claim a task, then run handoff as the holder naming a reviewer. Read the ledger, the Roadmap row, status and context. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "handoff writes a REVIEW entry carrying the Roadmap Name, the Summary, the Verify and a Handoff line, leaves the Roadmap row IN_PROGRESS with the same Owner, and the task appears in status and in the Open tasks section of context with its stage and destination (for example REVIEW->qa-agent).",
       "files": [],
       "expectations": [
@@ -310,7 +310,7 @@
     },
     {
       "id": 28,
-      "prompt": "Run handoff as an agent that does not hold the task, on a task that is not IN_PROGRESS, with an empty verify, with a pending verify, and with an empty summary.",
+      "prompt": "Run handoff as an agent that does not hold the task, on a task that is not IN_PROGRESS, with an empty verify, with a pending verify, and with an empty summary. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "Every attempt fails with a message that names the reason and writes nothing to the ledger.",
       "files": [],
       "expectations": [
@@ -323,7 +323,7 @@
     },
     {
       "id": 29,
-      "prompt": "After a handoff, run review PASS from another agent with a note and a verify. Then try done as a third agent, as the holder and as the reviewer who passed it (on separate copies).",
+      "prompt": "After a handoff, run review PASS from another agent with a note and a verify. Then try done as a third agent, as the holder and as the reviewer who passed it (on separate copies). (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "review PASS writes a REVIEW entry in the reviewer name with a Review: PASS line. done by a third agent fails with 'held by <holder>'; done by the holder works; done by the reviewer who left Review: PASS works.",
       "files": [],
       "expectations": [
@@ -336,7 +336,7 @@
     },
     {
       "id": 30,
-      "prompt": "After a handoff, run review FAIL with a note. Then claim as the holder, and (on a copy) claim as a third agent.",
+      "prompt": "After a handoff, run review FAIL with a note. Then claim as the holder, and (on a copy) claim as a third agent. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "After FAIL the effective stage is back with the holder: status shows IN_PROGRESS. The holder's claim works and writes IN_PROGRESS; a third agent's claim fails while the entry is not stale.",
       "files": [],
       "expectations": [
@@ -349,7 +349,7 @@
     },
     {
       "id": 31,
-      "prompt": "Run review on a handoff as the same agent that made it, then again with PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1.",
+      "prompt": "Run review on a handoff as the same agent that made it, then again with PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "By default the self-review succeeds and prints a self-review warning, so a single-agent project does not freeze. With PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1 it fails; another agent can still review.",
       "files": [],
       "expectations": [
@@ -360,7 +360,7 @@
     },
     {
       "id": 32,
-      "prompt": "Write a REVIEW entry by the developer and a REVIEW entry by a different agent for the same task, then run check. Then add an IN_PROGRESS entry by a third agent right after.",
+      "prompt": "Write a REVIEW entry by the developer and a REVIEW entry by a different agent for the same task, then run check. Then add an IN_PROGRESS entry by a third agent right after. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "Two REVIEW entries by different agents are not a conflict. A third agent starting IN_PROGRESS on a task held by someone else right after REVIEW is a conflict, unless the REVIEW entry is older than PROJECT_DOCS_STALE_HOURS.",
       "files": [],
       "expectations": [
@@ -371,7 +371,7 @@
     },
     {
       "id": 33,
-      "prompt": "Put a task in REVIEW with a Handoff and a Review: PASS, write more than 200 entries, run rotate, then status and check.",
+      "prompt": "Put a task in REVIEW with a Handoff and a Review: PASS, write more than 200 entries, run rotate, then status and check. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "The new ledger keeps the task: the holder is re-opened as IN_PROGRESS and the REVIEW entry keeps its Handoff and Review lines. status still shows the stage, holder and destination and check passes.",
       "files": [],
       "expectations": [
@@ -384,7 +384,7 @@
     },
     {
       "id": 34,
-      "prompt": "Leave a task in REVIEW older than PROJECT_DOCS_STALE_HOURS and run check and status.",
+      "prompt": "Leave a task in REVIEW older than PROJECT_DOCS_STALE_HOURS and run check and status. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "check prints WARN: <id> has been in REVIEW for Nh (>= Mh) without failing, and status marks the task (stale).",
       "files": [],
       "expectations": [
@@ -395,7 +395,7 @@
     },
     {
       "id": 35,
-      "prompt": "Add an Agent identity table to AGENTS.md with an id and aliases, then run claim with an alias, claim with an unknown name, and check. Also run a project that has no such section.",
+      "prompt": "Add an Agent identity table to AGENTS.md with an id and aliases, then run claim with an alias, claim with an unknown name, and check. Also run a project that has no such section. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "Without the section or with no rows nothing changes and nothing warns. With rows an alias (any case) is written as the Agent id in the ledger header and in the Roadmap Owner, an unknown name warns and is used as typed, and check lists the unknown names without failing.",
       "files": [],
       "expectations": [
@@ -408,7 +408,7 @@
     },
     {
       "id": 36,
-      "prompt": "Run done immediately after claim.",
+      "prompt": "Run done immediately after claim. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "done succeeds and prints WARN: <id> was claimed and closed Ns apart; claim before the first edit so the work is visible while it happens. check prints one summary line plus at most the 5 most recent. Neither fails; PROJECT_DOCS_MIN_WORK_MINUTES=0 silences them.",
       "files": [],
       "expectations": [
@@ -420,7 +420,7 @@
     },
     {
       "id": 37,
-      "prompt": "Run done on a task that was never claimed, from any agent.",
+      "prompt": "Run done on a task that was never claimed, from any agent. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "The retroactive close still works, writes a DONE entry and a Features row, and prints no warning.",
       "files": [],
       "expectations": [
@@ -431,7 +431,7 @@
     },
     {
       "id": 38,
-      "prompt": "Take a project that never uses REVIEW, ASSIGNED or an Agent identity table and run check, status, context and rotate with the new scripts and with the previous version.",
+      "prompt": "Take a project that never uses REVIEW, ASSIGNED or an Agent identity table and run check, status, context and rotate with the new scripts and with the previous version. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "The outputs are identical: the new commands and words are opt-in, and the only warnings that can appear on an old ledger are the documented ones (an instant close).",
       "files": [],
       "expectations": [
@@ -444,7 +444,7 @@
     },
     {
       "id": 39,
-      "prompt": "Assign a task to another agent, then claim it as the assignee, then as a different agent; try to assign a task that is already being worked on.",
+      "prompt": "Assign a task to another agent, then claim it as the assignee, then as a different agent; try to assign a task that is already being worked on. (Classic-mode scenario: the project has no ## Factory section in AGENTS.md, so the Factory gates are not part of it.)",
       "expected_output": "assign writes an ASSIGNED entry with an Assign line and sets the Roadmap Owner while the row stays TODO. status shows ASSIGNED->agent. The assignee's claim does not warn and moves the row to Active work; another agent's claim succeeds with a warning; assigning a task in progress fails.",
       "files": [],
       "expectations": [
@@ -455,6 +455,245 @@
         "assign on an IN_PROGRESS or REVIEW task fails",
         "rotate keeps the assignment"
       ]
+    },
+    {
+      "id": 40,
+      "prompt": "Create a new project with init and no flags, then create another with init --classic.",
+      "expected_output": "init creates a Factory project: the six contract files plus docs/Brain.md, a ## Factory section and the default roster in AGENTS.md, and the folders docs/specs and docs/brain/tasks; init --classic creates exactly the six files and neither the section nor the folders.",
+      "files": [],
+      "expectations": [
+        "The default project has seven files, the ## Factory section with Mode FACTORY and a roster with a QA role",
+        "docs/specs/, docs/brain/tasks/ and .factory/dispatch.md exist, and .gitignore ignores .factory/state.md and .factory/runs/",
+        "The classic project has six files and no Factory section",
+        "A second init creates nothing in either project"
+      ],
+      "smoke": "init defaults to factory, migrate --factory (F06-E01-T02)"
+    },
+    {
+      "id": 41,
+      "prompt": "Run migrate --factory on a classic project twice, on a project whose AGENTS.md says Mode CLASSIC, and on one with CRLF line endings.",
+      "expected_output": "The first run adds the Factory section, the default roster only when the table is empty, docs/Brain.md, the folders and the dispatcher configuration, and removes nothing; the second run changes nothing; Mode CLASSIC is kept and said so.",
+      "files": [],
+      "expectations": [
+        "Every line of the old AGENTS.md is still there, in order",
+        "A second migrate --factory reports 0 changes and leaves every file byte identical",
+        "An existing docs/Brain.md or roster is never overwritten",
+        "A CRLF AGENTS.md is rewritten with LF and the command says so"
+      ],
+      "smoke": "init defaults to factory, migrate --factory (F06-E01-T02)"
+    },
+    {
+      "id": 42,
+      "prompt": "In a Factory project, make a second agent claim a task while it already has one, make a SPEC agent claim a GREEN task, and make a developer claim a task after three failed reviews.",
+      "expected_output": "claim refuses each one with a message that names the reason: the work in progress limit, the role that does not match the phase, and the fix attempts used up.",
+      "files": [],
+      "expectations": [
+        "The WIP refusal names the limit and the task already held",
+        "The role refusal names the role of the agent and the role the phase needs",
+        "The attempts refusal names Max fix attempts",
+        "Nothing is written to the ledger by a refused claim"
+      ],
+      "smoke": "phase roles in the roster and claim (F06-E02-T03)"
+    },
+    {
+      "id": 43,
+      "prompt": "Move a task from SPEC to RED with no spec, with a spec that still has UNKNOWN, with no scenarios, with NONE and no justification, and without a PASS review of the spec by another agent; then with everything in order.",
+      "expected_output": "advance refuses each broken case and says why, writes nothing, and succeeds when the spec is valid and was passed by an agent other than its author.",
+      "files": [],
+      "expectations": [
+        "Each refusal names the file and the missing item",
+        "A review PASS by the author of the spec does not count",
+        "The successful advance assigns the task to the test agent and records the phase RED"
+      ],
+      "smoke": "phases and the advance command with gates (F06-E02-T02)"
+    },
+    {
+      "id": 44,
+      "prompt": "Move a task from RED to GREEN with a verify of exit=0, then with the test files not committed, then with exit=1 and the tests committed.",
+      "expected_output": "The first two attempts are refused: the tests must fail first and be committed. The third succeeds and records the commit as Red and the test files as Tests.",
+      "files": [],
+      "expectations": [
+        "exit=0 is refused with a message that says the tests must fail first",
+        "A test file that is not committed is refused when git is available",
+        "The entry carries - Red: <sha> and - Tests: <paths>"
+      ],
+      "smoke": "phases and the advance command with gates (F06-E02-T02)"
+    },
+    {
+      "id": 45,
+      "prompt": "In GREEN, change a test file that was recorded at RED and hand off; then hand off with a verify that has no exit=0; then review your own handoff.",
+      "expected_output": "handoff names the changed test file and refuses; it also refuses without exit=0; a review by the developer is an error. With no git the handoff only warns and the reviewer has to write tests unchanged.",
+      "files": [],
+      "expectations": [
+        "The changed test is named in the message",
+        "exit=0xyz and pre_exit=0 are not markers",
+        "A renamed test counts as changed",
+        "The self-review error says an independent review is required"
+      ],
+      "smoke": "exit markers, unchanged tests, review errors, WIP and attempts (F06-E02-T04, F06-E02-T05, F06-E01-T05)"
+    },
+    {
+      "id": 46,
+      "prompt": "Write a checkpoint for a task twice, then try to pause the task before any checkpoint.",
+      "expected_output": "checkpoint creates docs/brain/tasks/<TASK-ID>.md from the template and updates ## Now and ## Trail; pause in Factory mode is refused until the working memory has a ## Now.",
+      "files": [],
+      "expectations": [
+        "The second checkpoint replaces ## Now and adds a line to ## Trail",
+        "pause names the missing ## Now",
+        "check validates the working memory sections"
+      ],
+      "smoke": "working memory and the checkpoint command (F06-E03-T02)"
+    },
+    {
+      "id": 47,
+      "prompt": "Add lessons with learn, including bad ones (a vertical bar, a name over ten words, an invalid kind); then record a retro with learned none after a Review: FAIL; then close the task.",
+      "expected_output": "learn assigns the next LRN id and refuses the bad inputs; retro refuses learned none after a FAIL, a BLOQUEO or a move back to RED; done needs the retro, adds one hit to each used lesson and deletes the working memory.",
+      "files": [],
+      "expectations": [
+        "LRN ids are never reused, also after an archive",
+        "retro learned none is refused after a FAIL and done repeats the rule if the failure came after the retro",
+        "The DONE entry has a - Brain: line with the used and learned ids",
+        "The working memory file is gone after done"
+      ],
+      "smoke": "recall, learn, retro and brain gc (F06-E03-T03, F06-E03-T04, F06-E03-T05)"
+    },
+    {
+      "id": 48,
+      "prompt": "Run recall on a task with a brain of many lessons, with the default budget and with a tiny one.",
+      "expected_output": "recall prints the task, its spec summary, its working memory and the lessons that apply in a fixed order, only whole rows, within Recall budget bytes, ending with a line that says how many of the brain entries were shown; with a budget too small for the first sections it fails with an error.",
+      "files": [],
+      "expectations": [
+        "The same input gives the same bytes in sh and PowerShell",
+        "The output never exceeds the budget",
+        "The last line reads recall: K of M brain entries shown",
+        "A tab inside a lesson is read as a space"
+      ],
+      "smoke": "recall, learn, retro and brain gc (F06-E03-T03, F06-E03-T04, F06-E03-T05)"
+    },
+    {
+      "id": 49,
+      "prompt": "Fill the brain above Brain max entries and run rotate; add a DEFAULT lesson with the trigger * and run rotate again.",
+      "expected_output": "rotate moves the least used lessons to docs/history/brain-archive-<date>-<n>.md until 75 percent of the cap is left, records the SHA-256 in the brain summary and never archives a DEFAULT lesson with the trigger *.",
+      "files": [],
+      "expectations": [
+        "The archive holds every row that left the brain",
+        "The count line and the Last gc line are updated",
+        "Archived ids are never reused by learn",
+        "rotate runs under the docs lock"
+      ],
+      "smoke": "recall, learn, retro and brain gc (F06-E03-T03, F06-E03-T04, F06-E03-T05)"
+    },
+    {
+      "id": 50,
+      "prompt": "Run check on Factory projects with a broken brain table, a spec with a bad table, a missing roster, and a CONFIRMED lesson with five hits.",
+      "expected_output": "check fails on the broken brain, spec and roster and names the file and the row; the lesson with five hits only warns that it should be promoted to a rule.",
+      "files": [],
+      "expectations": [
+        "Each error names the file, the row or the section",
+        "The promotion warning does not fail check",
+        "A task in RED or GREEN of the normal lane without a spec fails check; a FAST task does not need one"
+      ],
+      "smoke": "brain template and check validation (F06-E03-T01)"
+    },
+    {
+      "id": 51,
+      "prompt": "Ask next for each agent of the roster in a project with TODO rows, a FAST row, a review waiting, a paused task, a RED-LINE pause, a BLOQUEO pause and the template stub row.",
+      "expected_output": "next prints one task id or none for each agent: the task it holds first (also a reviewed task it must close), then assignments, reviews, quota pauses, other assignments and the first eligible TODO row; it skips red lines, BLOQUEO, exhausted attempts and the stub row.",
+      "files": [],
+      "expectations": [
+        "A SPEC agent gets a normal-lane row and a DEV agent a FAST row",
+        "A review addressed to a role (Handoff: QA) goes to every agent of that role",
+        "The stub row with Name UNKNOWN is never offered",
+        "next in a classic project refuses to run"
+      ],
+      "smoke": "next and the fast lane (F06-E01-T04, F06-E02-T06)"
+    },
+    {
+      "id": 52,
+      "prompt": "Run digest on a project that has a guessed business rule, a red line, an open gap, a new lesson, tasks closed in both lanes and reviews that failed or were made by one model.",
+      "expected_output": "digest prints every kind of item in at most 4096 bytes, cut on a whole line with a note when it is longer.",
+      "files": [],
+      "expectations": [
+        "Each section appears with its items",
+        "The output is never over 4096 bytes",
+        "A since date limits what is counted"
+      ],
+      "smoke": "status phases, cross-model reviews, audits and the digest (F06-E04-T01 to T03)"
+    },
+    {
+      "id": 53,
+      "prompt": "Create a Factory project and measure context.",
+      "expected_output": "The context of a freshly created Factory project stays at or below 6912 bytes, so the active work of a real project still fits in 8 KiB.",
+      "files": [],
+      "expectations": [
+        "context is at most 6912 bytes on a new Factory project",
+        "The ## Factory section is under 1.5 KiB"
+      ],
+      "smoke": "compact factory rules and the decisions pointer (F06-E01-T03)"
+    },
+    {
+      "id": 54,
+      "prompt": "Take a FAST task through handoff with too many files, too many lines, a path under prisma/ or auth/, a rename out of a protected path, a bug with no test file, and with no git; then let one outgrow the lane.",
+      "expected_output": "handoff refuses each case with task outgrew FAST lane and the reason; inside the limits it passes; without git it warns and the review needs the words fast lane ok; the outgrown task goes back to SPEC with advance and check stays green.",
+      "files": [],
+      "expectations": [
+        "The limits are the Fast lane settings of AGENTS.md",
+        "A protected path matches at any depth and a rename counts as a delete and an add",
+        "An untracked file with a space in its name is counted",
+        "A git failure stops the handoff"
+      ],
+      "smoke": "next and the fast lane (F06-E01-T04, F06-E02-T06)"
+    },
+    {
+      "id": 55,
+      "prompt": "Review a handoff with an agent of the same model as the holder and with one of another model; hand off with no reviewer in each lane; close a task reviewed by one model and let the preferred reviewer audit it.",
+      "expected_output": "A same-model review writes Cross-model: NO and the DONE entry keeps it; handoff with no reviewer uses Preferred reviewer in the normal lane and Fallback reviewer in FAST; next offers the preferred reviewer the audit when it has nothing else, and an AUDIT entry never reopens the task.",
+      "files": [],
+      "expectations": [
+        "A review by another model has no marker",
+        "An explicit reviewer beats the settings",
+        "The classic check still rejects the AUDIT status"
+      ],
+      "smoke": "status phases, cross-model reviews, audits and the digest (F06-E04-T01 to T03)"
+    },
+    {
+      "id": 56,
+      "prompt": "Run the dispatcher with fake CLIs on a Factory project: a task that passes from the developer to Gemini and back, a Gemini quota error, a Claude quota error with a reset time, two failures of a review, three failures of a task, a daily cap, the stop file and an audit.",
+      "expected_output": "The dispatcher launches one CLI at a time by asking next; a quota error puts the plan in cooldown and writes pause LIMITE for the owner; claude-qa covers the review of a Gemini plan in cooldown and the review is marked Cross-model: NO; failures end in the fallback or in pause BLOQUEO; the same script gives the same log in sh and PowerShell.",
+      "files": [],
+      "expectations": [
+        "The log says run N: agent on task for every run",
+        "A Claude limit with resets 3:45pm prints sleep until 15:45 and next gives the paused task back after the cooldown",
+        "Three failures write pause BLOQUEO and stop the loop",
+        ".factory/STOP ends the loop after the run in progress",
+        "No real quota is used: the commands are the fake CLIs"
+      ],
+      "smoke": "the dispatcher passes the turn between fake CLIs (F06-E06-T04)"
+    },
+    {
+      "id": 57,
+      "prompt": "Take a project without a ## Factory section and run init, check, status, context, rotate, claim, pause and done with these scripts and with the previous release.",
+      "expected_output": "Every output, exit code and resulting file of the commands of a classic project is identical to the previous release (sh scripts/tests/diff_regression.sh <previous release commit> sh, and the same with ps1, ends with RESULT fail=0; the smoke test holds the golden files of a classic fixture); the Factory commands refuse to run with a message that names Factory mode.",
+      "files": [],
+      "expectations": [
+        "Differential run: fail=0 in sh and PowerShell",
+        "next, advance, recall, learn, retro, checkpoint and digest say they need Factory mode",
+        "The classic AUDIT status is still invalid"
+      ],
+      "smoke": "a classic fixture behaves as before, with no environment at all (BR-008)"
+    },
+    {
+      "id": 58,
+      "prompt": "In a Factory project, take a documentation task whose spec has one scenario of Level NONE with a Justification and an empty ## Tests through the normal lane to DONE; then try the same spec when the task is a BUG row, when the spec also lists a test file, and when one scenario is UNIT.",
+      "expected_output": "advance moves the all-NONE spec from RED to GREEN with no failing test and records neither a Red sha nor test paths; handoff, review PASS and done still need exit=0 and an independent review, and done closes the task from GREEN. A BUG row, a spec that lists a test file and a spec with a testable scenario keep the failing-test gate.",
+      "files": [],
+      "expectations": [
+        "The RED to GREEN entry has no - Red: and no - Tests: line",
+        "done closes the task after review PASS and retro, and check stays OK",
+        "The BUG row is refused with RED needs failing tests, but the verify says exit=0",
+        "A spec that lists a test file is still refused with exit=0 at RED"
+      ],
+      "smoke": "a spec whose scenarios are all Level NONE reaches GREEN with no failing test (D-08, ADR-091)"
     }
   ]
 }

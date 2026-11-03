@@ -1,9 +1,19 @@
 # project-documentation
 
 Compact, coordinated project memory for AI coding agents. It creates six
-stable files at project initialization, keeps startup context bounded while
+stable files at project initialization (seven in Factory mode), keeps startup context bounded while
 preserving cold history, and lets multiple agents (Claude Code, Codex,
 OpenCode, Antigravity, others) take tasks without overlapping.
+
+**IA Factory mode** turns that protocol into a production line the scripts
+enforce. New projects start in it: executable specs and tests come first, a
+second agent reviews every change, lessons are kept in a small brain that is
+recalled instead of re-read, small changes take a fast lane, and a dispatcher
+lets CLIs that cannot call each other (Claude Code and Gemini CLI on their own
+subscriptions, no API) pass the turn through the ledger. A person only reads
+`digest`. Detail in `references/factory.md`; `init --classic` keeps the
+six-file behavior, and a project without a `## Factory` section behaves exactly
+as before.
 
 The repository name and legacy installation folder `skillProyectDocument`
 remain supported during transition. The canonical skill name is
@@ -21,6 +31,11 @@ Every project receives these exact files:
 | `docs/Stack_Tecnologies.md` | Current technical truth; legacy spelling retained |
 | `docs/Roadmap.md` | Hierarchical plan (Markdown tables) + Gaps/Bugs/Technical Debt |
 | `docs/Features.md` | Index of verified capabilities |
+
+Factory mode adds `docs/Brain.md` (lessons), `docs/specs/` (one executable spec per
+task), `docs/brain/tasks/` (the working memory of tasks in progress) and
+`.factory/dispatch.md` (the dispatcher configuration), plus a `## Factory` section
+and a roster with a role per agent in `AGENTS.md`.
 
 Additional detail may live under `docs/features/`, `docs/decisions/`, or
 `docs/history/` and is loaded only when referenced by the current task.
@@ -48,16 +63,35 @@ Both launchers also provide:
 | Command | Purpose |
 |---|---|
 | `link [--create <list>]` | Point other agent files (`CLAUDE.md`, `.cursorrules`, ...) at `AGENTS.md`; run automatically at the end of `init` |
-| `migrate` | Merge a legacy `docs/Agents.md` into root `AGENTS.md`, fix a root case-only filename, add missing `Roadmap.md` sections, convert a per-entry YAML Roadmap back to tables, retrofit a `Name` column onto a pre-Name Roadmap — idempotent |
-| `claim <agent> <task-id> <summary>` | Take a Roadmap task before your first edit; fails if another agent already owns it (the holder may retake a task in `REVIEW`) |
+| `init [--classic]` | Create the contract files. A project the skill does not manage yet starts in Factory mode (seven files plus `docs/specs/`, `docs/brain/tasks/` and `.factory/dispatch.md`, and a block in `.gitignore` for what the dispatcher generates); `--classic` creates the six-file project; an existing project keeps its mode |
+| `migrate [--factory]` | Merge a legacy `docs/Agents.md` into root `AGENTS.md`, fix a root case-only filename, add missing `Roadmap.md` sections, convert a per-entry YAML Roadmap back to tables, retrofit a `Name` column onto a pre-Name Roadmap — idempotent; with `--factory` also add the Factory section, the default roster, `docs/Brain.md`, the Factory folders and `.factory/dispatch.md` without replacing anything |
+| `claim <agent> <task-id> <summary>` | Take a Roadmap task before your first edit; fails if another agent already owns it (the holder may retake a task in `REVIEW`). In Factory mode also checks the role for the phase, the work in progress and the fix attempts |
 | `pause <agent> <task-id> <category> <detail>` | Release a task (`LIMITE`\|`ESPERA_RESPUESTA`\|`BLOQUEO`\|`OTRO`) |
 | `handoff <agent> <task-id> <summary> <verify> [reviewer]` | Code complete and your own verification passed: move the task to `REVIEW` (ledger only, the Roadmap row stays `IN_PROGRESS`) |
 | `review <agent> <task-id> <PASS\|FAIL> <note> [verify]` | Answer a pending handoff; `FAIL` returns the task to its holder, who retakes it with `claim`; reviewing your own handoff warns |
 | `assign <agent> <task-id> <to-agent>` | Hand a task out without starting it (`ASSIGNED`; the row stays `TODO` with the new Owner) |
 | `done <agent> <task-id> <summary> <files> <verify>` | Close a task, record it in `Features.md`, clear it from the Roadmap; only the holder, the reviewer who passed it, or anyone on a stale or forced task |
-| `status` | List every open (`IN_PROGRESS`/`PAUSE`/`REVIEW`/`ASSIGNED`) task with its stage, owner, age, reason |
+| `status` | List every open (`IN_PROGRESS`/`PAUSE`/`REVIEW`/`ASSIGNED`) task with its stage, owner, age, reason (and, in Factory mode, its phase and lane) |
+| `mode` | Print whether Factory or Classic mode applies (and why); in Factory mode, the settings as written in `AGENTS.md`. See `references/factory.md` |
 | `append-log` | Manual/legacy ledger entry outside the claim lifecycle |
-| `rotate` | Archive an oversized ledger, hash-verified, carrying open tasks forward |
+| `rotate` | Archive an oversized ledger, hash-verified, carrying open tasks forward; in Factory mode also archive the least used lessons of an oversized brain |
+
+Factory mode only (every one refuses to run in a classic project):
+
+| Command | Purpose |
+|---|---|
+| `next <agent>` | Print the id of the task the agent should work on now, or `none`: what it holds, what is assigned to it, a review for it, a paused task of its role, then the first eligible `TODO` row |
+| `checkpoint <agent> <task-id> <step> <next>` | Write the working memory of a task (`docs/brain/tasks/`), so another agent can resume after a quota cut |
+| `advance <agent> <task-id> <phase> <verify> [to-agent]` | Move a task between SPEC, RED, GREEN, with the gates: a valid spec, an independent spec review, failing tests committed first; `to-agent` picks who receives it |
+| `recall <task-id>` | The task, its spec, its working memory and the lessons that apply, in the `Recall budget bytes` |
+| `learn <agent> <task-id> <kind> <name> <trigger> <lesson>` | Add a lesson to `docs/Brain.md` |
+| `retro <agent> <task-id> <used> <learned>` | Record the lessons a task used and left behind; required by `done` |
+| `digest [since]` | At most 4 KiB for a person: guesses and decisions to confirm, red lines, open gaps, new lessons, what closed, reviews |
+
+`scripts/factory_dispatch.sh` and `scripts/factory_dispatch.ps1` (`<project> [--watch] [--once]`)
+are the dispatcher: they ask `next` for each agent of `.factory/dispatch.md`, launch
+that agent's CLI (without `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `GEMINI_API_KEY` and `GOOGLE_API_KEY` in its environment), detect quota limits in its output, and keep going. They live
+outside the core and are tested with fake CLIs.
 
 Initialization is idempotent and never overwrites existing content —
 `AGENTS.md` gets the skill's rules inserted in a delimited block on first run
@@ -72,12 +106,32 @@ Environment variables (all optional):
 | `PROJECT_DOCS_MIN_WORK_MINUTES` (default `5`) | `done` and `check` warn about a task claimed and closed less than this apart; `0` silences it |
 | `PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1` | Reviewing your own handoff becomes an error instead of a warning |
 | `PROJECT_DOCS_FORCE=1` | `done` lets any agent close a task another agent holds |
+| `PROJECT_DOCS_MODE=classic` or `factory` | Force the mode for the run, over the file: `classic` makes every command behave as before (and `init` create the six-file project); `factory` makes every command behave in Factory mode (meant for tests and scripts) |
+| `PROJECT_DOCS_DISPATCH_NO_SLEEP=1` | The dispatcher prints `sleep until HH:MM` and stops instead of waiting (tests) |
 
 An optional `## Agent identity` table in `AGENTS.md` lists one stable id per
 agent plus aliases; with it, `claim`, `pause`, `handoff`, `review`, `assign`
 and `done` normalise an alias to the id and warn about unknown names.
 
 ## Changelog
+
+- **IA Factory mode**: new projects start as a production line the scripts
+  enforce. `## Factory` in `AGENTS.md` switches it on (`mode` says what applies);
+  a roster gives each agent a role (SPEC, TEST, DEV, QA, OPS, BOTH) that must
+  match the phase it claims. `advance` moves a task through SPEC, RED and GREEN
+  behind gates (a spec without `UNKNOWN` and reviewed by another agent, failing
+  tests committed first, tests unchanged afterwards, `exit=0` evidence);
+  `handoff`, `review` and `done` turn their warnings into errors. A fast lane
+  skips the spec for small changes and measures the size at `handoff`. A brain
+  (`docs/Brain.md`) keeps lessons, `recall` prints only what a task needs within
+  a byte budget, `retro` makes learning mandatory after trouble, and `rotate`
+  archives the least used lessons. `checkpoint` keeps the working memory of a
+  task, `next` picks the next task, `digest` is the page a person reads, and
+  Claude and Gemini review each other when both have quota (with a marker and
+  audits when only one did). `scripts/factory_dispatch.sh|.ps1` pass the turn
+  between CLIs through the ledger and wait out quota limits. A project without
+  `## Factory` behaves byte for byte as before (verified against the previous
+  release with a differential run); `migrate --factory` brings one over.
 
 - **Review stage, handoff and agent identity**: the ledger can now say who an
   agent is, when it develops, when it hands over for review and how the
@@ -132,5 +186,6 @@ and `done` normalise an alias to the id and warn about unknown names.
   `check`.
 
 See `SKILL.md` for the agent workflow, `references/workflow.md` for command
-detail, `references/intake.md` for the new-app questionnaire, and
+detail, `references/factory.md` for Factory mode and the dispatcher,
+`references/intake.md` for the new-app questionnaire, and
 `references/adapters.md` for runtime installation.

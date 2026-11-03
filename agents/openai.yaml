@@ -1,4 +1,4 @@
 interface:
   display_name: "Project Documentation"
   short_description: "Keep compact AI project memory current and coordinate tasks across agents"
-  default_prompt: "Use $project-documentation to initialize and maintain compact project memory for this task, and to claim, hand off, review and close Roadmap tasks under one stable agent id so other agents don't overlap your work."
+  default_prompt: "Use $project-documentation to initialize and maintain compact project memory for this task. In Factory mode ask next for the task, claim it, recall it, move it through the phases (spec, tests that fail, implementation), hand off for an independent review, record the lessons with retro and close it, all under one stable agent id so other agents don't overlap your work and nobody waits for a person."
