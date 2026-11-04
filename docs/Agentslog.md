@@ -142,3 +142,10 @@ segments live in `docs/history/`.
 - Verify: full10 sh 1397 ps1 1393 0 failed; exit=0
 - Brain: used LRN-007; learned LRN-010
 - Cross-model: NO
+
+## [2026-11-04T12:19:17Z] | claude-sonnet-5-5 | F06-DEBT-05 | IN_PROGRESS | check reads the history archives once per run
+- Summary: read history DONE ids once in check
+- Verify: pending
+- Phase: GREEN
+- Lane: FAST
+- Base: 5b80e49d1651b5f4eb0c535a047116b99f147cdd

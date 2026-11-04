@@ -3288,15 +3288,31 @@ check_log_entries() {
   fi
 }
 
+# The ids with a DONE entry in the rotated history (docs/history), one per line, read ONCE per run:
+# a grep per archive for every Features id cost thousands of processes, and under Git Bash a process
+# costs tens of milliseconds, so check took minutes (F06-DEBT-05). The match is the same as before: the
+# exact id in the third field of `## [date] | agent | ID | DONE`.
+HISTORY_DONE_LOADED=0
+HISTORY_DONE_IDS=""
+load_history_done() {
+  [ "$HISTORY_DONE_LOADED" = 1 ] && return 0
+  HISTORY_DONE_LOADED=1
+  [ -d "$HISTORY_DIR" ] || return 0
+  set -- "$HISTORY_DIR"/*.md
+  [ -e "$1" ] || return 0
+  HISTORY_DONE_IDS="$(awk -F' [|] ' '/^## \[[^]]*\] [|] / && $4 ~ /^DONE/ { print $3 }' "$@")"
+}
+
 history_has_done() {
   tid="$1"
-  [ -d "$HISTORY_DIR" ] || return 1
-  for f in "$HISTORY_DIR"/*.md; do
-    [ -e "$f" ] || continue
-    if grep -qE "^## \[[^]]*\] \| [^|]* \| $tid \| DONE" "$f"; then
-      return 0
-    fi
-  done
+  load_history_done
+  case "
+$HISTORY_DONE_IDS
+" in
+    *"
+$tid
+"*) return 0 ;;
+  esac
   return 1
 }
 
@@ -3306,15 +3322,25 @@ epic_history_done() {
   if all_task_states | awk -F'\t' -v p="$prefix" '$1 ~ "^"p && $7=="1"{f=1} END{exit(f?0:1)}'; then
     return 0
   fi
-  if [ -d "$HISTORY_DIR" ]; then
-    for f in "$HISTORY_DIR"/*.md; do
-      [ -e "$f" ] || continue
-      if grep -qE "^## \[[^]]*\] \| [^|]* \| ${prefix}[^ ]* \| DONE" "$f"; then
-        return 0
-      fi
-    done
+  load_history_done
+  if printf '%s\n' "$HISTORY_DONE_IDS" | awk -v p="$prefix" 'index($0, p) == 1 { f = 1 } END { exit(f ? 0 : 1) }'; then
+    return 0
   fi
   return 1
+}
+
+# `F<phase>-E<n>`: the id of an epic, told from a task without a grep for every error line.
+is_epic_id() {
+  case "$1" in
+    F[0-9]*-E[0-9]*) ;;
+    *) return 1 ;;
+  esac
+  epic_phase="${1#F}"
+  epic_phase="${epic_phase%%-E*}"
+  epic_number="${1#*-E}"
+  case "$epic_phase" in '' | *[!0-9]*) return 1 ;; esac
+  case "$epic_number" in '' | *[!0-9]*) return 1 ;; esac
+  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -3499,7 +3525,7 @@ check_roadmap_features_ids() {
         "ERROR: Features ID "*" has no DONE entry in the log")
           tid="${line#ERROR: Features ID }"
           tid="${tid% has no DONE entry in the log}"
-          if printf '%s' "$tid" | grep -qE '^F[0-9]+-E[0-9]+$'; then
+          if is_epic_id "$tid"; then
             if epic_history_done "$tid"; then continue; fi
           else
             if history_has_done "$tid"; then continue; fi

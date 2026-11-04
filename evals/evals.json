@@ -694,6 +694,20 @@
         "A spec that lists a test file is still refused with exit=0 at RED"
       ],
       "smoke": "a spec whose scenarios are all Level NONE reaches GREEN with no failing test (D-08, ADR-091)"
+    },
+    {
+      "id": 59,
+      "prompt": "A project has six archives in docs/history holding the DONE entries of 48 tasks, and a Features row for each task and for each of its six epics; the live ledger has none of them. Run check in sh and in PowerShell, with a grep that counts its own runs in front in sh, then add a Features row whose id is only the prefix of an archived id, one for a plain id that shares a prefix with an archived one, and an epic with no task anywhere.",
+      "expected_output": "check passes in both launchers and, in sh, starts a number of grep processes that does not grow with the number of archives and tasks (under 100 here). The prefix ids and the empty epic are still reported as having no DONE entry in the log; a plain id is accepted only when its exact id has a DONE entry in the history, with or without a Name.",
+      "files": [],
+      "expectations": [
+        "check says OK for rows whose DONE is only in docs/history",
+        "In sh the counting grep sees fewer than 100 runs",
+        "Features ID F20-E01-T1 has no DONE entry in the log",
+        "Features ID F20-E07 has no DONE entry in the log",
+        "SMOKE-T77 is refused while only SMOKE-T7 is in the history, and accepted once its own DONE is there"
+      ],
+      "smoke": "check reads the rotated history once, however many archives there are (F06-DEBT-05)"
     }
   ]
 }
