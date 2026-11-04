@@ -2,8 +2,8 @@
 
 ## Operational summary
 
-- Verified capabilities: 64
-- Latest verification: `full10 sh 1397 ps1 1393 0 failed; exit=0` (2026-10-28)
+- Verified capabilities: 65
+- Latest verification: `full smoke sh 1413 ps1 1405 0 failed; exit=0` (2026-11-04)
 - Known limitation: the AGENTS.md/Agents.md case collision cannot be tested end to end on Windows or macOS.
 
 <!-- context:end -->
@@ -79,3 +79,4 @@ Use one row per stable capability. Link long specifications or runbooks from
 | F06-E06 | Epic complete | all tasks DONE | log:F06-E06-T04 | 2026-10-27 |
 | F06-E05-T03 | dogfooding report, Factory adoption, review fixes ADR-090 to ADR-094 | full10 sh 1397 ps1 1393 0 failed; exit=0 | log:F06-E05-T03 | 2026-10-28 |
 | F06-E05 | Epic complete | all tasks DONE | log:F06-E05-T03 | 2026-10-28 |
+| F06-DEBT-05 | check reads history once; ids with regex chars now matched literally | full smoke sh 1413 ps1 1405 0 failed; exit=0 | log:F06-DEBT-05 | 2026-11-04 |

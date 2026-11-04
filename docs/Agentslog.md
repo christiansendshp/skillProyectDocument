@@ -142,3 +142,28 @@ segments live in `docs/history/`.
 - Verify: full10 sh 1397 ps1 1393 0 failed; exit=0
 - Brain: used LRN-007; learned LRN-010
 - Cross-model: NO
+
+## [2026-11-04T12:19:17Z] | claude-sonnet-5-5 | F06-DEBT-05 | IN_PROGRESS | check reads the history archives once per run
+- Summary: read history DONE ids once in check
+- Verify: pending
+- Phase: GREEN
+- Lane: FAST
+- Base: 5b80e49d1651b5f4eb0c535a047116b99f147cdd
+
+## [2026-11-04T12:49:26Z] | claude-sonnet-5-5 | F06-DEBT-05 | REVIEW | check reads the history archives once per run
+- Summary: history DONE ids read once; cases and eval 59
+- Verify: focused sh 11 ps1 9 passed; check OK; exit=0
+- Handoff: claude-qa
+
+## [2026-11-04T13:23:15Z] | claude-qa | F06-DEBT-05 | REVIEW | check reads the history archives once per run
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: exit=0
+- Review: PASS - equivalence, side effects, cases ok; nits fixed
+- Cross-model: NO
+
+## [2026-11-04T15:26:38Z] | claude-sonnet-5-5 | F06-DEBT-05 | DONE | check reads the history archives once per run
+- Summary: check reads history once; ids with regex chars now matched literally
+- Files: scripts/ evals/
+- Verify: full smoke sh 1413 ps1 1405 0 failed; exit=0
+- Brain: used none; learned none
+- Cross-model: NO
