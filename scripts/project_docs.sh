@@ -3298,8 +3298,12 @@ load_history_done() {
   [ "$HISTORY_DONE_LOADED" = 1 ] && return 0
   HISTORY_DONE_LOADED=1
   [ -d "$HISTORY_DIR" ] || return 0
-  set -- "$HISTORY_DIR"/*.md
-  [ -e "$1" ] || [ -L "$1" ] || return 0
+  # Only the readable files reach awk: a broken link or a directory named x.md is skipped, as the old loop did.
+  set --
+  for hf in "$HISTORY_DIR"/*.md; do
+    if [ -f "$hf" ] && [ -r "$hf" ]; then set -- "$@" "$hf"; fi
+  done
+  [ "$#" -gt 0 ] || return 0
   # The agent field has no bar of its own and the id has no space, as in the old pattern.
   HISTORY_DONE_IDS="$(awk -F' [|] ' '/^## \[[^]]*\] [|] / && $2 !~ /[|]/ && $4 ~ /^DONE/ { print $3 }' "$@")"
 }

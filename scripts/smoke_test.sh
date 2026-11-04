@@ -171,7 +171,9 @@ run_suite() {
   hist_feat="$hp/docs/Features.md"
   hist_sep="$(grep -n '^|---|---|---|---|---|' "$hist_feat" | head -n 1 | cut -d: -f1)"
   head -n "$hist_sep" "$hist_feat" > "$hist_feat.new" && cat "$hist_rows" >> "$hist_feat.new" && mv "$hist_feat.new" "$hist_feat"
+  mkdir -p "$hp/docs/history/Agentslog-0000-dir.md"
   assert_success "$label check finds the DONE of every Features row in the rotated history" run check "$hp"
+  grep -qi 'awk' "$WORK/.out" && bad "$label a directory named like an archive is read as one: $(cat "$WORK/.out")" || ok "$label a directory named like an archive is skipped quietly"
   if [ "$label" = "sh" ]; then
     # A grep that counts its own runs: one process per archive and per task is what made check take minutes in Git Bash.
     hist_shim="$WORK/hist_shim"
