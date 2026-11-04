@@ -184,6 +184,16 @@ run_suite() {
     assert_success "$label check passes with the counting grep in front" check_counting_greps
     hist_n="$(wc -l < "$hist_greps" | tr -d ' ')"
     [ "$hist_n" -lt 100 ] && ok "$label check starts $hist_n grep processes for 6 archives and 54 Features rows (under 100)" || bad "$label check started $hist_n grep processes for 6 archives and 54 Features rows (limit 100)"
+    # Twelve more archives that sort first: the old code read every archive before it reached the ones with the ids.
+    da=1
+    while [ "$da" -le 12 ]; do
+      printf '# Agents log\n\n## Entries\n\n## [2025-01-01T00:00:00Z] | dev | OLD-%s | DONE | Old task\n- Summary: s\n' "$da" > "$hp/docs/history/Agentslog-2025$(printf '%02d' "$da")01-001.md"
+      da=$((da + 1))
+    done
+    : > "$hist_greps"
+    assert_success "$label check passes with 18 archives" check_counting_greps
+    hist_n2="$(wc -l < "$hist_greps" | tr -d ' ')"
+    [ "$hist_n2" -le $((hist_n + 5)) ] && ok "$label twelve more archives add no grep processes ($hist_n then $hist_n2)" || bad "$label the grep processes grow with the archives ($hist_n then $hist_n2)"
   fi
   # An id that is not in the F-E-T form, in an archive entry with no Name, is matched whole too.
   printf '| SMOKE-T77 | capability | verified | log:SMOKE-T77 | 2026-01-01 |\n' >> "$hist_feat"
@@ -192,11 +202,17 @@ run_suite() {
   grep -qF 'SMOKE-T77' "$WORK/.out" && ok "$label the plain id without a DONE is named" || bad "$label SMOKE-T77 was not named: $(cat "$WORK/.out")"
   printf '\n## [2026-01-01T00:00:00Z] | agentX | SMOKE-T77 | DONE\n- Summary: exact match\n' >> "$hp/docs/history/Agentslog-extra.md"
   assert_success "$label a plain id whose DONE is only in the history, with no Name, is accepted" run check "$hp"
+  # An entry whose agent field holds a bar, and an epic whose only archived task id has a space, are no DONE either.
+  printf '\n## [2026-01-01T00:00:00Z] | a|b | SMOKE-T88 | DONE | Bar task\n- Summary: s\n' > "$hp/docs/history/Agentslog-bar.md"
+  printf '\n## [2026-01-01T00:00:00Z] | dev | F20-E09-T1 extra | DONE | Space task\n- Summary: s\n' > "$hp/docs/history/Agentslog-space.md"
+  printf '| SMOKE-T88 | capability | verified | log:SMOKE-T88 | 2026-01-01 |\n| F20-E09 | Epic complete | all tasks DONE | log:F20-E09-T1 | 2026-01-01 |\n' >> "$hist_feat"
   # The answers stay exact: a prefix of an archived id and an epic with no task anywhere are still unknown.
   printf '| F20-E01-T1 | capability | verified | log:F20-E01-T1 | 2026-01-01 |\n| F20-E07 | Epic complete | all tasks DONE | log:F20-E07-T01 | 2026-01-01 |\n' >> "$hist_feat"
   assert_failure "$label check refuses a Features id that is only the prefix of an archived id, and an epic with no task" run check "$hp"
   tr '\n\r' '  ' < "$WORK/.out" | tr -s ' ' | grep -qF 'Features ID F20-E01-T1 has no DONE entry in the log' && ok "$label the prefix of an archived id is reported" || bad "$label the prefix id was not reported: $(cat "$WORK/.out")"
   tr '\n\r' '  ' < "$WORK/.out" | tr -s ' ' | grep -qF 'Features ID F20-E07 has no DONE entry in the log' && ok "$label the epic with no task is reported" || bad "$label the empty epic was not reported: $(cat "$WORK/.out")"
+  tr '\n\r' '  ' < "$WORK/.out" | tr -s ' ' | grep -qF 'Features ID SMOKE-T88 has no DONE entry in the log' && ok "$label an entry with a bar in the agent field is no DONE" || bad "$label the bar entry counted as DONE: $(cat "$WORK/.out")"
+  tr '\n\r' '  ' < "$WORK/.out" | tr -s ' ' | grep -qF 'Features ID F20-E09 has no DONE entry in the log' && ok "$label an epic whose only archived task id has a space is not complete" || bad "$label the space id counted for its epic: $(cat "$WORK/.out")"
   tr '\n\r' '  ' < "$WORK/.out" | tr -s ' ' | grep -qF 'Features ID F20-E02-T03 has no DONE entry' && bad "$label an archived task was reported as unknown" || ok "$label no archived task is reported as unknown"
 
   echo "== $label: migrate legacy docs/Agents.md (eval 12) =="

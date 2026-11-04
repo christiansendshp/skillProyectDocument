@@ -149,3 +149,8 @@ segments live in `docs/history/`.
 - Phase: GREEN
 - Lane: FAST
 - Base: 5b80e49d1651b5f4eb0c535a047116b99f147cdd
+
+## [2026-11-04T12:49:26Z] | claude-sonnet-5-5 | F06-DEBT-05 | REVIEW | check reads the history archives once per run
+- Summary: history DONE ids read once; cases and eval 59
+- Verify: focused sh 11 ps1 9 passed; check OK; exit=0
+- Handoff: claude-qa

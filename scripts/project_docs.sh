@@ -3299,8 +3299,9 @@ load_history_done() {
   HISTORY_DONE_LOADED=1
   [ -d "$HISTORY_DIR" ] || return 0
   set -- "$HISTORY_DIR"/*.md
-  [ -e "$1" ] || return 0
-  HISTORY_DONE_IDS="$(awk -F' [|] ' '/^## \[[^]]*\] [|] / && $4 ~ /^DONE/ { print $3 }' "$@")"
+  [ -e "$1" ] || [ -L "$1" ] || return 0
+  # The agent field has no bar of its own and the id has no space, as in the old pattern.
+  HISTORY_DONE_IDS="$(awk -F' [|] ' '/^## \[[^]]*\] [|] / && $2 !~ /[|]/ && $4 ~ /^DONE/ { print $3 }' "$@")"
 }
 
 history_has_done() {
@@ -3323,7 +3324,7 @@ epic_history_done() {
     return 0
   fi
   load_history_done
-  if printf '%s\n' "$HISTORY_DONE_IDS" | awk -v p="$prefix" 'index($0, p) == 1 { f = 1 } END { exit(f ? 0 : 1) }'; then
+  if printf '%s\n' "$HISTORY_DONE_IDS" | awk -v p="$prefix" 'index($0, p) == 1 && index($0, " ") == 0 { f = 1 } END { exit(f ? 0 : 1) }'; then
     return 0
   fi
   return 1
