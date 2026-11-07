@@ -308,3 +308,21 @@ segments live in `docs/history/`.
 - Verify: pending
 - Phase: SPEC
 - Lane: NORMAL
+
+## [2026-11-07T14:17:39Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: spec: tab and marker decisions, S13 and S14
+- Verify: spec diff in f0c0b9e; sh scripts/project_docs.sh check .; exit=0
+- Handoff: claude-qa
+- Spec-sha: b8d88f3a5c0ef4a8fd3056948535511b7768dd0447b2413164eab9bf132167a0
+
+## [2026-11-07T14:18:46Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: git show f0c0b9e spec+smoke; scratch tab-in-live-Name summary sh vs ps1; exit=0
+- Review: FAIL - S13 misses tab in live ledger Name (all_task_states path, sh/ps1 differ); answer rewrite scope unspecified
+- Cross-model: NO
+
+## [2026-11-07T14:20:56Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: spec: live ledger names with tabs, answer row only
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
