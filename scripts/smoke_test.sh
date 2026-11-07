@@ -951,6 +951,37 @@ later"
     assert_contains "$label the accents reach the page" "$sb/docs/summary.html" "Revisión de facturación"
     assert_contains "$label the question with accents reaches the page" "$sb/docs/summary.html" "¿Se factura en dólares?"
   fi
+
+  # S13: a tab inside a field is read as a space, never as a column break.
+  st="$WORK/${label}_summary_tab"
+  assert_success "$label tab project init" run init "$st"
+  seed_active_row "$st" SMOKE-T01 "$(printf 'Tab\tname')"
+  printf '\n## [2026-02-01T00:00:00Z] | agentA | SMOKE-T02 | DONE | Tabbed done\n- Summary: alpha\tbeta gamma\n- Files: n/a\n- Verify: ok\n' >> "$st/docs/Agentslog.md"
+  printf '\n## Open questions\n\n| ID | Question | Example | Blocks | Status | Answer |\n|---|---|---|---|---|---|\n| Q-001 | Pay\tby card? | Card | SMOKE-T01 | UNKNOWN | — |\n' > "$WORK/.qtab"
+  awk -v f="$WORK/.qtab" '/^## Out of scope/ { while ((getline l < f) > 0) print l; print "" } { print }' "$st/docs/ProductDescription.md" > "$st/docs/pd.tmp" && mv "$st/docs/pd.tmp" "$st/docs/ProductDescription.md"
+  assert_success "$label summary of the tab project" run summary "$st"
+  page_st="$page"; page="$st/docs/summary.html"
+  assert_contains "$label a Summary with a tab shows whole" "$page" "alpha beta gamma"
+  card SMOKE-T01 | grep -q '<span class="name">Tab name</span>' && ok "$label a Roadmap Name with a tab shows whole" || bad "$label tab card: $(card SMOKE-T01)"
+  awk '/<article class="question" data-id="Q-001">/ { on = 1 } on { print } on && /<\/article>/ { exit }' "$page" > "$WORK/.qt"
+  assert_contains "$label a question with a tab shows whole" "$WORK/.qt" "Pay by card?"
+  assert_contains "$label the example after a tab stays the example" "$WORK/.qt" "Card"
+  assert_contains "$label the blocks after a tab stay the blocks" "$WORK/.qt" "SMOKE-T01"
+  if [ "$label" = "ps1" ]; then
+    cp "$page" "$WORK/.page_tab_ps1"
+    assert_success "$label sh summary of the tab project" sh "$SH_BIN" summary "$st"
+    cmp -s "$WORK/.page_tab_ps1" "$page" && ok "$label sh and ps1 write the same bytes with tabs" || bad "$label tab pages differ: $(diff "$WORK/.page_tab_ps1" "$page" | head -n 6)"
+  fi
+  assert_success "$label answer a question that holds a tab" run answer "$st" Q-001 "first"
+  assert_failure "$label a question with a tab cannot be answered twice" run answer "$st" Q-001 "second"
+  assert_not_exists_pattern "$label the first answer is kept" "$st/docs/ProductDescription.md" "CONFIRMED | second"
+
+  # S14: a timestamp from the ledger can never close the marker comment.
+  printf '\n## [2099-01-01T00:00:00Z --><img src=x onerror=alert(1)><!-- ] | agentA | SMOKE-T03 | DONE | Evil\n- Summary: evil\n- Files: n/a\n- Verify: ok\n' >> "$st/docs/Agentslog.md"
+  assert_success "$label summary with markup in a timestamp" run summary "$st"
+  assert_not_exists_pattern "$label no markup from a timestamp reaches the page" "$page" "<img src=x"
+  grep -q '^<!-- project-docs-source: [0-9TZ:.+-]* q=[0-9]*/[0-9]* -->$' "$page" && ok "$label the marker keeps only timestamp characters" || bad "$label marker: $(grep 'project-docs-source' "$page")"
+  page="$page_st"
 }
 
 # ---------------------------------------------------------------------------

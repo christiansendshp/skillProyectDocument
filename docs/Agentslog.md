@@ -279,3 +279,32 @@ segments live in `docs/history/`.
 - Verify: pending
 - Phase: GREEN
 - Lane: NORMAL
+
+## [2026-11-07T14:05:35Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: summary, ask and answer in both launchers; GREEN complete
+- Verify: sh scripts/smoke_test.sh sh 1509/0, ps1 1505/0; exit=0
+- Handoff: claude-qa
+
+## [2026-11-07T14:11:58Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: scratch init+summary/ask/answer sh vs ps1, cmp pages; injected -->; tab inputs; exit=0
+- Review: FAIL - source marker unescaped (injection); tab in a field breaks sh TSV, sh/ps1 pages differ
+- Cross-model: NO
+
+## [2026-11-07T14:14:32Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: fix QA FAIL: marker timestamp and tabs in fields
+- Verify: pending
+- Phase: GREEN
+- Lane: NORMAL
+
+## [2026-11-07T14:14:34Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to SPEC, assigned to claude-sonnet-5-5
+- Phase: SPEC
+- Assign: claude-sonnet-5-5
+- Verify: QA FAIL: tests for tabs and the marker are missing; exit=1
+
+## [2026-11-07T14:14:44Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: spec and tests for tabs and the marker
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
