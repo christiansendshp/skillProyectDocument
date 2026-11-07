@@ -19,7 +19,7 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F07-E01-T01 | HTML summary page with kanban and PO questions | User request 2026-11-07: commands summary, ask, answer; page with done, kanban and PO questions. Detail in the spec. | Spec scenarios pass in sh and ps1; differential vs ce96f95 fail=0; full smoke 0 failed; context <= 8192. | IN_PROGRESS | claude-opus-5-5@2026-11-07T12:03:21Z | — | — |
+| F07-E01-T01 | HTML summary page with kanban and PO questions | User request 2026-11-07: commands summary, ask, answer; page with done, kanban and PO questions. Detail in the spec. | Spec scenarios pass in sh and ps1; differential vs ce96f95 fail=0; full smoke 0 failed; context <= 8192. | IN_PROGRESS | claude-opus-5-5@2026-11-07T12:13:54Z | — | — |
 
 <!-- context:end -->
 
@@ -128,6 +128,7 @@ task. ID prefix marks the kind: `Fxx-GAP-xx` (missing capability),
 | F03-DEBT-02 | migrate skips a heading level without a THEME | Low | F03 | `migrate` emits EPIC headings at `#####` even when the project has no THEME heading, skipping heading levels (`###` then `#####`); the template uses `####`. Cosmetic only, headings are never parsed | TODO | — | — | — |
 | F05-DEBT-01 | Age rounds differently in sh and PowerShell | Low | F05 | status and the stale checks compute age in whole hours: sh truncates toward zero and PowerShell floors, so an entry timestamped in the future shows 0h in sh and -1h in PowerShell. Only visible with a wrong clock or a hand-written future timestamp | TODO | — | — | — |
 | F05-DEBT-02 | The em dash verify marker is untested in PowerShell | Low | F05 | The smoke test passes arguments to PowerShell through a command string, which mangles a non-ASCII argument, so the em dash verify marker is only exercised through the sh launcher; the PowerShell comparison itself is covered by the other markers | TODO | — | — | — |
+| F07-GAP-01 | A task at the attempt limit cannot be paused | Medium | F07 | Spec review FAILs count as fix attempts, and advance leaves the task ASSIGNED, so a task that reaches Max fix attempts while moving back to RED can be neither paused with BLOQUEO (not IN_PROGRESS) nor claimed. Found on F07-E01-T01 (two spec FAILs and one wrong fixture); worked around by raising Max fix attempts from 3 to 4 in this repository | TODO | — | — | — |
 | F05-DEBT-03 | A rotation can fake an instant close | Low | F05 | rotate re-opens a task that was in REVIEW as an IN_PROGRESS entry stamped with the time of its last entry, so a done within 5 minutes of that last entry looks like a task claimed and closed minutes apart. Rare; fix by ignoring carried-forward IN_PROGRESS entries when measuring | TODO | — | — | — |
 
 ## Out of scope

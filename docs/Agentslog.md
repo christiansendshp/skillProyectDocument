@@ -239,3 +239,29 @@ segments live in `docs/history/`.
 - Verify: pending
 - Phase: RED
 - Lane: NORMAL
+
+## [2026-11-07T12:06:04Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to GREEN, assigned to rollup
+- Phase: GREEN
+- Assign: rollup
+- Verify: focused smoke sh 67 and 3 failed, exit=1
+- Red: 387cd603d0c4bfcecab0a151ab0f5df21594ac9d
+- Tests: scripts/smoke_test.sh
+
+## [2026-11-07T12:06:08Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: GREEN: implement
+- Verify: pending
+- Phase: GREEN
+- Lane: NORMAL
+
+## [2026-11-07T12:13:01Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to RED, assigned to claude-sonnet-5-5
+- Phase: RED
+- Assign: claude-sonnet-5-5
+- Verify: S07 checks a project without Out of scope; exit=1
+
+## [2026-11-07T12:13:54Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: RED: fix S07 fixture
+- Verify: pending
+- Phase: RED
+- Lane: NORMAL
