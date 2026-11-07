@@ -265,3 +265,17 @@ segments live in `docs/history/`.
 - Verify: pending
 - Phase: RED
 - Lane: NORMAL
+
+## [2026-11-07T12:17:43Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to GREEN, assigned to rollup
+- Phase: GREEN
+- Assign: rollup
+- Verify: focused smoke on RED scripts 68 failed, exit=1
+- Red: 33f431ece9fb1758f23f218e0f2d0dbd042092e8
+- Tests: scripts/smoke_test.sh
+
+## [2026-11-07T12:17:48Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: GREEN: sh done, ps1 next
+- Verify: pending
+- Phase: GREEN
+- Lane: NORMAL

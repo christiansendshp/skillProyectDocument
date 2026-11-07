@@ -19,7 +19,7 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F07-E01-T01 | HTML summary page with kanban and PO questions | User request 2026-11-07: commands summary, ask, answer; page with done, kanban and PO questions. Detail in the spec. | Spec scenarios pass in sh and ps1; differential vs ce96f95 fail=0; full smoke 0 failed; context <= 8192. | IN_PROGRESS | claude-opus-5-5@2026-11-07T12:13:54Z | — | — |
+| F07-E01-T01 | HTML summary page with kanban and PO questions | User request 2026-11-07: commands summary, ask, answer; page with done, kanban and PO questions. Detail in the spec. | Spec scenarios pass in sh and ps1; classic differential vs 9302b58 fail=0; full smoke 0 failed; context <= 8192. | IN_PROGRESS | claude-opus-5-5@2026-11-07T12:17:48Z | — | — |
 
 <!-- context:end -->
 
