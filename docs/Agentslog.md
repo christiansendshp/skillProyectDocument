@@ -388,3 +388,21 @@ segments live in `docs/history/`.
 - Verify: pending
 - Phase: GREEN
 - Lane: NORMAL
+
+## [2026-11-07T16:16:25Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Tabs read as spaces for summary, marker timestamp sanitized, answer rewrites only its row
+- Verify: full smoke sh 1529/0 ps1 1527/0; classic diff vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-11-07T16:18:08Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: smoke diff c4eb706..b7ed0f2 empty; scratch repros sh vs ps1 cmp SAME, PD_SAME, check OK; exit=0
+- Review: PASS - Marker filtered, tabs whole on page, answer rewrites only its row, claim+check OK, sh/ps1 pages identical
+- Cross-model: NO
+
+## [2026-11-07T16:18:39Z] | claude-opus-5-5 | F07-E01-T01 | DONE | HTML summary page with kanban and PO questions
+- Summary: HTML summary page with kanban and PO questions: summary writes the page, ask and answer manage PO questions, both launchers identical
+- Files: scripts/ docs/ SKILL.md references/ templates/ evals/ README.md
+- Verify: full smoke sh 1529/0 ps1 1527/0; diff vs 9302b58 fail=0; review PASS claude-qa; exit=0
+- Brain: used LRN-011; learned LRN-011, LRN-012, LRN-013, LRN-014
+- Cross-model: NO
