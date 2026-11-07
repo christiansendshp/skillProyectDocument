@@ -81,7 +81,7 @@ skill's `references/factory.md`.
 | Require TDD | YES |
 | Independent review | YES |
 | WIP per agent | 1 |
-| Max fix attempts | 6 |
+| Max fix attempts | 8 |
 | Fast lane max files | 5 |
 | Fast lane max lines | 150 |
 | Fast lane protected paths | prisma/ migrations/ auth/ rls/ security/ |

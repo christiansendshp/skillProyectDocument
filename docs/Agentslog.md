@@ -326,3 +326,21 @@ segments live in `docs/history/`.
 - Verify: pending
 - Phase: SPEC
 - Lane: NORMAL
+
+## [2026-11-07T14:23:51Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: spec: shared scanner reads tabs as spaces, answer row only, S13 widened
+- Verify: spec diff in HEAD; sh scripts/project_docs.sh check .; exit=0
+- Handoff: claude-qa
+- Spec-sha: 6203d639c55d43660517d6676a93c1a38010f5faa6f5b5f1fb9874818241ad20
+
+## [2026-11-07T14:27:57Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: git show 4eaf224; scratch claim tabbed Roadmap Name, check/status 4eaf224 vs working tree; DONE Name tab; exit=0
+- Review: FAIL - Shared scanner tab fix breaks check: tabbed Roadmap Name + claim -> Name mismatch ERROR (BR-007); DONE Name tab untested
+- Cross-model: NO
+
+## [2026-11-07T14:32:47Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: spec: tab rule only for summary
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
