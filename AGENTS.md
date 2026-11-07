@@ -111,6 +111,7 @@ alias of DEV). Factory mode needs two ids at least, one with role QA.
 | Agent id | Kind | Model | Role | Aliases |
 |---|---|---|---|---|
 | claude-sonnet-5-5 | AI | Claude Sonnet 5.5 | BOTH | claude, claude-sonnet-5 |
+| claude-opus-5-5 | AI | Claude Opus 5.5 | BOTH | — |
 | claude-qa | AI | Claude Sonnet 5.5 | QA | — |
 | rollup | AI | project_docs script | DEV | — |
 

@@ -19,6 +19,7 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
+| F07-E01-T01 | HTML summary page with kanban and PO questions | User request 2026-11-07: commands summary, ask, answer; page with done, kanban and PO questions. Detail in the spec. | Spec scenarios pass in sh and ps1; differential vs ce96f95 fail=0; full smoke 0 failed; context <= 8192. | IN_PROGRESS | claude-opus-5-5@2026-11-07T12:03:21Z | — | — |
 
 <!-- context:end -->
 
@@ -101,6 +102,15 @@ Spec: docs/features/ia-factory.md (closed decisions D-01 to D-21 are ADR-023 onw
 |---|---|---|---|---|---|---|---|
 
 #### F06-E05 — Docs, evals and dogfooding
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+
+### F07 — Project summary page
+
+Spec: docs/specs/F07-E01-T01.md.
+
+#### F07-E01 — Summary page with PO questions
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|

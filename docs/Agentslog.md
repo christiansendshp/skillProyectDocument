@@ -167,3 +167,75 @@ segments live in `docs/history/`.
 - Verify: full smoke sh 1413 ps1 1405 0 failed; exit=0
 - Brain: used none; learned none
 - Cross-model: NO
+
+## [2026-11-07T11:49:59Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: summary page spec
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-07T11:52:23Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: spec: summary, ask, answer; ADR-095..097, BR-014
+- Verify: spec check OK; exit=0
+- Handoff: claude-qa
+- Spec-sha: f16ab541269c68b70e6fbf896959f16f3e2f7f89a28176bd9d8831633af279c6
+
+## [2026-11-07T11:57:13Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: exit=0
+- Review: FAIL - 30-word budget; stale vs rotate; Done col drops archived; answer unsanitised
+- Cross-model: NO
+
+## [2026-11-07T11:58:52Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: spec fixes after QA FAIL
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-07T11:58:57Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: spec fixed per QA items 1-13
+- Verify: spec check OK; exit=0
+- Handoff: claude-qa
+- Spec-sha: 73d47961d594c0e470d05871ac1962f80fd9c766137607b0a82c9291b15eec25
+
+## [2026-11-07T12:00:47Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: exit=0
+- Review: FAIL - AUDIT after DONE drops task; rotate DONE copies replace Summary
+- Cross-model: NO
+
+## [2026-11-07T12:01:45Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: spec fixes after 2nd QA FAIL
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-07T12:01:49Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: spec fixed per 2nd QA round
+- Verify: spec check OK; exit=0
+- Handoff: claude-qa
+- Spec-sha: 3f7a44778c60eebe887e148cf3aeaa9366fb2349f1aeb77b5c70df1ccc90fbff
+
+## [2026-11-07T12:02:47Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: exit=0
+- Review: PASS - rounds 1-2 fixed; nits: — as text, cleaner wording, next free Q
+- Cross-model: NO
+
+## [2026-11-07T12:03:11Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: RED: write the tests
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-07T12:03:14Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to RED, assigned to claude-sonnet-5-5
+- Phase: RED
+- Assign: claude-sonnet-5-5
+- Verify: spec PASS by claude-qa; exit=0
+
+## [2026-11-07T12:03:21Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: RED: write the tests
+- Verify: pending
+- Phase: RED
+- Lane: NORMAL
