@@ -541,10 +541,13 @@ function Get-LogEntryCount([string]$Path) {
 # ---------------------------------------------------------------------------
 # Agentslog scanner: reused by claim/pause/done/status/context/check/rotate.
 # ---------------------------------------------------------------------------
-function Get-TaskStates {
+function Get-TaskStates([switch]$TabsAsSpaces) {
     $log = Join-Path $DocsDir "Agentslog.md"
     if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { return @() }
     $lines = @(Get-ContentUtf8 -LiteralPath $log)
+    # -TabsAsSpaces: a tab in the ledger is read as a space; only summary asks for it, every
+    # other command reads the ledger as before (F07-E01-T01, BR-007).
+    if ($TabsAsSpaces) { $lines = @($lines | ForEach-Object { if ($null -ne $_) { ([string]$_).Replace("`t", " ") } }) }
     $inEntries = $false
     $order = [System.Collections.Generic.List[string]]::new()
     $lastStatus = @{}; $lastAgent = @{}; $lastTs = @{}; $lastPause = @{}; $everDone = @{}; $conflict = @{}; $lastName = @{}
@@ -4283,6 +4286,11 @@ function New-OrdinalMap { return (New-Object System.Collections.Hashtable ([Stri
 
 function ConvertTo-TrimTab([string]$Value) { return (($Value -replace '^[ \t]+', '') -replace '[ \t]+$', '') }
 
+# A doc read for the page, every tab turned into a space as the sh launcher does.
+function Get-SummaryLines([string]$Path) {
+    return @(Get-ContentUtf8 -LiteralPath $Path | ForEach-Object { if ($null -ne $_) { ([string]$_).Replace("`t", " ") } })
+}
+
 # The cleaner of clean_field_text: line breaks to one space, bars to slashes, spaces and tabs trimmed.
 function ConvertTo-CleanText([string]$Value) { return (ConvertTo-TrimTab (($Value -replace '[\r\n]+', ' ') -replace '\|', '/')) }
 
@@ -4328,7 +4336,7 @@ function Get-SummaryLedgerScan {
     foreach ($file in @(Get-SummaryLedgerFiles)) {
         $inEnt = $false
         $cur = $null
-        foreach ($line in @(Get-ContentUtf8 -LiteralPath $file)) {
+        foreach ($line in @(Get-SummaryLines $file)) {
             if ($line -ceq "## Entries") { $inEnt = $true; $cur = $null; continue }
             if (-not $inEnt) { continue }
             if ($line.StartsWith("## [")) {
@@ -4390,7 +4398,7 @@ function Get-OpenQuestionRows {
     $rows = @()
     if (-not (Test-Path -LiteralPath $pdf -PathType Leaf)) { return $rows }
     $inSec = $false
-    foreach ($line in @(Get-ContentUtf8 -LiteralPath $pdf)) {
+    foreach ($line in @(Get-SummaryLines $pdf)) {
         if ($line.StartsWith("## ")) { $inSec = ($line -ceq "## Open questions"); continue }
         if (-not $inSec -or -not $line.StartsWith("|")) { continue }
         $c = @(Split-SummaryCells $line)
@@ -4406,7 +4414,9 @@ function Get-OpenQuestionRows {
 
 function Get-SummaryMarker {
     $scan = Get-SummaryLedgerScan
-    $t = if ($scan.MaxDone -ne "") { $scan.MaxDone } else { "none" }
+    # Only timestamp characters, so text from the ledger can never close the comment.
+    $t = $scan.MaxDone -creplace '[^0-9TZ:.+-]', ''
+    if ($t -eq "") { $t = "none" }
     $rows = @(Get-OpenQuestionRows)
     $confirmed = @($rows | Where-Object { $_.Status -ceq "CONFIRMED" }).Count
     return "<!-- project-docs-source: $t q=$($rows.Count)/$confirmed -->"
@@ -4534,7 +4544,7 @@ function Invoke-Summary {
     $rname = New-OrdinalMap; $rst = New-OrdinalMap
     $roadmap = Join-Path $DocsDir "Roadmap.md"
     $expect = $true; $idc = -1; $namec = -1; $stc = -1
-    foreach ($line in @(Get-ContentUtf8 -LiteralPath $roadmap)) {
+    foreach ($line in @(Get-SummaryLines $roadmap)) {
         if (-not $line.StartsWith("|")) { $expect = $true; continue }
         $c = @(Split-SummaryCells $line)
         if ($expect) {
@@ -4560,7 +4570,7 @@ function Invoke-Summary {
     }
     $lid = New-Object System.Collections.Generic.List[string]
     $lst = New-OrdinalMap; $lpause = New-OrdinalMap; $lhold = New-OrdinalMap; $lrev = New-OrdinalMap
-    foreach ($s in @(Get-TaskStates)) {
+    foreach ($s in @(Get-TaskStates -TabsAsSpaces)) {
         $lid.Add($s.Task)
         $lst[$s.Task] = $s.Status; $lpause[$s.Task] = $s.PauseCat; $lhold[$s.Task] = $s.Holder; $lrev[$s.Task] = $s.Review
         if ($s.Name -ne "") { $lname[$s.Task] = $s.Name }
@@ -4794,9 +4804,9 @@ function Invoke-Answer {
         foreach ($line in @(Get-ContentUtf8 -LiteralPath $pdf)) {
             if ($line.StartsWith("## ")) { $inSec = ($line -ceq "## Open questions"); $outl.Add($line); continue }
             if ($inSec -and -not $done -and $line.StartsWith("|")) {
-                $c = @(Split-SummaryCells $line)
+                $c = @(Split-SummaryCells ($line.Replace("`t", " ")))
                 if ((Get-CellAt $c 0) -ceq $id) {
-                    $outl.Add("| " + (Get-CellAt $c 0) + " | " + (Get-CellAt $c 1) + " | " + (Get-CellAt $c 2) + " | " + (Get-CellAt $c 3) + " | CONFIRMED | " + $text + " |")
+                    $outl.Add("| " + (Get-CellAt $c 0) + " | " + (Get-CellAt $c 1) + " | " + (Get-CellAt $c 2) + " | " + (Get-CellAt $c 3) + " | CONFIRMED | " + $text.Replace("`t", " ") + " |")
                     $done = $true
                     continue
                 }

@@ -344,3 +344,47 @@ segments live in `docs/history/`.
 - Verify: pending
 - Phase: SPEC
 - Lane: NORMAL
+
+## [2026-11-07T14:32:52Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: spec: tab rule only when summary reads the ledger
+- Verify: spec diff in HEAD; sh scripts/project_docs.sh check .; exit=0
+- Handoff: claude-qa
+- Spec-sha: 1713b07d11fe825496f39da89f48e4e41c3a6a1765a2e243a3e2c8188f13502c
+
+## [2026-11-07T14:33:52Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: git show c4eb706; WT repro: claim tabbed Name then check OK, status unchanged; sh/ps1 cmp p1 p3 p4 SAME; exit=0
+- Review: PASS - Spec and S13/S14 capture both bugs; tab rule scoped to summary keeps BR-007; claim-then-check repro passes
+- Cross-model: NO
+
+## [2026-11-07T14:34:09Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: RED and GREEN for tabs and the marker
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-07T14:34:12Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to RED, assigned to claude-sonnet-5-5
+- Phase: RED
+- Assign: claude-sonnet-5-5
+- Verify: focused F07 block with the f0c0b9e scripts: sh 99 passed, 11 failed; exit=1
+
+## [2026-11-07T14:34:21Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: GREEN for tabs and the marker
+- Verify: pending
+- Phase: RED
+- Lane: NORMAL
+
+## [2026-11-07T14:34:30Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to GREEN, assigned to claude-opus-5-5
+- Phase: GREEN
+- Assign: claude-opus-5-5
+- Verify: focused F07 block with the f0c0b9e scripts: sh 99 passed, 11 failed; exit=1
+- Red: c4eb70672237bbd295745aacea11715b06fd25ec
+- Tests: scripts/smoke_test.sh
+
+## [2026-11-07T14:34:43Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: GREEN: commit the fix
+- Verify: pending
+- Phase: GREEN
+- Lane: NORMAL

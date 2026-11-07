@@ -534,7 +534,12 @@ all_task_states() {
   # Red, Tests, Attempts) are read and derived from only then (BR-008).
   ats_fac=0
   if factory_on; then ats_fac=1; fi
-  awk -v stale_s="$((STALE_HOURS * 3600))" -v fac="$ats_fac" "$AWK_EPOCH"'
+  # "tabs": a tab in the ledger is read as a space, so no field splits a column; only summary
+  # asks for it, every other command reads the ledger as before (F07-E01-T01, BR-007).
+  ats_tabs=0
+  if [ "${1:-}" = "tabs" ]; then ats_tabs=1; fi
+  awk -v stale_s="$((STALE_HOURS * 3600))" -v fac="$ats_fac" -v tabs="$ats_tabs" "$AWK_EPOCH"'
+    tabs { gsub(/\t/, " ") }
     $0 == "## Entries" { in_entries=1; next }
     in_entries && /^## \[/ {
       line=$0
@@ -4150,6 +4155,12 @@ rotate_log() {
 # ---------------------------------------------------------------------------
 OPEN_Q_HEADER='| ID | Question | Example | Blocks | Status | Answer |'
 
+# A doc read for the page: clean_stream with every tab turned into a space, since
+# the steps below pass fields as tab-separated lines.
+summary_read() {
+  clean_stream | tr '\t' ' '
+}
+
 # The ledger in reading order: the archives by byte order of their names, then
 # the live log; a line holding only \001 starts each file.
 summary_ledger_stream() {
@@ -4158,12 +4169,12 @@ summary_ledger_stream() {
       if [ -f "$hf" ] && [ -r "$hf" ]; then printf '%s\n' "$hf"; fi
     done | LC_ALL=C sort | while IFS= read -r hf; do
       printf '\001\n'
-      clean_stream < "$hf"
+      summary_read < "$hf"
     done
   fi
   if [ -f "$DOCS_DIR/Agentslog.md" ]; then
     printf '\001\n'
-    clean_stream < "$DOCS_DIR/Agentslog.md"
+    summary_read < "$DOCS_DIR/Agentslog.md"
   fi
 }
 
@@ -4219,7 +4230,7 @@ summary_ledger_scan() {
 open_questions_rows() {
   pdf="$DOCS_DIR/ProductDescription.md"
   [ -f "$pdf" ] || return 0
-  clean_stream < "$pdf" | awk '
+  summary_read < "$pdf" | awk '
     function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
     /^## / { insec = ($0 == "## Open questions"); next }
     insec && /^\|/ {
@@ -4233,7 +4244,8 @@ open_questions_rows() {
 }
 
 summary_marker() {
-  sm_done="$(summary_ledger_scan | awk -F'\t' '$1 == "D" { print $2 }')"
+  # Only timestamp characters, so text from the ledger can never close the comment.
+  sm_done="$(summary_ledger_scan | awk -F'\t' '$1 == "D" { print $2 }' | tr -cd '0-9TZ:.+-')"
   [ -n "$sm_done" ] || sm_done="none"
   sm_q="$(open_questions_rows | awk -F'\t' '{ r++; if ($5 == "CONFIRMED") c++ } END { printf "%d/%d", r, c }')"
   printf '<!-- project-docs-source: %s q=%s -->' "$sm_done" "$sm_q"
@@ -4362,7 +4374,7 @@ cmd_summary() {
   : > "$sum_tmp/roadmap"
   if [ -f "$DOCS_DIR/Roadmap.md" ]; then
     # One line per Roadmap row with an ID, a Name and a Status; an ID seen twice keeps its first row.
-    clean_stream < "$DOCS_DIR/Roadmap.md" | awk '
+    summary_read < "$DOCS_DIR/Roadmap.md" | awk '
       function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
       !/^\|/ { expect = 1; next }
       {
@@ -4383,7 +4395,7 @@ cmd_summary() {
       }
     ' > "$sum_tmp/roadmap"
   fi
-  all_task_states > "$sum_tmp/live"
+  all_task_states tabs > "$sum_tmp/live"
   open_questions_rows > "$sum_tmp/questions"
   basename "$(CDPATH= cd -- "$PROJECT" && pwd)" > "$sum_tmp/project"
   { summary_marker; echo; } > "$sum_tmp/marker"
@@ -4630,11 +4642,12 @@ cmd_answer() {
     function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
     /^## / { insec = ($0 == "## Open questions"); print; next }
     insec && /^\|/ && !done {
-      line = $0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line)
+      line = $0; gsub(/\t/, " ", line); sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line)
       nc = split(line, c, "|")
       for (i = 1; i <= nc; i++) c[i] = trim(c[i])
       if (c[1] == ENVIRON["ANS_ID"]) {
-        print "| " c[1] " | " c[2] " | " c[3] " | " c[4] " | CONFIRMED | " ENVIRON["ANS_TEXT"] " |"
+        t = ENVIRON["ANS_TEXT"]; gsub(/\t/, " ", t)
+        print "| " c[1] " | " c[2] " | " c[3] " | " c[4] " | CONFIRMED | " t " |"
         done = 1
         next
       }
