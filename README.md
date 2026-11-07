@@ -88,6 +88,14 @@ Factory mode only (every one refuses to run in a classic project):
 | `retro <agent> <task-id> <used> <learned>` | Record the lessons a task used and left behind; required by `done` |
 | `digest [since]` | At most 4 KiB for a person: guesses and decisions to confirm, red lines, open gaps, new lessons, what closed, reviews |
 
+Any project, classic or Factory:
+
+| Command | Purpose |
+|---|---|
+| `summary [en\|es]` | Write `docs/summary.html`: what was done (one idea per task, 30 words at most), a kanban of every task, and the open PO questions with a box to answer each |
+| `ask <question> <example> [blocks]` | Record a question only the PO can answer in `## Open questions` of `ProductDescription.md` |
+| `answer <Q-ID> <text>` | Write the PO's answer and mark the question `CONFIRMED` |
+
 `scripts/factory_dispatch.sh` and `scripts/factory_dispatch.ps1` (`<project> [--watch] [--once]`)
 are the dispatcher: they ask `next` for each agent of `.factory/dispatch.md`, launch
 that agent's CLI (without `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `GEMINI_API_KEY` and `GOOGLE_API_KEY` in its environment), detect quota limits in its output, and keep going. They live

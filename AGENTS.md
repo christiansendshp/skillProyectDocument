@@ -67,7 +67,8 @@ In order, skipping nothing:
 1. Update only the project truths the change affects.
 2. Use `claim`/`pause`/`handoff`/`review`/`done` for task state, `append-log`
    only outside the lifecycle.
-3. Run `rotate`, then `check`. Do not report completion while it fails.
+3. Run `rotate`, `summary`, then `check`. Do not report completion while it
+   fails. Each `done` summary is one plain idea in 30 words with the Name.
 
 ## Factory
 
@@ -80,7 +81,7 @@ skill's `references/factory.md`.
 | Require TDD | YES |
 | Independent review | YES |
 | WIP per agent | 1 |
-| Max fix attempts | 3 |
+| Max fix attempts | 8 |
 | Fast lane max files | 5 |
 | Fast lane max lines | 150 |
 | Fast lane protected paths | prisma/ migrations/ auth/ rls/ security/ |
@@ -111,6 +112,7 @@ alias of DEV). Factory mode needs two ids at least, one with role QA.
 | Agent id | Kind | Model | Role | Aliases |
 |---|---|---|---|---|
 | claude-sonnet-5-5 | AI | Claude Sonnet 5.5 | BOTH | claude, claude-sonnet-5 |
+| claude-opus-5-5 | AI | Claude Opus 5.5 | BOTH | — |
 | claude-qa | AI | Claude Sonnet 5.5 | QA | — |
 | rollup | AI | project_docs script | DEV | — |
 

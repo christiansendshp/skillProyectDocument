@@ -69,7 +69,8 @@ In order, skipping nothing:
 1. Update only the project truths the change affects.
 2. Use `claim`/`pause`/`handoff`/`review`/`done` for task state, `append-log`
    only outside the lifecycle.
-3. Run `rotate`, then `check`. Do not report completion while it fails.
+3. Run `rotate`, `summary`, then `check`. Do not report completion while it
+   fails. Each `done` summary is one plain idea in 30 words with the Name.
 
 ## Factory
 

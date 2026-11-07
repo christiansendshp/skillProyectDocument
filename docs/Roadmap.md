@@ -105,6 +105,15 @@ Spec: docs/features/ia-factory.md (closed decisions D-01 to D-21 are ADR-023 onw
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
 
+### F07 — Project summary page
+
+Spec: docs/specs/F07-E01-T01.md.
+
+#### F07-E01 — Summary page with PO questions
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+
 ## Gaps, Bugs & Technical Debt
 
 Errors, defects, or significant technical debt found by any agent. Same
@@ -118,6 +127,8 @@ task. ID prefix marks the kind: `Fxx-GAP-xx` (missing capability),
 | F03-DEBT-02 | migrate skips a heading level without a THEME | Low | F03 | `migrate` emits EPIC headings at `#####` even when the project has no THEME heading, skipping heading levels (`###` then `#####`); the template uses `####`. Cosmetic only, headings are never parsed | TODO | — | — | — |
 | F05-DEBT-01 | Age rounds differently in sh and PowerShell | Low | F05 | status and the stale checks compute age in whole hours: sh truncates toward zero and PowerShell floors, so an entry timestamped in the future shows 0h in sh and -1h in PowerShell. Only visible with a wrong clock or a hand-written future timestamp | TODO | — | — | — |
 | F05-DEBT-02 | The em dash verify marker is untested in PowerShell | Low | F05 | The smoke test passes arguments to PowerShell through a command string, which mangles a non-ASCII argument, so the em dash verify marker is only exercised through the sh launcher; the PowerShell comparison itself is covered by the other markers | TODO | — | — | — |
+| F07-GAP-01 | A task at the attempt limit cannot be paused | Medium | F07 | Spec review FAILs count as fix attempts, and advance leaves the task ASSIGNED, so a task that reaches Max fix attempts while moving back to RED can be neither paused with BLOQUEO (not IN_PROGRESS) nor claimed. Found on F07-E01-T01 (two spec FAILs and one wrong fixture); worked around by raising Max fix attempts from 3 to 4 in this repository, then to 5 after a code review FAIL left the task at 4 of 4 with the spec FAILs still counted, to 6 after a spec FAIL on the fix found a third tab path, and to 8 after a spec FAIL showed the shared scanner change broke check (room for the code review) | TODO | — | — | — |
+| F07-DEBT-01 | A tab in a ledger Name splits status in sh | Low | F07 | The shared ledger scanner of sh passes fields as tab-separated lines, so a ledger Name holding a tab shifts the later columns of status (and of the commands that read them) while ps1 keeps the field whole. Older than F07; summary reads the ledger with tabs as spaces, the other commands were left as they were (BR-007). Fix with a separator that cannot appear in the docs | TODO | — | — | — |
 | F05-DEBT-03 | A rotation can fake an instant close | Low | F05 | rotate re-opens a task that was in REVIEW as an IN_PROGRESS entry stamped with the time of its last entry, so a done within 5 minutes of that last entry looks like a task claimed and closed minutes apart. Rare; fix by ignoring carried-forward IN_PROGRESS entries when measuring | TODO | — | — | — |
 
 ## Out of scope

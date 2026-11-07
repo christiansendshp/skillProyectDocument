@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>skillProyectDocument - resumen del proyecto</title>
+<style>
+:root { --bg: #f6f6f4; --fg: #1d1d1f; --muted: #5d6166; --card: #ffffff; --line: #d8d8d4; --accent: #2457c5; --on-accent: #ffffff; }
+@media (prefers-color-scheme: dark) { :root { --bg: #17181a; --fg: #ececec; --muted: #a2a6ab; --card: #222326; --line: #393b40; --accent: #8db2ff; --on-accent: #10131a; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header, main { max-width: 1120px; margin: 0 auto; padding: 16px; }
+h1 { margin: 8px 0 0; font-size: 1.6rem; }
+h2 { margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); font-size: 1.2rem; }
+h3 { display: flex; justify-content: space-between; margin: 0 0 8px; font-size: .95rem; }
+.updated, .more, .empty, .meta, .label, .count, .answer { color: var(--muted); }
+.ref { color: var(--accent); font: 600 .8rem ui-monospace, Consolas, monospace; }
+p.done { max-width: 72ch; margin: 0 0 10px; }
+.board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) { .board { grid-template-columns: 1fr; } }
+.column { min-width: 0; padding: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.card { margin: 0 0 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; overflow-wrap: anywhere; }
+.card .name, .card .meta { display: block; }
+.card .meta { font-size: .8rem; }
+.question { max-width: 72ch; margin: 0 0 12px; padding: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.question p { margin: 0 0 6px; }
+textarea { width: 100%; padding: 6px; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
+button { padding: 6px 12px; color: var(--on-accent); background: var(--accent); border: 1px solid var(--accent); border-radius: 6px; font: inherit; cursor: pointer; }
+details.answered li { margin: 0 0 6px; }
+</style>
+</head>
+<body>
+<!-- project-docs-source: 2026-11-07T16:18:39Z q=0/0 -->
+<header>
+<h1>skillProyectDocument</h1>
+<p class="updated">Actualizado: 2026-11-07T16:18:39Z</p>
+</header>
+<main>
+<section id="done">
+<h2>Qu&eacute; se hizo</h2>
+<p class="done"><span class="ref">F07-E01-T01</span> <strong>HTML summary page with kanban and PO questions</strong>: HTML summary page with kanban and PO questions: summary writes the page, ask and answer manage PO questions, both launchers identical</p>
+<p class="done"><span class="ref">F06-DEBT-05</span> <strong>check reads the history archives once per run</strong>: check reads history once; ids with regex chars now matched literally</p>
+<p class="done"><span class="ref">F06-E05-T03</span> <strong>Dogfood a full factory lifecycle end to end</strong>: dogfooding report, Factory adoption, review fixes ADR-090 to ADR-094</p>
+<p class="done"><span class="ref">F06-E06-T04</span> <strong>Fake CLIs and dispatcher smoke tests</strong>: fake CLIs and dispatcher smoke tests</p>
+<p class="done"><span class="ref">F06-E06-T03</span> <strong>Dispatcher loop in sh with identical behavior</strong>: dispatcher loop in sh with the same behavior</p>
+<p class="done"><span class="ref">F06-E06-T02</span> <strong>Dispatcher loop in PowerShell with limit detection</strong>: dispatcher loop in PowerShell with limit detection</p>
+<p class="done"><span class="ref">F06-E06-T01</span> <strong>Dispatch config templates and gitignore block</strong>: init and migrate create .factory/dispatch.md and the gitignore block</p>
+<p class="done"><span class="ref">F06-E05-T02</span> <strong>Add factory evals and adjust six-file evals</strong>: Factory evals added and the older evals pinned to classic-mode scenarios</p>
+<p class="done"><span class="ref">F06-E05-T01</span> <strong>Document factory mode across skill and references</strong>: Factory mode documented in SKILL, README, workflow, factory and adapters references</p>
+<p class="done"><span class="ref">F06-DEBT-04</span> <strong>Make the docs lock exclusive and race free</strong>: the docs lock is exclusive in PowerShell and race free in sh, with an atomic takeover</p>
+<p class="done"><span class="ref">F06-E04-T03</span> <strong>Cross-model marker, default reviewers and audits</strong>: cross-model marker, default reviewers, audits with a bounded audit queue</p>
+<p class="done"><span class="ref">F06-DEBT-03</span> <strong>Reject test paths outside the project</strong>: test paths of a spec stay inside the project</p>
+<p class="done"><span class="ref">F06-DEBT-02</span> <strong>Bind the spec review to the spec content</strong>: the review of a spec is bound to its SHA-256</p>
+<p class="done"><span class="ref">F06-E04-T01</span> <strong>Digest command for asynchronous human review</strong>: digest command for the asynchronous human review</p>
+<p class="done"><span class="ref">F06-E01-T07</span> <strong>Context drops older log entries to fit in Factory mode</strong>: Factory context drops older entries instead of failing</p>
+<p class="done"><span class="ref">F06-E02-T06</span> <strong>Fast lane with size limits and promotion to SPEC</strong>: fast lane with size limits and promotion to SPEC; renames, spaces, git failures and long paths handled</p>
+<p class="done"><span class="ref">F06-E04-T02</span> <strong>Show phase in status output</strong>: status adds the phase and the lane in Factory mode</p>
+<p class="done"><span class="ref">F06-E01-T06</span> <strong>Next returns a reviewed task to its holder</strong>: next gives a reviewed task back to its holder</p>
+<p class="done"><span class="ref">F06-E02-T04</span> <strong>Exit markers and immutable tests from RED sha</strong>: strict exit markers and unchanged tests from the Red sha, renames included</p>
+<p class="done"><span class="ref">F06-E03-T05</span> <strong>Brain garbage collection in rotate and promotion warning</strong>: brain gc in rotate under the docs lock and the promotion warning</p>
+<p class="done"><span class="ref">F06-E03-T04</span> <strong>Learn and retro commands with mandatory lessons</strong>: learn and retro with the mandatory lesson, done integration and the repeat of the rule</p>
+<p class="done"><span class="ref">F06-E03-T03</span> <strong>Recall command with deterministic ranking and budget</strong>: recall command with ranking and budget; a tab in a row is a space</p>
+<p class="done"><span class="ref">F06-E01-T04</span> <strong>Add next command for autonomous task selection</strong>: next command: the task an agent should work on by role, phase and priority; reviewed by claude-qa (PASS)</p>
+<p class="done"><span class="ref">F06-E01-T05</span> <strong>Enforce WIP and fix attempt limits in claim</strong>: WIP per agent and fix attempts in claim</p>
+<p class="done"><span class="ref">F06-E02-T05</span> <strong>Turn review warnings into errors in factory</strong>: Review warnings are errors in Factory mode</p>
+<p class="done"><span class="ref">F06-E02-T02</span> <strong>Phase lines and advance command with gates</strong>: advance command with SPEC and RED gates</p>
+<p class="done"><span class="ref">F06-E03-T02</span> <strong>Working memory files and checkpoint command</strong>: Working memory, checkpoint command, pause gate</p>
+<p class="done"><span class="ref">F06-E02-T01</span> <strong>Spec template and check rules for scenarios</strong>: Spec template and Factory-only spec validation</p>
+<p class="done"><span class="ref">F06-E02-T03</span> <strong>Phase roles in the roster and claim</strong>: Phase roles in roster and claim; rotate carries phase</p>
+<p class="done"><span class="ref">F06-DEBT-01</span> <strong>Harden Brain cap parsing and CRLF handling in migrate</strong>: Cap parsing, CRLF, roster rerun and flags hardened</p>
+<p class="more">24 tareas hechas m&aacute;s est&aacute;n en el registro.</p>
+</section>
+<section id="kanban">
+<h2>Tareas</h2>
+<div class="board">
+<div class="column" id="col-todo">
+<h3>Por hacer <span class="count">7</span></h3>
+<div class="card" data-id="F03-DEBT-01"><span class="ref">F03-DEBT-01</span> <span class="name">A literal bar in a table cell corrupts the row</span></div>
+<div class="card" data-id="F03-DEBT-02"><span class="ref">F03-DEBT-02</span> <span class="name">migrate skips a heading level without a THEME</span></div>
+<div class="card" data-id="F05-DEBT-01"><span class="ref">F05-DEBT-01</span> <span class="name">Age rounds differently in sh and PowerShell</span></div>
+<div class="card" data-id="F05-DEBT-02"><span class="ref">F05-DEBT-02</span> <span class="name">The em dash verify marker is untested in PowerShell</span></div>
+<div class="card" data-id="F07-GAP-01"><span class="ref">F07-GAP-01</span> <span class="name">A task at the attempt limit cannot be paused</span></div>
+<div class="card" data-id="F07-DEBT-01"><span class="ref">F07-DEBT-01</span> <span class="name">A tab in a ledger Name splits status in sh</span></div>
+<div class="card" data-id="F05-DEBT-03"><span class="ref">F05-DEBT-03</span> <span class="name">A rotation can fake an instant close</span></div>
+</div>
+<div class="column" id="col-doing">
+<h3>En curso <span class="count">0</span></h3>
+</div>
+<div class="column" id="col-review">
+<h3>En revisi&oacute;n <span class="count">0</span></h3>
+</div>
+<div class="column" id="col-paused">
+<h3>En pausa <span class="count">0</span></h3>
+</div>
+<div class="column" id="col-done">
+<h3>Hecho <span class="count">54</span></h3>
+<div class="card" data-id="F07-E01-T01"><span class="ref">F07-E01-T01</span> <span class="name">HTML summary page with kanban and PO questions</span></div>
+<div class="card" data-id="F06-DEBT-05"><span class="ref">F06-DEBT-05</span> <span class="name">check reads the history archives once per run</span></div>
+<div class="card" data-id="F06-E05-T03"><span class="ref">F06-E05-T03</span> <span class="name">Dogfood a full factory lifecycle end to end</span></div>
+<div class="card" data-id="F06-E06-T04"><span class="ref">F06-E06-T04</span> <span class="name">Fake CLIs and dispatcher smoke tests</span></div>
+<div class="card" data-id="F06-E06-T03"><span class="ref">F06-E06-T03</span> <span class="name">Dispatcher loop in sh with identical behavior</span></div>
+<div class="card" data-id="F06-E06-T02"><span class="ref">F06-E06-T02</span> <span class="name">Dispatcher loop in PowerShell with limit detection</span></div>
+<div class="card" data-id="F06-E06-T01"><span class="ref">F06-E06-T01</span> <span class="name">Dispatch config templates and gitignore block</span></div>
+<div class="card" data-id="F06-E05-T02"><span class="ref">F06-E05-T02</span> <span class="name">Add factory evals and adjust six-file evals</span></div>
+<div class="card" data-id="F06-E05-T01"><span class="ref">F06-E05-T01</span> <span class="name">Document factory mode across skill and references</span></div>
+<div class="card" data-id="F06-DEBT-04"><span class="ref">F06-DEBT-04</span> <span class="name">Make the docs lock exclusive and race free</span></div>
+<div class="card" data-id="F06-E04-T03"><span class="ref">F06-E04-T03</span> <span class="name">Cross-model marker, default reviewers and audits</span></div>
+<div class="card" data-id="F06-DEBT-03"><span class="ref">F06-DEBT-03</span> <span class="name">Reject test paths outside the project</span></div>
+<div class="card" data-id="F06-DEBT-02"><span class="ref">F06-DEBT-02</span> <span class="name">Bind the spec review to the spec content</span></div>
+<div class="card" data-id="F06-E04-T01"><span class="ref">F06-E04-T01</span> <span class="name">Digest command for asynchronous human review</span></div>
+<div class="card" data-id="F06-E01-T07"><span class="ref">F06-E01-T07</span> <span class="name">Context drops older log entries to fit in Factory mode</span></div>
+<div class="more">+39</div>
+</div>
+</div>
+</section>
+<section id="questions">
+<h2>Preguntas para el PO</h2>
+<p class="empty">No hay preguntas pendientes.</p>
+</section>
+</main>
+<script>
+(function () {
+  var page = location.pathname;
+  var boxes = document.querySelectorAll('textarea[data-id]');
+  var copy = document.getElementById('copy-answers');
+  var down = document.getElementById('download-answers');
+  var status = document.getElementById('answers-status');
+  function key(box) { return 'project-docs:' + page + ':' + box.getAttribute('data-id'); }
+  function say(attr) { if (status && copy) status.textContent = copy.getAttribute(attr); }
+  Array.prototype.forEach.call(boxes, function (box) {
+    try { var kept = window.localStorage.getItem(key(box)); if (kept) box.value = kept; } catch (e) {}
+    box.addEventListener('input', function () {
+      try { window.localStorage.setItem(key(box), box.value); } catch (e) {}
+    });
+  });
+  function answers() {
+    var lines = [];
+    Array.prototype.forEach.call(boxes, function (box) {
+      var text = box.value.replace(/[\r\n]+/g, ' ').replace(/^\s+|\s+$/g, '');
+      if (text !== '') lines.push(box.getAttribute('data-id') + ': ' + text);
+    });
+    return lines.length ? lines.join('\n') + '\n' : '';
+  }
+  if (copy) copy.addEventListener('click', function () {
+    var text = answers();
+    if (!text) { say('data-empty'); return; }
+    function fallback() {
+      var area = document.createElement('textarea');
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      try { document.execCommand('copy'); say('data-done'); } catch (e) {}
+      document.body.removeChild(area);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { say('data-done'); }, fallback);
+    } else {
+      fallback();
+    }
+  });
+  if (down) down.addEventListener('click', function () {
+    var text = answers();
+    if (!text) { say('data-empty'); return; }
+    var url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = 'po-answers.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  });
+})();
+</script>
+</body>
+</html>

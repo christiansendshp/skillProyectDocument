@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "assign", "done", "status", "mode", "checkpoint", "advance", "recall", "learn", "retro", "next", "digest", "help")]
+    [ValidateSet("init", "check", "context", "append-log", "rotate", "migrate", "link", "claim", "pause", "handoff", "review", "assign", "done", "status", "mode", "checkpoint", "advance", "recall", "learn", "retro", "next", "digest", "summary", "ask", "answer", "help")]
     [string]$Command = "help",
 
     [Parameter(Position = 1)]
@@ -541,10 +541,13 @@ function Get-LogEntryCount([string]$Path) {
 # ---------------------------------------------------------------------------
 # Agentslog scanner: reused by claim/pause/done/status/context/check/rotate.
 # ---------------------------------------------------------------------------
-function Get-TaskStates {
+function Get-TaskStates([switch]$TabsAsSpaces) {
     $log = Join-Path $DocsDir "Agentslog.md"
     if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { return @() }
     $lines = @(Get-ContentUtf8 -LiteralPath $log)
+    # -TabsAsSpaces: a tab in the ledger is read as a space; only summary asks for it, every
+    # other command reads the ledger as before (F07-E01-T01, BR-007).
+    if ($TabsAsSpaces) { $lines = @($lines | ForEach-Object { if ($null -ne $_) { ([string]$_).Replace("`t", " ") } }) }
     $inEntries = $false
     $order = [System.Collections.Generic.List[string]]::new()
     $lastStatus = @{}; $lastAgent = @{}; $lastTs = @{}; $lastPause = @{}; $everDone = @{}; $conflict = @{}; $lastName = @{}
@@ -4108,9 +4111,11 @@ function Invoke-Check {
     Test-TableStatusEnum "docs/Stack_Tecnologies.md" @("CONFIRMED", "HYPOTHESIS", "UNKNOWN") "epistemic"
     Test-TableStatusEnum "docs/Roadmap.md" @("TODO", "IN_PROGRESS", "PAUSE", "DONE") "workflow"
     Test-TableNameWordLimit "docs/Roadmap.md" 10
+    Test-OpenQuestions
     if (Test-FactoryOn) { Test-BrainRows; Test-Specs; Test-FactoryRoster; Test-WorkingMemory; Test-PhaseSpecs }
 
     Write-CheckWarnings
+    if (Test-FactoryOn) { Write-SummaryPageWarning }
 
     if ($script:CheckFail) { throw "project_docs check failed" }
     Write-Output "project_docs check: OK"
@@ -4268,6 +4273,600 @@ function Invoke-Rotate {
     Invoke-BrainGc
 }
 
+# ---------------------------------------------------------------------------
+# Summary page and PO questions (F07-E01-T01, ADR-095 to ADR-097). summary
+# writes docs/summary.html from the docs; ask and answer keep the optional
+# "## Open questions" table of ProductDescription.md. Same bytes as the sh
+# launcher: every doc read through Get-ContentUtf8 (BOM and CR removed), words
+# split on spaces and tabs only, ordinal comparisons and keys, no clock.
+# ---------------------------------------------------------------------------
+$OpenQHeader = "| ID | Question | Example | Blocks | Status | Answer |"
+
+function New-OrdinalMap { return (New-Object System.Collections.Hashtable ([StringComparer]::Ordinal)) }
+
+function ConvertTo-TrimTab([string]$Value) { return (($Value -replace '^[ \t]+', '') -replace '[ \t]+$', '') }
+
+# A doc read for the page, every tab turned into a space as the sh launcher does.
+function Get-SummaryLines([string]$Path) {
+    return @(Get-ContentUtf8 -LiteralPath $Path | ForEach-Object { if ($null -ne $_) { ([string]$_).Replace("`t", " ") } })
+}
+
+# The cleaner of clean_field_text: line breaks to one space, bars to slashes, spaces and tabs trimmed.
+function ConvertTo-CleanText([string]$Value) { return (ConvertTo-TrimTab (($Value -replace '[\r\n]+', ' ') -replace '\|', '/')) }
+
+function Split-SummaryCells([string]$Line) {
+    $l = ($Line -replace '^\|', '') -replace '\|[ \t]*$', ''
+    return @($l -split '\|' | ForEach-Object { ConvertTo-TrimTab $_ })
+}
+
+function Get-CellAt($Cells, [int]$Index) {
+    if ($Index -lt $Cells.Count) { return $Cells[$Index] }
+    return ""
+}
+
+function ConvertTo-HtmlText([string]$Value) {
+    return $Value.Replace('&', '&amp;').Replace('<', '&lt;').Replace('>', '&gt;').Replace('"', '&quot;')
+}
+
+function Get-SummaryWords([string]$Value) {
+    return @($Value -split '[ \t]+' | Where-Object { $_ -ne "" })
+}
+
+# The ledger in reading order: the archives by ordinal order of their names, then the live log.
+function Get-SummaryLedgerFiles {
+    $files = @()
+    if (Test-Path -LiteralPath $HistoryDir -PathType Container) {
+        $names = @(Get-ChildItem -LiteralPath $HistoryDir -Filter "*.md" -File | ForEach-Object { $_.Name })
+        if ($names.Count -gt 0) {
+            [Array]::Sort($names, [StringComparer]::Ordinal)
+            foreach ($n in $names) { $files += (Join-Path $HistoryDir $n) }
+        }
+    }
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (Test-Path -LiteralPath $log -PathType Leaf) { $files += $log }
+    return $files
+}
+
+# One pass over the ledger: the newest timestamp, the newest DONE timestamp and the
+# done list (tasks whose last entry is DONE), newest DONE first, a tie going to the
+# entry read later. AUDIT entries never count as a last entry, and a DONE with the
+# task and timestamp of a DONE already read is a rotation copy.
+function Get-SummaryLedgerScan {
+    $records = New-Object System.Collections.Generic.List[object]
+    foreach ($file in @(Get-SummaryLedgerFiles)) {
+        $inEnt = $false
+        $cur = $null
+        foreach ($line in @(Get-SummaryLines $file)) {
+            if ($line -ceq "## Entries") { $inEnt = $true; $cur = $null; continue }
+            if (-not $inEnt) { continue }
+            if ($line.StartsWith("## [")) {
+                $h = $line.Substring(4)
+                $i = $h.IndexOf("] | ")
+                if ($i -ge 0) { $h = $h.Substring(0, $i) + "|" + $h.Substring($i + 4) }
+                $f = @($h.Replace(" | ", "|").Split("|"))
+                $cur = [pscustomobject]@{
+                    Ts = (ConvertTo-TrimTab (Get-CellAt $f 0)); Tid = (ConvertTo-TrimTab (Get-CellAt $f 2))
+                    Status = (ConvertTo-TrimTab (Get-CellAt $f 3)); Name = (ConvertTo-TrimTab (Get-CellAt $f 4))
+                    Summary = ""; HasSummary = $false
+                }
+                $records.Add($cur)
+                continue
+            }
+            if ($null -ne $cur -and -not $cur.HasSummary -and $line.StartsWith("- Summary:")) {
+                $cur.Summary = ConvertTo-TrimTab $line.Substring(10)
+                $cur.HasSummary = $true
+            }
+        }
+    }
+    $maxTs = ""; $maxDone = ""; $seq = 0
+    $seenDone = New-OrdinalMap; $last = New-OrdinalMap; $known = New-OrdinalMap
+    $dTs = New-OrdinalMap; $dName = New-OrdinalMap; $dSum = New-OrdinalMap; $dSeq = New-OrdinalMap
+    $order = New-Object System.Collections.Generic.List[string]
+    foreach ($r in $records) {
+        if ($maxTs -eq "" -or [string]::CompareOrdinal($r.Ts, $maxTs) -gt 0) { $maxTs = $r.Ts }
+        if ($r.Tid -eq "") { continue }
+        if ($r.Status -ceq "DONE") {
+            $k = $r.Tid + [char]0x1c + $r.Ts
+            if (-not $seenDone.ContainsKey($k)) {
+                $seenDone[$k] = $true
+                $seq++
+                $dTs[$r.Tid] = $r.Ts; $dName[$r.Tid] = $r.Name; $dSum[$r.Tid] = $r.Summary; $dSeq[$r.Tid] = $seq
+                $last[$r.Tid] = "DONE"
+            }
+            if ($maxDone -eq "" -or [string]::CompareOrdinal($r.Ts, $maxDone) -gt 0) { $maxDone = $r.Ts }
+        } elseif ($r.Status -cne "AUDIT") {
+            $last[$r.Tid] = $r.Status
+        }
+        if (-not $known.ContainsKey($r.Tid)) { $known[$r.Tid] = $true; $order.Add($r.Tid) }
+    }
+    $done = New-Object System.Collections.Generic.List[object]
+    foreach ($t in $order) {
+        if ($last[$t] -ceq "DONE") { $done.Add([pscustomobject]@{ Ts = $dTs[$t]; Seq = [int]$dSeq[$t]; Id = $t; Name = $dName[$t]; Summary = $dSum[$t] }) }
+    }
+    $done.Sort([Comparison[object]] {
+        param($a, $b)
+        $c = [string]::CompareOrdinal($b.Ts, $a.Ts)
+        if ($c -ne 0) { return $c }
+        return $b.Seq.CompareTo($a.Seq)
+    })
+    return [pscustomobject]@{ MaxTs = $maxTs; MaxDone = $maxDone; Done = $done }
+}
+
+# Rows of the Open questions table, placeholders and the header skipped.
+function Get-OpenQuestionRows {
+    $pdf = Join-Path $DocsDir "ProductDescription.md"
+    $rows = @()
+    if (-not (Test-Path -LiteralPath $pdf -PathType Leaf)) { return $rows }
+    $inSec = $false
+    foreach ($line in @(Get-SummaryLines $pdf)) {
+        if ($line.StartsWith("## ")) { $inSec = ($line -ceq "## Open questions"); continue }
+        if (-not $inSec -or -not $line.StartsWith("|")) { continue }
+        $c = @(Split-SummaryCells $line)
+        $id = Get-CellAt $c 0
+        if ($id -ceq "ID" -or $id -eq "" -or $id -ceq $EmDash -or $id -match '^-+$') { continue }
+        $rows += [pscustomobject]@{
+            Id = $id; Question = (Get-CellAt $c 1); Example = (Get-CellAt $c 2)
+            Blocks = (Get-CellAt $c 3); Status = (Get-CellAt $c 4); Answer = (Get-CellAt $c 5)
+        }
+    }
+    return $rows
+}
+
+function Get-SummaryMarker {
+    $scan = Get-SummaryLedgerScan
+    # Only timestamp characters, so text from the ledger can never close the comment.
+    $t = $scan.MaxDone -creplace '[^0-9TZ:.+-]', ''
+    if ($t -eq "") { $t = "none" }
+    $rows = @(Get-OpenQuestionRows)
+    $confirmed = @($rows | Where-Object { $_.Status -ceq "CONFIRMED" }).Count
+    return "<!-- project-docs-source: $t q=$($rows.Count)/$confirmed -->"
+}
+
+function Get-SummaryLabels([string]$Lang) {
+    $Lbl = New-OrdinalMap
+    if ($Lang -ceq "es") {
+        $pairs = @("lang=es", "title=resumen del proyecto", "updated=Actualizado", "done=Qu&eacute; se hizo", "kanban=Tareas",
+            "questions=Preguntas para el PO", "todo=Por hacer", "doing=En curso", "review=En revisi&oacute;n", "paused=En pausa",
+            "donecol=Hecho", "example=Ejemplo:", "blocks=Bloquea:", "answered=Respondidas", "copy=Copiar respuestas",
+            "download=Descargar respuestas", "assigned=asignada a", "nodone=Todav&iacute;a no se cerr&oacute; ninguna tarea.",
+            "noq=No hay preguntas pendientes.", "more= tareas hechas m&aacute;s est&aacute;n en el registro.",
+            "copied=Copiado.", "noanswer=Escrib&iacute; al menos una respuesta.")
+    } else {
+        $pairs = @("lang=en", "title=project summary", "updated=Updated", "done=What was done", "kanban=Tasks",
+            "questions=Questions for the PO", "todo=To do", "doing=In progress", "review=In review", "paused=Paused",
+            "donecol=Done", "example=Example:", "blocks=Blocks:", "answered=Answered", "copy=Copy answers",
+            "download=Download answers", "assigned=assigned to", "nodone=Nothing was closed yet.",
+            "noq=No open questions.", "more= more done tasks are in the ledger.",
+            "copied=Copied.", "noanswer=Write at least one answer.")
+    }
+    foreach ($p in $pairs) { $i = $p.IndexOf("="); $Lbl[$p.Substring(0, $i)] = $p.Substring($i + 1) }
+    return $Lbl
+}
+
+$SummaryCss = @'
+<style>
+:root { --bg: #f6f6f4; --fg: #1d1d1f; --muted: #5d6166; --card: #ffffff; --line: #d8d8d4; --accent: #2457c5; --on-accent: #ffffff; }
+@media (prefers-color-scheme: dark) { :root { --bg: #17181a; --fg: #ececec; --muted: #a2a6ab; --card: #222326; --line: #393b40; --accent: #8db2ff; --on-accent: #10131a; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header, main { max-width: 1120px; margin: 0 auto; padding: 16px; }
+h1 { margin: 8px 0 0; font-size: 1.6rem; }
+h2 { margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); font-size: 1.2rem; }
+h3 { display: flex; justify-content: space-between; margin: 0 0 8px; font-size: .95rem; }
+.updated, .more, .empty, .meta, .label, .count, .answer { color: var(--muted); }
+.ref { color: var(--accent); font: 600 .8rem ui-monospace, Consolas, monospace; }
+p.done { max-width: 72ch; margin: 0 0 10px; }
+.board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) { .board { grid-template-columns: 1fr; } }
+.column { min-width: 0; padding: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.card { margin: 0 0 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; overflow-wrap: anywhere; }
+.card .name, .card .meta { display: block; }
+.card .meta { font-size: .8rem; }
+.question { max-width: 72ch; margin: 0 0 12px; padding: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.question p { margin: 0 0 6px; }
+textarea { width: 100%; padding: 6px; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
+button { padding: 6px 12px; color: var(--on-accent); background: var(--accent); border: 1px solid var(--accent); border-radius: 6px; font: inherit; cursor: pointer; }
+details.answered li { margin: 0 0 6px; }
+</style>
+'@
+
+$SummaryJs = @'
+<script>
+(function () {
+  var page = location.pathname;
+  var boxes = document.querySelectorAll('textarea[data-id]');
+  var copy = document.getElementById('copy-answers');
+  var down = document.getElementById('download-answers');
+  var status = document.getElementById('answers-status');
+  function key(box) { return 'project-docs:' + page + ':' + box.getAttribute('data-id'); }
+  function say(attr) { if (status && copy) status.textContent = copy.getAttribute(attr); }
+  Array.prototype.forEach.call(boxes, function (box) {
+    try { var kept = window.localStorage.getItem(key(box)); if (kept) box.value = kept; } catch (e) {}
+    box.addEventListener('input', function () {
+      try { window.localStorage.setItem(key(box), box.value); } catch (e) {}
+    });
+  });
+  function answers() {
+    var lines = [];
+    Array.prototype.forEach.call(boxes, function (box) {
+      var text = box.value.replace(/[\r\n]+/g, ' ').replace(/^\s+|\s+$/g, '');
+      if (text !== '') lines.push(box.getAttribute('data-id') + ': ' + text);
+    });
+    return lines.length ? lines.join('\n') + '\n' : '';
+  }
+  if (copy) copy.addEventListener('click', function () {
+    var text = answers();
+    if (!text) { say('data-empty'); return; }
+    function fallback() {
+      var area = document.createElement('textarea');
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      try { document.execCommand('copy'); say('data-done'); } catch (e) {}
+      document.body.removeChild(area);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { say('data-done'); }, fallback);
+    } else {
+      fallback();
+    }
+  });
+  if (down) down.addEventListener('click', function () {
+    var text = answers();
+    if (!text) { say('data-empty'); return; }
+    var url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = 'po-answers.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  });
+})();
+</script>
+'@
+
+function Invoke-Summary {
+    $args0 = @($Arguments)
+    $lang = if ($args0.Count -ge 1 -and $args0[0]) { $args0[0] } else { "en" }
+    if ($lang -cne "en" -and $lang -cne "es") { throw "summary takes en or es" }
+    $log = Join-Path $DocsDir "Agentslog.md"
+    if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "run init first" }
+    $Lbl = Get-SummaryLabels $lang
+    $scan = Get-SummaryLedgerScan
+    $done = $scan.Done
+    $nd = $done.Count
+
+    # Roadmap rows with an ID, a Name and a Status; an ID seen twice keeps its first row.
+    $rid = New-Object System.Collections.Generic.List[string]
+    $rname = New-OrdinalMap; $rst = New-OrdinalMap
+    $roadmap = Join-Path $DocsDir "Roadmap.md"
+    $expect = $true; $idc = -1; $namec = -1; $stc = -1
+    foreach ($line in @(Get-SummaryLines $roadmap)) {
+        if (-not $line.StartsWith("|")) { $expect = $true; continue }
+        $c = @(Split-SummaryCells $line)
+        if ($expect) {
+            $idc = -1; $namec = -1; $stc = -1
+            for ($i = 0; $i -lt $c.Count; $i++) {
+                if ($c[$i] -ceq "ID") { $idc = $i }
+                if ($c[$i] -ceq "Name") { $namec = $i }
+                if ($c[$i] -ceq "Status") { $stc = $i }
+            }
+            $expect = $false
+            continue
+        }
+        if ($idc -ne 0 -or $namec -lt 0 -or $stc -lt 0) { continue }
+        $id = Get-CellAt $c 0
+        if ($id -eq "" -or $id -ceq "ID" -or $id -ceq $EmDash -or $id -match '^-+$' -or $rname.ContainsKey($id)) { continue }
+        $rid.Add($id); $rname[$id] = (Get-CellAt $c $namec); $rst[$id] = (Get-CellAt $c $stc)
+    }
+
+    $lname = New-OrdinalMap; $indone = New-OrdinalMap
+    foreach ($d in $done) {
+        $indone[$d.Id] = $true
+        if ($d.Name -ne "" -and -not $lname.ContainsKey($d.Id)) { $lname[$d.Id] = $d.Name }
+    }
+    $lid = New-Object System.Collections.Generic.List[string]
+    $lst = New-OrdinalMap; $lpause = New-OrdinalMap; $lhold = New-OrdinalMap; $lrev = New-OrdinalMap
+    foreach ($s in @(Get-TaskStates -TabsAsSpaces)) {
+        $lid.Add($s.Task)
+        $lst[$s.Task] = $s.Status; $lpause[$s.Task] = $s.PauseCat; $lhold[$s.Task] = $s.Holder; $lrev[$s.Task] = $s.Review
+        if ($s.Name -ne "") { $lname[$s.Task] = $s.Name }
+    }
+    $questions = @(Get-OpenQuestionRows)
+
+    $placed = New-OrdinalMap; $isdone = New-OrdinalMap
+    $cols = [ordered]@{ todo = (New-Object System.Collections.Generic.List[object]); doing = (New-Object System.Collections.Generic.List[object]); review = (New-Object System.Collections.Generic.List[object]); paused = (New-Object System.Collections.Generic.List[object]) }
+    $place = {
+        param([string]$id)
+        if ($placed.ContainsKey($id)) { return }
+        $placed[$id] = $true
+        $col = ""; $meta = ""
+        if ($lst.ContainsKey($id)) {
+            $st = $lst[$id]
+            if ($st -ceq "IN_PROGRESS") { $col = "doing"; $meta = $lhold[$id] }
+            elseif ($st -ceq "REVIEW") { $col = $(if ($lrev[$id] -ceq "FAIL") { "doing" } else { "review" }); $meta = $lhold[$id] }
+            elseif ($st -ceq "PAUSE") { $col = "paused"; $meta = $lpause[$id] }
+            elseif ($st -ceq "ASSIGNED") { $col = "todo"; $meta = $Lbl["assigned"] + " " + $lhold[$id] }
+            elseif ($st -ceq "DONE") { $col = "done" }
+        }
+        if ($col -eq "" -and $indone.ContainsKey($id)) { $col = "done" }
+        if ($col -eq "" -and $rst.ContainsKey($id)) {
+            switch -CaseSensitive ($rst[$id]) {
+                "TODO" { $col = "todo" }
+                "IN_PROGRESS" { $col = "doing" }
+                "PAUSE" { $col = "paused" }
+                "DONE" { $col = "done" }
+            }
+        }
+        if ($col -eq "") { return }
+        if ($col -ceq "done") { $isdone[$id] = $true; return }
+        $cols[$col].Add([pscustomobject]@{ Id = $id; Meta = $meta })
+    }
+    foreach ($id in $rid) { & $place $id }
+    foreach ($id in $lid) { & $place $id }
+    foreach ($d in $done) { & $place $d.Id }
+    $dlist = New-Object System.Collections.Generic.List[string]
+    $listed = New-OrdinalMap
+    foreach ($d in $done) { if ($isdone.ContainsKey($d.Id) -and -not $listed.ContainsKey($d.Id)) { $dlist.Add($d.Id); $listed[$d.Id] = $true } }
+    foreach ($id in $rid) { if ($isdone.ContainsKey($id) -and -not $listed.ContainsKey($id)) { $dlist.Add($id); $listed[$id] = $true } }
+    foreach ($id in $lid) { if ($isdone.ContainsKey($id) -and -not $listed.ContainsKey($id)) { $dlist.Add($id); $listed[$id] = $true } }
+
+    $card = {
+        param([string]$id, [string]$meta)
+        $nm = $id
+        if ($rname.ContainsKey($id) -and $rname[$id] -ne "") { $nm = $rname[$id] }
+        elseif ($lname.ContainsKey($id) -and $lname[$id] -ne "") { $nm = $lname[$id] }
+        $m = if ($meta -ne "") { "<span class=""meta"">" + (ConvertTo-HtmlText $meta) + "</span>" } else { "" }
+        return "<div class=""card"" data-id=""" + (ConvertTo-HtmlText $id) + """><span class=""ref"">" + (ConvertTo-HtmlText $id) + "</span> <span class=""name"">" + (ConvertTo-HtmlText $nm) + "</span>" + $m + "</div>"
+    }
+
+    $projectName = Split-Path -Leaf (Resolve-Path -LiteralPath $Project).ProviderPath
+    $out = New-Object System.Collections.Generic.List[string]
+    $warn = New-Object System.Collections.Generic.List[string]
+    $out.Add("<!DOCTYPE html>")
+    $out.Add("<html lang=""" + $Lbl["lang"] + """>")
+    $out.Add("<head>")
+    $out.Add("<meta charset=""utf-8"">")
+    $out.Add("<meta name=""viewport"" content=""width=device-width, initial-scale=1"">")
+    $out.Add("<title>" + (ConvertTo-HtmlText $projectName) + " - " + $Lbl["title"] + "</title>")
+    foreach ($l in ($SummaryCss -split "`n")) { $out.Add($l) }
+    $out.Add("</head>")
+    $out.Add("<body>")
+    $out.Add((Get-SummaryMarker))
+    $out.Add("<header>")
+    $out.Add("<h1>" + (ConvertTo-HtmlText $projectName) + "</h1>")
+    $updated = if ($scan.MaxTs -ne "") { ConvertTo-HtmlText $scan.MaxTs } else { "-" }
+    $out.Add("<p class=""updated"">" + $Lbl["updated"] + ": " + $updated + "</p>")
+    $out.Add("</header>")
+    $out.Add("<main>")
+
+    $out.Add("<section id=""done"">")
+    $out.Add("<h2>" + $Lbl["done"] + "</h2>")
+    if ($nd -eq 0) { $out.Add("<p class=""empty"">" + $Lbl["nodone"] + "</p>") }
+    for ($i = 0; $i -lt $nd -and $i -lt 30; $i++) {
+        $d = $done[$i]
+        $nm = $d.Name
+        if ($nm -eq "" -and $rname.ContainsKey($d.Id)) { $nm = $rname[$d.Id] }
+        $nw = @(Get-SummaryWords $nm); $sw = @(Get-SummaryWords $d.Summary)
+        $kn = $nw.Count; $ks = $sw.Count
+        $keepn = [Math]::Min($kn, 30); $keeps = [Math]::Min(30 - $keepn, $ks)
+        $cut = ($kn -gt $keepn -or $ks -gt $keeps)
+        if ($cut) { $warn.Add("WARN: " + $d.Id + " paragraph is " + ($kn + $ks) + " words; the page shows 30") }
+        $nt = if ($keepn -gt 0) { ($nw[0..($keepn - 1)]) -join " " } else { "" }
+        $st = if ($keeps -gt 0) { ($sw[0..($keeps - 1)]) -join " " } else { "" }
+        $s = "<p class=""done""><span class=""ref"">" + (ConvertTo-HtmlText $d.Id) + "</span>"
+        if ($nt -ne "") { $s += " <strong>" + (ConvertTo-HtmlText $nt) + "</strong>"; if ($st -ne "") { $s += ": " + (ConvertTo-HtmlText $st) } }
+        elseif ($st -ne "") { $s += " " + (ConvertTo-HtmlText $st) }
+        if ($cut) { $s += " ..." }
+        $out.Add($s + "</p>")
+    }
+    if ($nd -gt 30) { $out.Add("<p class=""more"">" + ($nd - 30) + $Lbl["more"] + "</p>") }
+    $out.Add("</section>")
+
+    $out.Add("<section id=""kanban"">")
+    $out.Add("<h2>" + $Lbl["kanban"] + "</h2>")
+    $out.Add("<div class=""board"">")
+    foreach ($col in @("todo", "doing", "review", "paused", "done")) {
+        $total = if ($col -ceq "done") { $dlist.Count } else { $cols[$col].Count }
+        $label = if ($col -ceq "done") { $Lbl["donecol"] } else { $Lbl[$col] }
+        $out.Add("<div class=""column"" id=""col-" + $col + """>")
+        $out.Add("<h3>" + $label + " <span class=""count"">" + $total + "</span></h3>")
+        if ($col -ceq "done") {
+            for ($i = 0; $i -lt $dlist.Count -and $i -lt 15; $i++) { $out.Add((& $card $dlist[$i] "")) }
+            if ($dlist.Count -gt 15) { $out.Add("<div class=""more"">+" + ($dlist.Count - 15) + "</div>") }
+        } else {
+            foreach ($e in $cols[$col]) { $out.Add((& $card $e.Id $e.Meta)) }
+        }
+        $out.Add("</div>")
+    }
+    $out.Add("</div>")
+    $out.Add("</section>")
+
+    $out.Add("<section id=""questions"">")
+    $out.Add("<h2>" + $Lbl["questions"] + "</h2>")
+    $open = @($questions | Where-Object { $_.Status -cne "CONFIRMED" })
+    $answered = @($questions | Where-Object { $_.Status -ceq "CONFIRMED" })
+    if ($open.Count -eq 0) { $out.Add("<p class=""empty"">" + $Lbl["noq"] + "</p>") }
+    foreach ($q in $open) {
+        $qid = ConvertTo-HtmlText $q.Id
+        $out.Add("<article class=""question"" data-id=""" + $qid + """>")
+        $out.Add("<p class=""q""><span class=""ref"">" + $qid + "</span> " + (ConvertTo-HtmlText $q.Question) + "</p>")
+        $out.Add("<p class=""example""><span class=""label"">" + $Lbl["example"] + "</span> " + (ConvertTo-HtmlText $q.Example) + "</p>")
+        if ($q.Blocks -ne "" -and $q.Blocks -cne $EmDash) { $out.Add("<p class=""blocks""><span class=""label"">" + $Lbl["blocks"] + "</span> " + (ConvertTo-HtmlText $q.Blocks) + "</p>") }
+        $out.Add("<textarea data-id=""" + $qid + """ rows=""3"" placeholder=""" + (ConvertTo-HtmlText $q.Example) + """></textarea>")
+        $out.Add("</article>")
+    }
+    if ($open.Count -gt 0) { $out.Add("<div class=""actions""><button type=""button"" id=""copy-answers"" data-done=""" + $Lbl["copied"] + """ data-empty=""" + $Lbl["noanswer"] + """>" + $Lbl["copy"] + "</button> <button type=""button"" id=""download-answers"">" + $Lbl["download"] + "</button> <span id=""answers-status"" role=""status""></span></div>") }
+    if ($answered.Count -gt 0) {
+        $out.Add("<details class=""answered""><summary>" + $Lbl["answered"] + " (" + $answered.Count + ")</summary>")
+        $out.Add("<ul>")
+        foreach ($q in $answered) { $out.Add("<li data-id=""" + (ConvertTo-HtmlText $q.Id) + """><span class=""ref"">" + (ConvertTo-HtmlText $q.Id) + "</span> " + (ConvertTo-HtmlText $q.Question) + " <span class=""answer"">" + (ConvertTo-HtmlText $q.Answer) + "</span></li>") }
+        $out.Add("</ul>")
+        $out.Add("</details>")
+    }
+    $out.Add("</section>")
+    $out.Add("</main>")
+    foreach ($l in ($SummaryJs -split "`n")) { $out.Add($l) }
+    $out.Add("</body>")
+    $out.Add("</html>")
+    Write-Utf8File (Join-Path $DocsDir "summary.html") (ConvertTo-JoinedLines $out.ToArray())
+    foreach ($w in $warn) { [Console]::Error.WriteLine($w) }
+    Write-Output "project_docs summary: docs/summary.html written"
+}
+
+# ask <question> <example> [blocks]: a new open row in "## Open questions" of
+# ProductDescription.md, the section added before "## Out of scope" (or at the
+# end) when missing. The number is the highest one plus one.
+function Invoke-Ask {
+    $a = @($Arguments)
+    if ($a.Count -lt 2) { throw "ask requires: question example [blocks]" }
+    $q = ConvertTo-CleanText $a[0]
+    $ex = ConvertTo-CleanText $a[1]
+    $bl = if ($a.Count -ge 3) { ConvertTo-CleanText $a[2] } else { "" }
+    if ($q -eq "" -or $q -ceq $EmDash) { throw "ask requires a question" }
+    if ($ex -eq "" -or $ex -ceq $EmDash) { throw "ask requires an example of the answer" }
+    if ($bl -eq "") { $bl = $EmDash }
+    $pdf = Join-Path $DocsDir "ProductDescription.md"
+    if (-not (Test-Path -LiteralPath $pdf -PathType Leaf)) { throw "run init first" }
+    Enter-DocsLock
+    try {
+        [long]$max = 0
+        foreach ($r in @(Get-OpenQuestionRows)) {
+            if ($r.Id -cmatch '^Q-[0-9]+$') { $n = [long]$r.Id.Substring(2); if ($n -gt $max) { $max = $n } }
+        }
+        $id = "Q-{0:D3}" -f ($max + 1)
+        $row = "| $id | $q | $ex | $bl | UNKNOWN | $EmDash |"
+        $sep = "|---|---|---|---|---|---|"
+        $lines = @(Get-ContentUtf8 -LiteralPath $pdf)
+        $n = $lines.Count
+        $outl = New-Object System.Collections.Generic.List[string]
+        $s = -1
+        for ($i = 0; $i -lt $n; $i++) { if ($lines[$i] -ceq "## Open questions") { $s = $i; break } }
+        if ($s -ge 0) {
+            $e = $n
+            for ($i = $s + 1; $i -lt $n; $i++) { if ($lines[$i].StartsWith("## ")) { $e = $i; break } }
+            $last = -1
+            for ($i = $s + 1; $i -lt $e; $i++) { if ($lines[$i].StartsWith("|")) { $last = $i } }
+            if ($last -ge 0) {
+                for ($i = 0; $i -le $last; $i++) { $outl.Add($lines[$i]) }
+                $outl.Add($row)
+                for ($i = $last + 1; $i -lt $n; $i++) { $outl.Add($lines[$i]) }
+            } else {
+                for ($i = 0; $i -le $s; $i++) { $outl.Add($lines[$i]) }
+                $outl.Add(""); $outl.Add($OpenQHeader); $outl.Add($sep); $outl.Add($row)
+                for ($i = $s + 1; $i -lt $n; $i++) { $outl.Add($lines[$i]) }
+            }
+        } else {
+            $o = -1
+            for ($i = 0; $i -lt $n; $i++) { if ($lines[$i] -ceq "## Out of scope") { $o = $i; break } }
+            if ($o -ge 0) {
+                for ($i = 0; $i -lt $o; $i++) { $outl.Add($lines[$i]) }
+            } else {
+                for ($i = 0; $i -lt $n; $i++) { $outl.Add($lines[$i]) }
+                if ($n -gt 0 -and $lines[$n - 1] -ne "") { $outl.Add("") }
+            }
+            $outl.Add("## Open questions")
+            $outl.Add("")
+            $outl.Add('Questions only the PO can answer: `ask` adds one, `answer` closes it, and docs/summary.html shows the open ones.')
+            $outl.Add("")
+            $outl.Add($OpenQHeader); $outl.Add($sep); $outl.Add($row)
+            if ($o -ge 0) {
+                $outl.Add("")
+                for ($i = $o; $i -lt $n; $i++) { $outl.Add($lines[$i]) }
+            }
+        }
+        Write-Utf8File $pdf (ConvertTo-JoinedLines $outl.ToArray())
+        Write-Output "project_docs ask: $id recorded"
+    } finally {
+        Exit-DocsLock
+    }
+}
+
+# answer <Q-ID> <text>: the Answer of an open question, which becomes CONFIRMED.
+function Invoke-Answer {
+    $a = @($Arguments)
+    if ($a.Count -lt 2) { throw "answer requires: question-id text" }
+    $id = ConvertTo-CleanText $a[0]
+    $text = ConvertTo-CleanText $a[1]
+    if ($text -eq "" -or $text -ceq $EmDash) { throw "answer requires a text" }
+    $pdf = Join-Path $DocsDir "ProductDescription.md"
+    if (-not (Test-Path -LiteralPath $pdf -PathType Leaf)) { throw "run init first" }
+    Enter-DocsLock
+    try {
+        $row = @(Get-OpenQuestionRows | Where-Object { $_.Id -ceq $id }) | Select-Object -First 1
+        if ($null -eq $row) { throw "answer: $id is not in ## Open questions" }
+        if ($row.Status -ceq "CONFIRMED") { throw "answer: $id is already answered" }
+        $outl = New-Object System.Collections.Generic.List[string]
+        $inSec = $false; $done = $false
+        foreach ($line in @(Get-ContentUtf8 -LiteralPath $pdf)) {
+            if ($line.StartsWith("## ")) { $inSec = ($line -ceq "## Open questions"); $outl.Add($line); continue }
+            if ($inSec -and -not $done -and $line.StartsWith("|")) {
+                $c = @(Split-SummaryCells ($line.Replace("`t", " ")))
+                if ((Get-CellAt $c 0) -ceq $id) {
+                    $outl.Add("| " + (Get-CellAt $c 0) + " | " + (Get-CellAt $c 1) + " | " + (Get-CellAt $c 2) + " | " + (Get-CellAt $c 3) + " | CONFIRMED | " + $text.Replace("`t", " ") + " |")
+                    $done = $true
+                    continue
+                }
+            }
+            $outl.Add($line)
+        }
+        Write-Utf8File $pdf (ConvertTo-JoinedLines $outl.ToArray())
+        Write-Output "project_docs answer: $id answered"
+    } finally {
+        Exit-DocsLock
+    }
+}
+
+# check, only when "## Open questions" exists (BR-007): the header, the ID
+# format, a Question and an Example, and an Answer on every CONFIRMED row.
+function Test-OpenQuestions {
+    $pdf = Join-Path $DocsDir "ProductDescription.md"
+    if (-not (Test-Path -LiteralPath $pdf -PathType Leaf)) { return }
+    $p = "ERROR: docs/ProductDescription.md "
+    $errs = New-Object System.Collections.Generic.List[string]
+    $inSec = $false; $found = $false; $hdrSeen = $false; $bad = $false
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $pdf)) {
+        if ($line.StartsWith("## ")) { $inSec = ($line -ceq "## Open questions"); if ($inSec) { $found = $true }; continue }
+        if (-not $inSec -or -not $line.StartsWith("|")) { continue }
+        if (-not $hdrSeen) {
+            $hdrSeen = $true
+            if (($line -replace '[ \t]+$', '') -cne $OpenQHeader) { $errs.Add($p + "## Open questions needs the header " + $OpenQHeader); $bad = $true }
+            continue
+        }
+        if ($bad) { continue }
+        $c = @(Split-SummaryCells $line)
+        $id = Get-CellAt $c 0
+        if ($id -eq "" -or $id -ceq $EmDash -or $id -match '^-+$') { continue }
+        if ($id -cnotmatch '^Q-[0-9][0-9][0-9]+$') { $errs.Add($p + "Open questions has invalid ID format: " + $id) }
+        $qq = Get-CellAt $c 1; $ex = Get-CellAt $c 2; $st = Get-CellAt $c 4; $an = Get-CellAt $c 5
+        if ($qq -eq "" -or $qq -ceq $EmDash) { $errs.Add($p + "question '" + $id + "' has an empty Question") }
+        if ($ex -eq "" -or $ex -ceq $EmDash) { $errs.Add($p + "question '" + $id + "' has an empty Example") }
+        if ($st -ceq "CONFIRMED" -and ($an -eq "" -or $an -ceq $EmDash)) { $errs.Add($p + "question '" + $id + "' is CONFIRMED without an Answer") }
+    }
+    if ($found -and -not $hdrSeen) { $errs.Add($p + "## Open questions needs the header " + $OpenQHeader) }
+    foreach ($e in $errs) { [Console]::Error.WriteLine($e) }
+    if ($errs.Count -gt 0) { $script:CheckFail = $true }
+}
+
+# Factory mode only: the page exists and its source marker matches the docs.
+function Write-SummaryPageWarning {
+    $page = Join-Path $DocsDir "summary.html"
+    if (-not (Test-Path -LiteralPath $page -PathType Leaf)) {
+        [Console]::Error.WriteLine("WARN: docs/summary.html is missing; run summary")
+        return
+    }
+    $have = ""
+    foreach ($line in @(Get-ContentUtf8 -LiteralPath $page)) {
+        if ($line.StartsWith("<!-- project-docs-source: ")) { $have = $line; break }
+    }
+    if ($have -cne (Get-SummaryMarker)) {
+        [Console]::Error.WriteLine("WARN: docs/summary.html is older than the ledger; run summary")
+    }
+}
+
 switch ($Command) {
     "init" { Invoke-Init }
     "check" { Invoke-Check }
@@ -4291,7 +4890,10 @@ switch ($Command) {
     "assign" { Invoke-Assign }
     "done" { Invoke-Done }
     "status" { Invoke-Status }
+    "summary" { Invoke-Summary }
+    "ask" { Invoke-Ask }
+    "answer" { Invoke-Answer }
     default {
-        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint|advance|recall|learn|retro|next|digest} <project> [args]"
+        Write-Output "Usage: project_docs.ps1 {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint|advance|recall|learn|retro|next|digest|summary|ask|answer} <project> [args]"
     }
 }

@@ -329,6 +329,39 @@ description (phases, specs, the brain, the fast lane, the dispatcher) is in
   `PROJECT_DOCS_MODE` (`classic` or `factory`) forces the mode for one run and
   `PROJECT_DOCS_DISPATCH_NO_SLEEP=1` makes the dispatcher print its wait.
 
+## Summary page and PO questions
+
+`summary [en|es]` writes `docs/summary.html`, one self-contained page (no
+network) for the people who follow the project. Run it at every close, after
+`rotate` and before `check`, and commit the page with the change; it is a
+generated file, not a contract file. The same docs give the same bytes from
+both launchers, and the page reads no clock: "Updated" is the newest ledger
+timestamp.
+
+- What was done: one paragraph per task whose last ledger entry (archives
+  included, AUDIT entries ignored) is DONE, newest first, at most 30. Each
+  names the task ID and Name, then the `done` summary; Name and summary keep
+  30 words at most, and `summary` warns about every paragraph it had to cut.
+  Write `done` summaries as one plain idea, for a reader who is not a
+  developer.
+- Tasks: a kanban with To do, In progress, In review, Paused and Done. The
+  ledger state wins over the Roadmap Status; the Done column shows the 15
+  newest.
+- Questions for the PO: the open rows of the optional `## Open questions`
+  table of `ProductDescription.md`, each with its question, an example and a
+  box to answer. The page turns the answers into `Q-001: answer` lines (Copy
+  answers or Download answers); the PO hands them to the agent, who applies
+  each one with `answer`.
+
+`ask <question> <example> [blocks]` adds a question (`Q-NNN`, the highest
+number plus one, Status `UNKNOWN`), creating the section before
+`## Out of scope` when it is missing; `blocks` names the task or rule that
+waits for it. `answer <Q-ID> <text>` writes the answer and sets `CONFIRMED`.
+Both clean the text (line breaks to spaces, `|` to `/`) and refuse an empty
+text. `check` validates the table only when it exists, and in Factory mode it
+warns when the page is missing or older than the docs (a new DONE, `ask` or
+`answer`; a rotation does not count).
+
 ## Rotation
 
 The hot ledger rotates after 200 entries or 128 KiB (`run 'rotate'`, or

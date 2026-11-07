@@ -758,6 +758,242 @@ run_suite() {
   assert_success "$label regression: rotate runs" run rotate "$rg"
   printf '%s\n' "project_docs rotate: not required" > "$WORK/.golden"
   golden_eq "$WORK/.out" && ok "$label regression: rotate output is exactly what it was" || bad "$label regression: rotate output changed: $(cat "$WORK/.out")"
+
+  echo "== $label: summary page, ask and answer (F07-E01-T01) =="
+  sp="$WORK/${label}_summary"
+  assert_success "$label summary project init" run init "$sp"
+  # Kanban fixture (S03): one task per state.
+  seed_active_row "$sp" SMOKE-S01 "Todo task"
+  for sid in SMOKE-S02:Working SMOKE-S03:Review SMOKE-S04:Failed SMOKE-S05:Paused SMOKE-S06:Done SMOKE-S07:Long SMOKE-S09:Assigned SMOKE-S10:Bogus SMOKE-S11:Started; do
+    seed_active_row "$sp" "${sid%%:*}" "${sid#*:} task"
+  done
+  seed_active_row "$sp" SMOKE-S08 "Tag <script>x</script> & co"
+  seed_replace "$sp/docs/Roadmap.md" "| SMOKE-S11 | Started task | details | works | TODO |" "| SMOKE-S11 | Started task | details | works | IN_PROGRESS |"
+  run claim "$sp" agentA SMOKE-S02 "start" >/dev/null 2>&1
+  run claim "$sp" agentA SMOKE-S03 "start" >/dev/null 2>&1
+  run handoff "$sp" agentA SMOKE-S03 "ready" "tests pass" agentQ >/dev/null 2>&1
+  run claim "$sp" agentB SMOKE-S04 "start" >/dev/null 2>&1
+  run handoff "$sp" agentB SMOKE-S04 "ready" "tests pass" agentQ >/dev/null 2>&1
+  run review "$sp" agentQ SMOKE-S04 FAIL "missing case" >/dev/null 2>&1
+  run claim "$sp" agentC SMOKE-S05 "start" >/dev/null 2>&1
+  run pause "$sp" agentC SMOKE-S05 ESPERA_RESPUESTA "waiting on the PO" >/dev/null 2>&1
+  run assign "$sp" agentA SMOKE-S09 agentZ >/dev/null 2>&1
+  run append-log "$sp" agentA SMOKE-S10 BOGUS "odd word" "-" "n/a" >/dev/null 2>&1
+  # Done paragraphs (S02): an archived task, then three closed in this order.
+  mkdir -p "$sp/docs/history"
+  printf '# Agents log\n\n## Entries\n\n## [2026-01-01T00:00:00Z] | dev | SMOKE-OLD | DONE | Archived task\n- Summary: archived work kept in history\n- Files: n/a\n- Verify: n/a\n\n## [2026-01-02T00:00:00Z] | dev | SMOKE-NN | DONE\n- Summary: no name here\n- Files: n/a\n- Verify: n/a\n' > "$sp/docs/history/Agentslog-20260101-001.md"
+  # A copy of the archived DONE that a rotation carried forward, with another Summary.
+  printf '\n## [2026-01-01T00:00:00Z] | dev | SMOKE-OLD | DONE | Archived task\n- Summary: carried forward from docs/history/x.md at rotation, still to be audited\n- Files: see docs/history/x.md\n- Verify: carried forward\n' >> "$sp/docs/Agentslog.md"
+  run claim "$sp" agentD SMOKE-S06 "start" >/dev/null 2>&1
+  run done "$sp" agentD SMOKE-S06 "Short clear summary of the work" "n/a" "verified" >/dev/null 2>&1
+  run append-log "$sp" agentQ SMOKE-S06 AUDIT "audited after the close" "-" "n/a" >/dev/null 2>&1
+  long37="one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty w21 w22 w23 w24 w25 w26 w27 w28 w29 w30 w31 w32 w33 w34 w35 w36 w37"
+  run claim "$sp" agentD SMOKE-S07 "start" >/dev/null 2>&1
+  run done "$sp" agentD SMOKE-S07 "$long37" "n/a" "verified" >/dev/null 2>&1
+  run claim "$sp" agentD SMOKE-S08 "start" >/dev/null 2>&1
+  run done "$sp" agentD SMOKE-S08 "Fixed <b>bold</b> & more" "n/a" "verified" >/dev/null 2>&1
+  page="$sp/docs/summary.html"
+
+  # S01: the page, its one line, its three sections in order.
+  assert_success "$label summary writes the page" run summary "$sp"
+  grep -qx 'project_docs summary: docs/summary.html written' "$WORK/.out" && ok "$label summary prints its one line" || bad "$label summary output: $(cat "$WORK/.out")"
+  [ -f "$page" ] && ok "$label docs/summary.html exists" || bad "$label docs/summary.html was not written"
+  head -n 1 "$page" | grep -qx '<!DOCTYPE html>' && ok "$label the page starts with the doctype" || bad "$label the page does not start with <!DOCTYPE html>: $(head -n 1 "$page")"
+  sec_line() { grep -n "<section id=\"$1\">" "$page" | head -n 1 | cut -d: -f1; }
+  s_done="$(sec_line done)"; s_kan="$(sec_line kanban)"; s_q="$(sec_line questions)"
+  if [ -n "$s_done" ] && [ -n "$s_kan" ] && [ -n "$s_q" ] && [ "$s_done" -lt "$s_kan" ] && [ "$s_kan" -lt "$s_q" ]; then
+    ok "$label the sections done, kanban and questions come in that order"
+  else
+    bad "$label sections missing or out of order (done=$s_done kanban=$s_kan questions=$s_q)"
+  fi
+
+  # S02: one paragraph per DONE task, newest first; Name and Summary together keep 30 words.
+  grep '<p class="done">' "$page" > "$WORK/.paras"
+  [ "$(wc -l < "$WORK/.paras" | tr -d ' ')" -eq 5 ] && ok "$label one paragraph per DONE task, the archived and the audited ones included" || bad "$label done paragraphs: $(cat "$WORK/.paras")"
+  sed -n 's/.*<span class="ref">\([^<]*\)<\/span>.*/\1/p' "$WORK/.paras" | tr '\n' ' ' > "$WORK/.order"
+  [ "$(cat "$WORK/.order")" = "SMOKE-S08 SMOKE-S07 SMOKE-S06 SMOKE-NN SMOKE-OLD " ] && ok "$label done paragraphs come newest first" || bad "$label done order: $(cat "$WORK/.order")"
+  assert_contains "$label a paragraph names the task ID and its Name" "$WORK/.paras" '<p class="done"><span class="ref">SMOKE-S06</span> <strong>Done task</strong>: Short clear summary of the work</p>'
+  assert_contains "$label a DONE copied by a rotation keeps its first Summary" "$WORK/.paras" '<span class="ref">SMOKE-OLD</span> <strong>Archived task</strong>: archived work kept in history</p>'
+  assert_not_exists_pattern "$label the rotation copy text is not on the page" "$page" "still to be audited"
+  assert_contains "$label an entry with no Name shows the ID and the Summary" "$WORK/.paras" '<p class="done"><span class="ref">SMOKE-NN</span> no name here</p>'
+  assert_contains "$label the long paragraph keeps 28 Summary words after its 2-word Name" "$WORK/.paras" "w27 w28 ...</p>"
+  assert_not_exists_pattern "$label the 29th Summary word is not on the page" "$WORK/.paras" "w29"
+  long_words="$(grep 'SMOKE-S07' "$WORK/.paras" | sed 's/<span class="ref">[^<]*<\/span>//; s/<[^>]*>//g; s/ \.\.\.$//' | awk '{ print NF }')"
+  [ "$long_words" = "30" ] && ok "$label the long paragraph has 30 words of Name and Summary" || bad "$label the long paragraph has $long_words words"
+  assert_contains "$label summary warns about the long paragraph" "$WORK/.out" "WARN: SMOKE-S07 paragraph is 39 words; the page shows 30"
+
+  # S03: each card in its column; the ledger state wins over the Roadmap Status.
+  col_ids() { awk -v c="id=\"col-$1\"" 'index($0, c) { on = 1; next } on && /id="col-|<\/section>/ { exit } on' "$page" | sed -n 's/.*data-id="\([^"]*\)".*/\1/p' | tr '\n' ' '; }
+  in_col() { case " $(col_ids "$1") " in *" $2 "*) return 0 ;; esac; return 1; }
+  card() { grep "<div class=\"card\" data-id=\"$1\">" "$page"; }
+  in_col todo SMOKE-S01 && ok "$label a TODO task is in To do" || bad "$label To do holds: $(col_ids todo)"
+  in_col doing SMOKE-S02 && ok "$label an IN_PROGRESS task is in In progress" || bad "$label In progress holds: $(col_ids doing)"
+  card SMOKE-S02 | grep -q '<span class="meta">agentA</span>' && ok "$label an IN_PROGRESS card names its holder" || bad "$label IN_PROGRESS card: $(card SMOKE-S02)"
+  in_col review SMOKE-S03 && ok "$label a REVIEW task is in In review" || bad "$label In review holds: $(col_ids review)"
+  card SMOKE-S03 | grep -q '<span class="meta">agentA</span>' && ok "$label a REVIEW card names its holder" || bad "$label REVIEW card: $(card SMOKE-S03)"
+  in_col doing SMOKE-S04 && ok "$label a REVIEW with Review FAIL is back in In progress" || bad "$label In progress holds: $(col_ids doing)"
+  in_col review SMOKE-S04 && bad "$label the failed review is still in In review" || ok "$label the failed review left In review"
+  in_col paused SMOKE-S05 && ok "$label a PAUSE task is in Paused" || bad "$label Paused holds: $(col_ids paused)"
+  card SMOKE-S05 | grep -q '<span class="meta">ESPERA_RESPUESTA</span>' && ok "$label the paused card shows its category" || bad "$label paused card: $(card SMOKE-S05)"
+  in_col todo SMOKE-S09 && ok "$label an ASSIGNED task is in To do" || bad "$label To do holds: $(col_ids todo)"
+  card SMOKE-S09 | grep -q '<span class="meta">assigned to agentZ</span>' && ok "$label the assigned card names who it was given to" || bad "$label assigned card: $(card SMOKE-S09)"
+  in_col todo SMOKE-S10 && ok "$label an unknown ledger word falls back to the Roadmap Status" || bad "$label To do holds: $(col_ids todo)"
+  in_col doing SMOKE-S11 && ok "$label a Roadmap IN_PROGRESS with no ledger entry is in In progress" || bad "$label In progress holds: $(col_ids doing)"
+  in_col done SMOKE-S06 && ok "$label an audited DONE task is in Done" || bad "$label Done holds: $(col_ids done)"
+  in_col done SMOKE-OLD && ok "$label a task DONE only in an archive is in Done" || bad "$label Done holds: $(col_ids done)"
+  [ "$(col_ids done)" = "SMOKE-S08 SMOKE-S07 SMOKE-S06 SMOKE-NN SMOKE-OLD " ] && ok "$label the Done column follows the done list" || bad "$label Done column order: $(col_ids done)"
+  [ "$(grep -c 'data-id="SMOKE-S06"' "$page")" -eq 1 ] && ok "$label a DONE task has one card" || bad "$label SMOKE-S06 has $(grep -c 'data-id="SMOKE-S06"' "$page") cards"
+
+  # S08: text from the docs is escaped.
+  assert_contains "$label a Name with markup is escaped" "$page" "Tag &lt;script&gt;x&lt;/script&gt; &amp; co"
+  assert_contains "$label a Summary with markup is escaped" "$page" "Fixed &lt;b&gt;bold&lt;/b&gt; &amp; more"
+  assert_not_exists_pattern "$label no raw markup from the docs reaches the page" "$page" "<script>x"
+
+  # S04: ask creates the section and numbers the questions.
+  pd="$sp/docs/ProductDescription.md"
+  assert_not_exists_pattern "$label a new project has no Open questions section" "$pd" "## Open questions"
+  assert_success "$label ask records a question" run ask "$sp" "Pay by card | cash?" "Card only, cash later" SMOKE-S05
+  grep -qx 'project_docs ask: Q-001 recorded' "$WORK/.out" && ok "$label ask names the new question" || bad "$label ask output: $(cat "$WORK/.out")"
+  assert_contains "$label ask adds the header" "$pd" "| ID | Question | Example | Blocks | Status | Answer |"
+  assert_contains "$label the question row is open, with the bar turned into a slash" "$pd" "| Q-001 | Pay by card / cash? | Card only, cash later | SMOKE-S05 | UNKNOWN | — |"
+  assert_success "$label ask records a second question" run ask "$sp" "Which currency?" "USD"
+  assert_contains "$label the second question is Q-002 with no blocks" "$pd" "| Q-002 | Which currency? | USD | — | UNKNOWN | — |"
+  awk '/^## Open questions/ { q = NR } /^## Out of scope/ { o = NR } END { exit !(q > 0 && o > q) }' "$pd" && ok "$label the section sits before Out of scope" || bad "$label the section is not before Out of scope"
+  assert_failure "$label ask refuses an empty example" run ask "$sp" "Tax rate?" ""
+  # The PowerShell runner mangles a non-ASCII argument (F05-DEBT-02), so the dash cases run in sh only.
+  if [ "$label" = "sh" ]; then assert_failure "$label ask refuses a dash for an example" run ask "$sp" "Tax rate?" "—"; fi
+  assert_not_exists_pattern "$label the refused question was not written" "$pd" "Tax rate?"
+  sn="$WORK/${label}_summary_noscope"
+  assert_success "$label a project for ask without Out of scope" run init "$sn"
+  awk '/^## Out of scope/ { exit } { print }' "$sn/docs/ProductDescription.md" > "$sn/docs/pd.tmp" && mv "$sn/docs/pd.tmp" "$sn/docs/ProductDescription.md"
+  assert_success "$label ask works without Out of scope" run ask "$sn" "Who signs?" "The PO"
+  [ "$(grep -v '^$' "$sn/docs/ProductDescription.md" | tail -n 1)" = "| Q-001 | Who signs? | The PO | — | UNKNOWN | — |" ] && ok "$label the section goes at the end without Out of scope" || bad "$label end of file: $(tail -n 3 "$sn/docs/ProductDescription.md")"
+
+  # S06: answer closes a question once, with the text cleaned.
+  assert_success "$label answer closes a question" run answer "$sp" Q-002 "USD for now | EUR
+later"
+  grep -qx 'project_docs answer: Q-002 answered' "$WORK/.out" && ok "$label answer names the question" || bad "$label answer output: $(cat "$WORK/.out")"
+  assert_contains "$label the row is CONFIRMED with the cleaned answer" "$pd" "| Q-002 | Which currency? | USD | — | CONFIRMED | USD for now / EUR later |"
+  assert_failure "$label answer refuses a question already answered" run answer "$sp" Q-002 "EUR"
+  assert_failure "$label answer refuses an unknown question" run answer "$sp" Q-009 "yes"
+  assert_failure "$label answer refuses an empty text" run answer "$sp" Q-001 ""
+  if [ "$label" = "sh" ]; then assert_failure "$label answer refuses a dash for a text" run answer "$sp" Q-001 "—"; fi
+  assert_contains "$label the open question stays open" "$pd" "| Q-001 | Pay by card / cash? | Card only, cash later | SMOKE-S05 | UNKNOWN | — |"
+
+  # S05: the open question is answerable on the page, the answered one is listed apart.
+  assert_success "$label summary runs with questions" run summary "$sp"
+  awk '/<article class="question" data-id="Q-001">/ { on = 1 } on { print } on && /<\/article>/ { exit }' "$page" > "$WORK/.q1"
+  assert_contains "$label the open question shows its question" "$WORK/.q1" "Pay by card / cash?"
+  assert_contains "$label the open question shows its example" "$WORK/.q1" "Card only, cash later"
+  assert_contains "$label the open question shows what it blocks" "$WORK/.q1" "SMOKE-S05"
+  assert_contains "$label the open question has a textarea" "$WORK/.q1" '<textarea data-id="Q-001"'
+  assert_not_exists_pattern "$label the answered question has no textarea" "$page" '<textarea data-id="Q-002"'
+  grep 'data-id="Q-002"' "$page" | grep -q 'USD for now / EUR later' && ok "$label the answered question is listed with its answer" || bad "$label answered question not listed: $(grep 'Q-002' "$page")"
+  assert_contains "$label the page has a Copy answers button" "$page" 'id="copy-answers"'
+  assert_contains "$label the page has a Download answers button" "$page" 'id="download-answers"'
+
+  # S07: check validates the table only when it is there (Out of scope is put back first: check needs it).
+  printf '\n## Out of scope\n\n- none\n' >> "$sn/docs/ProductDescription.md"
+  assert_success "$label check passes with a valid Open questions table" run check "$sn"
+  printf '| Q-1 | Bad id? | x | — | UNKNOWN | — |\n| Q-004 | No example? | — | — | UNKNOWN | — |\n| Q-005 | Answered? | x | — | CONFIRMED | — |\n' > "$WORK/.badq"
+  awk -v f="$WORK/.badq" '{ print } /^\| Q-001 \|/ { while ((getline l < f) > 0) print l }' "$sn/docs/ProductDescription.md" > "$sn/docs/pd.tmp" && mv "$sn/docs/pd.tmp" "$sn/docs/ProductDescription.md"
+  assert_failure "$label check fails on a bad Open questions table" run check "$sn"
+  tr '\r\n' '  ' < "$WORK/.out" | tr -s ' ' > "$WORK/.chk"
+  assert_contains "$label check names the bad question ID" "$WORK/.chk" "docs/ProductDescription.md Open questions has invalid ID format: Q-1"
+  assert_contains "$label check names the empty example" "$WORK/.chk" "docs/ProductDescription.md question 'Q-004' has an empty Example"
+  assert_contains "$label check names the missing answer" "$WORK/.chk" "docs/ProductDescription.md question 'Q-005' is CONFIRMED without an Answer"
+  seed_replace "$sn/docs/ProductDescription.md" "| ID | Question | Example | Blocks | Status | Answer |" "| ID | Question | Sample | Blocks | Status | Answer |"
+  assert_failure "$label check fails on a wrong Open questions header" run check "$sn"
+  tr '\r\n' '  ' < "$WORK/.out" | tr -s ' ' > "$WORK/.chk"
+  assert_contains "$label check names the header it needs" "$WORK/.chk" "## Open questions needs the header | ID | Question | Example | Blocks | Status | Answer |"
+  sq="$WORK/${label}_summary_q"
+  assert_success "$label a project without Open questions" run init "$sq"
+  assert_success "$label check passes without the section" run check "$sq"
+  assert_not_exists_pattern "$label a classic check says nothing about the page" "$WORK/.out" "summary.html"
+
+  # S11: Spanish labels, and only en or es.
+  assert_success "$label summary es" run summary "$sp" es
+  assert_contains "$label the es page is in Spanish" "$page" '<html lang="es">'
+  assert_contains "$label the es page names the done section" "$page" "Qu&eacute; se hizo"
+  assert_contains "$label the es page names the questions section" "$page" "Preguntas para el PO"
+  assert_contains "$label the es page has the Spanish columns" "$page" "En revisi&oacute;n"
+  assert_contains "$label the es page has the Spanish buttons" "$page" "Copiar respuestas"
+  assert_failure "$label summary refuses another language" run summary "$sp" xx
+
+  # S12: 30 paragraphs and 15 Done cards at most, the rest counted.
+  sm="$WORK/${label}_summary_many"
+  assert_success "$label a project with many done tasks" run init "$sm"
+  mkdir -p "$sm/docs/history"
+  { printf '# Agents log\n\n## Entries\n'; mi=1; while [ "$mi" -le 32 ]; do printf '\n## [2026-01-01T00:00:%02dZ] | dev | SMOKE-M%02d | DONE | Many task %s\n- Summary: done %s\n' "$mi" "$mi" "$mi" "$mi"; mi=$((mi + 1)); done; } > "$sm/docs/history/Agentslog-20260101-001.md"
+  assert_success "$label summary of many done tasks" run summary "$sm"
+  [ "$(grep -c '<p class="done">' "$sm/docs/summary.html")" -eq 30 ] && ok "$label the page keeps 30 done paragraphs" || bad "$label done paragraphs: $(grep -c '<p class="done">' "$sm/docs/summary.html")"
+  grep '<p class="more">' "$sm/docs/summary.html" | grep -q '>2 more done tasks are in the ledger.<' && ok "$label the page counts the 2 left out" || bad "$label count line: $(grep 'class="more"' "$sm/docs/summary.html")"
+  page_sm="$page"; page="$sm/docs/summary.html"
+  set -- $(col_ids done)
+  [ "$#" -eq 15 ] && [ "$1" = "SMOKE-M32" ] && ok "$label the Done column shows the 15 newest" || bad "$label Done column: $(col_ids done)"
+  assert_contains "$label the Done column counts the 17 left out" "$page" '<div class="more">+17</div>'
+  page="$page_sm"
+
+  # S09: the sh and the ps1 launcher write the same bytes, with accents, CRLF, a BOM and a no-break space.
+  if [ "$label" = "ps1" ]; then
+    sb="$WORK/ps1_summary_bytes"
+    assert_success "$label byte project init" run init "$sb"
+    seed_active_row "$sb" SMOKE-B01 "Revisión de facturación"
+    printf '\n## [2026-02-01T00:00:00Z] | agentA | SMOKE-B01 | DONE | Revisión de facturación\n- Summary: Se corrigió el redondeo\302\240de los importes\n- Files: n/a\n- Verify: ok\n' >> "$sb/docs/Agentslog.md"
+    printf '\n## Open questions\n\n| ID | Question | Example | Blocks | Status | Answer |\n|---|---|---|---|---|---|\n| Q-001 | ¿Se factura en dólares? | Sí, sólo en USD | SMOKE-B01 | UNKNOWN | — |\n' > "$WORK/.qsec"
+    awk -v f="$WORK/.qsec" '/^## Out of scope/ { while ((getline l < f) > 0) print l; print "" } { print }' "$sb/docs/ProductDescription.md" > "$sb/docs/pd.tmp"
+    { printf '\357\273\277'; sed 's/$/\r/' "$sb/docs/pd.tmp"; } > "$sb/docs/ProductDescription.md"; rm -f "$sb/docs/pd.tmp"
+    sed 's/$/\r/' "$sb/docs/Agentslog.md" > "$sb/docs/log.tmp" && mv "$sb/docs/log.tmp" "$sb/docs/Agentslog.md"
+    assert_success "$label ps1 summary of the byte project" run summary "$sb" es
+    cp "$sb/docs/summary.html" "$WORK/.page_ps1"
+    assert_success "$label sh summary of the byte project" sh "$SH_BIN" summary "$sb" es
+    cmp -s "$WORK/.page_ps1" "$sb/docs/summary.html" && ok "$label sh and ps1 write the same bytes" || bad "$label sh and ps1 pages differ: $(diff "$WORK/.page_ps1" "$sb/docs/summary.html" | head -n 6)"
+    assert_contains "$label the accents reach the page" "$sb/docs/summary.html" "Revisión de facturación"
+    assert_contains "$label the question with accents reaches the page" "$sb/docs/summary.html" "¿Se factura en dólares?"
+  fi
+
+  # S13: a tab inside a field is read as a space, never as a column break.
+  st="$WORK/${label}_summary_tab"
+  assert_success "$label tab project init" run init "$st"
+  seed_active_row "$st" SMOKE-T01 "$(printf 'Tab\tname')"
+  printf '\n## [2026-02-01T00:00:00Z] | agentA | SMOKE-T02 | DONE | Tabbed\tdone\n- Summary: alpha\tbeta gamma\n- Files: n/a\n- Verify: ok\n' >> "$st/docs/Agentslog.md"
+  printf '\n## [2026-02-01T00:00:01Z] | agentA | SMOKE-T04 | IN_PROGRESS | Live\tname\n- Summary: started\n- Files: n/a\n- Verify: n/a\n' >> "$st/docs/Agentslog.md"
+  printf '\n## Open questions\n\n| ID | Question | Example | Blocks | Status | Answer |\n|---|---|---|---|---|---|\n| Q-001 | Pay\tby card? | Card | SMOKE-T01 | UNKNOWN | — |\n| Q-002 | Other\tquestion? | Yes | — | UNKNOWN | — |\n' > "$WORK/.qtab"
+  awk -v f="$WORK/.qtab" '/^## Out of scope/ { while ((getline l < f) > 0) print l; print "" } { print }' "$st/docs/ProductDescription.md" > "$st/docs/pd.tmp" && mv "$st/docs/pd.tmp" "$st/docs/ProductDescription.md"
+  printf -- '- keep\tthis tab\n' >> "$st/docs/ProductDescription.md"
+  assert_success "$label summary of the tab project" run summary "$st"
+  page_st="$page"; page="$st/docs/summary.html"
+  assert_contains "$label a DONE Name and Summary with tabs show whole" "$page" "<strong>Tabbed done</strong>: alpha beta gamma"
+  card SMOKE-T01 | grep -q '<span class="name">Tab name</span>' && ok "$label a Roadmap Name with a tab shows whole" || bad "$label tab card: $(card SMOKE-T01)"
+  in_col doing SMOKE-T04 && card SMOKE-T04 | grep -q '<span class="name">Live name</span><span class="meta">agentA</span>' && ok "$label a ledger Name with a tab keeps the holder as meta" || bad "$label live tab card: $(card SMOKE-T04)"
+  awk '/<article class="question" data-id="Q-001">/ { on = 1 } on { print } on && /<\/article>/ { exit }' "$page" > "$WORK/.qt"
+  assert_contains "$label a question with a tab shows whole" "$WORK/.qt" "Pay by card?"
+  assert_contains "$label the example after a tab stays the example" "$WORK/.qt" '<span class="label">Example:</span> Card</p>'
+  assert_contains "$label the blocks after a tab stay the blocks" "$WORK/.qt" "SMOKE-T01"
+  if [ "$label" = "ps1" ]; then
+    cp "$page" "$WORK/.page_tab_ps1"
+    assert_success "$label sh summary of the tab project" sh "$SH_BIN" summary "$st"
+    cmp -s "$WORK/.page_tab_ps1" "$page" && ok "$label sh and ps1 write the same bytes with tabs" || bad "$label tab pages differ: $(diff "$WORK/.page_tab_ps1" "$page" | head -n 6)"
+  fi
+  assert_success "$label answer a question that holds a tab" run answer "$st" Q-001 "first"
+  assert_failure "$label a question with a tab cannot be answered twice" run answer "$st" Q-001 "second"
+  assert_not_exists_pattern "$label the first answer is kept" "$st/docs/ProductDescription.md" "CONFIRMED | second"
+  assert_contains "$label the answered row has no tab" "$st/docs/ProductDescription.md" "| Q-001 | Pay by card? | Card | SMOKE-T01 | CONFIRMED | first |"
+  grep -q "$(printf '^- keep\tthis tab$')" "$st/docs/ProductDescription.md" && ok "$label answer leaves other lines as they were" || bad "$label the line outside the table changed: $(grep 'keep' "$st/docs/ProductDescription.md")"
+  grep -qF "$(printf '| Q-002 | Other\tquestion? | Yes |')" "$st/docs/ProductDescription.md" && ok "$label answer leaves the other questions as they were" || bad "$label the other question changed: $(grep 'Q-002' "$st/docs/ProductDescription.md")"
+  # Other commands read the ledger as before (BR-007): a claimed Roadmap Name with a tab still passes check.
+  sc="$WORK/${label}_summary_tabcheck"
+  assert_success "$label tab check project init" run init "$sc"
+  seed_active_row "$sc" SMOKE-T05 "$(printf 'Tab\tname')"
+  assert_success "$label claim a task whose Name holds a tab" run claim "$sc" agentA SMOKE-T05 "start"
+  assert_success "$label check passes as before with a tab in a Name" run check "$sc"
+
+  # S14: a timestamp from the ledger can never close the marker comment.
+  printf '\n## [2099-01-01T00:00:00Z --><img src=x onerror=alert(1)><!-- ] | agentA | SMOKE-T03 | DONE | Evil\n- Summary: evil\n- Files: n/a\n- Verify: ok\n' >> "$st/docs/Agentslog.md"
+  assert_success "$label summary with markup in a timestamp" run summary "$st"
+  assert_not_exists_pattern "$label no markup from a timestamp reaches the page" "$page" "<img src=x"
+  grep -q '^<!-- project-docs-source: [0-9TZ:.+-]* q=[0-9]*/[0-9]* -->$' "$page" && ok "$label the marker keeps only timestamp characters" || bad "$label marker: $(grep 'project-docs-source' "$page")"
+  page="$page_st"
 }
 
 # ---------------------------------------------------------------------------
@@ -2957,6 +3193,30 @@ SPEC
   run retro "$ft" claude-dev F09-E01-T01 none none >/dev/null 2>&1
   assert_success "$label a fast-lane task closes from GREEN without any advance" run done "$ft" claude-dev F09-E01-T01 "fixed" "src/" "exit=0"
 
+
+  echo "== $label: check warns about a missing or stale summary page in Factory mode (F07-E01-T01) =="
+  fs="$WORK/${label}_summary_factory"
+  mkdir -p "$fs"
+  run init "$fs" >/dev/null 2>&1
+  seed_min_roster "$fs"
+  runo check "$fs"
+  out_has "WARN: docs/summary.html is missing; run summary" && ok "$label Factory check warns when the page is missing" || bad "$label no missing-page warning: $(cat "$WORK/.out")"
+  # Enough DONE entries that rotate archives the ledger: the newest DONE does not change, so the page stays fresh.
+  seed_fill "$fs" F01-E01-T01 205
+  runo summary "$fs"
+  runo check "$fs"
+  grep -q 'summary.html' "$WORK/.out" && bad "$label Factory check still warns after summary: $(cat "$WORK/.out")" || ok "$label a fresh page draws no warning"
+  runo rotate "$fs"
+  out_has "project_docs rotate: archived" && ok "$label the ledger was rotated" || bad "$label rotate did not archive: $(cat "$WORK/.out")"
+  runo check "$fs"
+  grep -q 'summary.html' "$WORK/.out" && bad "$label a rotation made the page stale: $(cat "$WORK/.out")" || ok "$label a rotation keeps the page fresh"
+  printf '\n## [2099-01-01T00:00:00Z] | agent-dev | F01-E01-T01 | DONE | x\n- Summary: a later close\n- Files: n/a\n- Verify: n/a\n' >> "$fs/docs/Agentslog.md"
+  runo check "$fs"
+  out_has "WARN: docs/summary.html is older than the ledger; run summary" && ok "$label Factory check warns after a new DONE entry" || bad "$label no stale-page warning: $(cat "$WORK/.out")"
+  runo summary "$fs"
+  runo ask "$fs" "Ship on Fridays?" "No, only Monday to Thursday"
+  runo check "$fs"
+  out_has "WARN: docs/summary.html is older than the ledger; run summary" && ok "$label Factory check warns after a new question" || bad "$label no stale-page warning after ask: $(cat "$WORK/.out")"
 #FACTORY_CASES
 }
 

@@ -2,8 +2,8 @@
 
 ## Operational summary
 
-- Verified capabilities: 65
-- Latest verification: `full smoke sh 1413 ps1 1405 0 failed; exit=0` (2026-11-04)
+- Verified capabilities: 67
+- Latest verification: `full smoke sh 1529/0 ps1 1527/0; diff vs 9302b58 fail=0; review PASS claude-qa; exit=0` (2026-11-07)
 - Known limitation: the AGENTS.md/Agents.md case collision cannot be tested end to end on Windows or macOS.
 
 <!-- context:end -->
@@ -80,3 +80,5 @@ Use one row per stable capability. Link long specifications or runbooks from
 | F06-E05-T03 | dogfooding report, Factory adoption, review fixes ADR-090 to ADR-094 | full10 sh 1397 ps1 1393 0 failed; exit=0 | log:F06-E05-T03 | 2026-10-28 |
 | F06-E05 | Epic complete | all tasks DONE | log:F06-E05-T03 | 2026-10-28 |
 | F06-DEBT-05 | check reads history once; ids with regex chars now matched literally | full smoke sh 1413 ps1 1405 0 failed; exit=0 | log:F06-DEBT-05 | 2026-11-04 |
+| F07-E01-T01 | HTML summary page with kanban and PO questions: summary writes the page, ask and answer manage PO questions, both launchers identical | full smoke sh 1529/0 ps1 1527/0; diff vs 9302b58 fail=0; review PASS claude-qa; exit=0 | log:F07-E01-T01 | 2026-11-07 |
+| F07-E01 | Epic complete | all tasks DONE | log:F07-E01-T01 | 2026-11-07 |

@@ -167,3 +167,242 @@ segments live in `docs/history/`.
 - Verify: full smoke sh 1413 ps1 1405 0 failed; exit=0
 - Brain: used none; learned none
 - Cross-model: NO
+
+## [2026-11-07T11:49:59Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: summary page spec
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-07T11:52:23Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: spec: summary, ask, answer; ADR-095..097, BR-014
+- Verify: spec check OK; exit=0
+- Handoff: claude-qa
+- Spec-sha: f16ab541269c68b70e6fbf896959f16f3e2f7f89a28176bd9d8831633af279c6
+
+## [2026-11-07T11:57:13Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: exit=0
+- Review: FAIL - 30-word budget; stale vs rotate; Done col drops archived; answer unsanitised
+- Cross-model: NO
+
+## [2026-11-07T11:58:52Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: spec fixes after QA FAIL
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-07T11:58:57Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: spec fixed per QA items 1-13
+- Verify: spec check OK; exit=0
+- Handoff: claude-qa
+- Spec-sha: 73d47961d594c0e470d05871ac1962f80fd9c766137607b0a82c9291b15eec25
+
+## [2026-11-07T12:00:47Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: exit=0
+- Review: FAIL - AUDIT after DONE drops task; rotate DONE copies replace Summary
+- Cross-model: NO
+
+## [2026-11-07T12:01:45Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: spec fixes after 2nd QA FAIL
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-07T12:01:49Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: spec fixed per 2nd QA round
+- Verify: spec check OK; exit=0
+- Handoff: claude-qa
+- Spec-sha: 3f7a44778c60eebe887e148cf3aeaa9366fb2349f1aeb77b5c70df1ccc90fbff
+
+## [2026-11-07T12:02:47Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: exit=0
+- Review: PASS - rounds 1-2 fixed; nits: — as text, cleaner wording, next free Q
+- Cross-model: NO
+
+## [2026-11-07T12:03:11Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: RED: write the tests
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-07T12:03:14Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to RED, assigned to claude-sonnet-5-5
+- Phase: RED
+- Assign: claude-sonnet-5-5
+- Verify: spec PASS by claude-qa; exit=0
+
+## [2026-11-07T12:03:21Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: RED: write the tests
+- Verify: pending
+- Phase: RED
+- Lane: NORMAL
+
+## [2026-11-07T12:06:04Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to GREEN, assigned to rollup
+- Phase: GREEN
+- Assign: rollup
+- Verify: focused smoke sh 67 and 3 failed, exit=1
+- Red: 387cd603d0c4bfcecab0a151ab0f5df21594ac9d
+- Tests: scripts/smoke_test.sh
+
+## [2026-11-07T12:06:08Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: GREEN: implement
+- Verify: pending
+- Phase: GREEN
+- Lane: NORMAL
+
+## [2026-11-07T12:13:01Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to RED, assigned to claude-sonnet-5-5
+- Phase: RED
+- Assign: claude-sonnet-5-5
+- Verify: S07 checks a project without Out of scope; exit=1
+
+## [2026-11-07T12:13:54Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: RED: fix S07 fixture
+- Verify: pending
+- Phase: RED
+- Lane: NORMAL
+
+## [2026-11-07T12:17:43Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to GREEN, assigned to rollup
+- Phase: GREEN
+- Assign: rollup
+- Verify: focused smoke on RED scripts 68 failed, exit=1
+- Red: 33f431ece9fb1758f23f218e0f2d0dbd042092e8
+- Tests: scripts/smoke_test.sh
+
+## [2026-11-07T12:17:48Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: GREEN: sh done, ps1 next
+- Verify: pending
+- Phase: GREEN
+- Lane: NORMAL
+
+## [2026-11-07T14:05:35Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: summary, ask and answer in both launchers; GREEN complete
+- Verify: sh scripts/smoke_test.sh sh 1509/0, ps1 1505/0; exit=0
+- Handoff: claude-qa
+
+## [2026-11-07T14:11:58Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: scratch init+summary/ask/answer sh vs ps1, cmp pages; injected -->; tab inputs; exit=0
+- Review: FAIL - source marker unescaped (injection); tab in a field breaks sh TSV, sh/ps1 pages differ
+- Cross-model: NO
+
+## [2026-11-07T14:14:32Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: fix QA FAIL: marker timestamp and tabs in fields
+- Verify: pending
+- Phase: GREEN
+- Lane: NORMAL
+
+## [2026-11-07T14:14:34Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to SPEC, assigned to claude-sonnet-5-5
+- Phase: SPEC
+- Assign: claude-sonnet-5-5
+- Verify: QA FAIL: tests for tabs and the marker are missing; exit=1
+
+## [2026-11-07T14:14:44Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: spec and tests for tabs and the marker
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-07T14:17:39Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: spec: tab and marker decisions, S13 and S14
+- Verify: spec diff in f0c0b9e; sh scripts/project_docs.sh check .; exit=0
+- Handoff: claude-qa
+- Spec-sha: b8d88f3a5c0ef4a8fd3056948535511b7768dd0447b2413164eab9bf132167a0
+
+## [2026-11-07T14:18:46Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: git show f0c0b9e spec+smoke; scratch tab-in-live-Name summary sh vs ps1; exit=0
+- Review: FAIL - S13 misses tab in live ledger Name (all_task_states path, sh/ps1 differ); answer rewrite scope unspecified
+- Cross-model: NO
+
+## [2026-11-07T14:20:56Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: spec: live ledger names with tabs, answer row only
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-07T14:23:51Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: spec: shared scanner reads tabs as spaces, answer row only, S13 widened
+- Verify: spec diff in HEAD; sh scripts/project_docs.sh check .; exit=0
+- Handoff: claude-qa
+- Spec-sha: 6203d639c55d43660517d6676a93c1a38010f5faa6f5b5f1fb9874818241ad20
+
+## [2026-11-07T14:27:57Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: git show 4eaf224; scratch claim tabbed Roadmap Name, check/status 4eaf224 vs working tree; DONE Name tab; exit=0
+- Review: FAIL - Shared scanner tab fix breaks check: tabbed Roadmap Name + claim -> Name mismatch ERROR (BR-007); DONE Name tab untested
+- Cross-model: NO
+
+## [2026-11-07T14:32:47Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: spec: tab rule only for summary
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-07T14:32:52Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: spec: tab rule only when summary reads the ledger
+- Verify: spec diff in HEAD; sh scripts/project_docs.sh check .; exit=0
+- Handoff: claude-qa
+- Spec-sha: 1713b07d11fe825496f39da89f48e4e41c3a6a1765a2e243a3e2c8188f13502c
+
+## [2026-11-07T14:33:52Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: git show c4eb706; WT repro: claim tabbed Name then check OK, status unchanged; sh/ps1 cmp p1 p3 p4 SAME; exit=0
+- Review: PASS - Spec and S13/S14 capture both bugs; tab rule scoped to summary keeps BR-007; claim-then-check repro passes
+- Cross-model: NO
+
+## [2026-11-07T14:34:09Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: RED and GREEN for tabs and the marker
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-07T14:34:12Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to RED, assigned to claude-sonnet-5-5
+- Phase: RED
+- Assign: claude-sonnet-5-5
+- Verify: focused F07 block with the f0c0b9e scripts: sh 99 passed, 11 failed; exit=1
+
+## [2026-11-07T14:34:21Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: GREEN for tabs and the marker
+- Verify: pending
+- Phase: RED
+- Lane: NORMAL
+
+## [2026-11-07T14:34:30Z] | claude-opus-5-5 | F07-E01-T01 | ASSIGNED | HTML summary page with kanban and PO questions
+- Summary: Moved to GREEN, assigned to claude-opus-5-5
+- Phase: GREEN
+- Assign: claude-opus-5-5
+- Verify: focused F07 block with the f0c0b9e scripts: sh 99 passed, 11 failed; exit=1
+- Red: c4eb70672237bbd295745aacea11715b06fd25ec
+- Tests: scripts/smoke_test.sh
+
+## [2026-11-07T14:34:43Z] | claude-opus-5-5 | F07-E01-T01 | IN_PROGRESS | HTML summary page with kanban and PO questions
+- Summary: GREEN: commit the fix
+- Verify: pending
+- Phase: GREEN
+- Lane: NORMAL
+
+## [2026-11-07T16:16:25Z] | claude-opus-5-5 | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Tabs read as spaces for summary, marker timestamp sanitized, answer rewrites only its row
+- Verify: full smoke sh 1529/0 ps1 1527/0; classic diff vs 9302b58 fail=0; exit=0
+- Handoff: claude-qa
+
+## [2026-11-07T16:18:08Z] | claude-qa | F07-E01-T01 | REVIEW | HTML summary page with kanban and PO questions
+- Summary: Review of the handoff from claude-opus-5-5
+- Verify: smoke diff c4eb706..b7ed0f2 empty; scratch repros sh vs ps1 cmp SAME, PD_SAME, check OK; exit=0
+- Review: PASS - Marker filtered, tabs whole on page, answer rewrites only its row, claim+check OK, sh/ps1 pages identical
+- Cross-model: NO
+
+## [2026-11-07T16:18:39Z] | claude-opus-5-5 | F07-E01-T01 | DONE | HTML summary page with kanban and PO questions
+- Summary: HTML summary page with kanban and PO questions: summary writes the page, ask and answer manage PO questions, both launchers identical
+- Files: scripts/ docs/ SKILL.md references/ templates/ evals/ README.md
+- Verify: full smoke sh 1529/0 ps1 1527/0; diff vs 9302b58 fail=0; review PASS claude-qa; exit=0
+- Brain: used LRN-011; learned LRN-011, LRN-012, LRN-013, LRN-014
+- Cross-model: NO

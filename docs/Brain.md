@@ -6,7 +6,7 @@ used, `rotate` archives the least used rows when the file passes its cap.
 
 ## Operational summary
 
-- Entries: 10 of 80
+- Entries: 14 of 80
 - Last gc: —
 
 <!-- context:end -->
@@ -25,3 +25,7 @@ used, `rotate` archives the least used rows when the file passes its cap.
 | LRN-008 | Where the dispatcher and its tests live | MAP | dispatcher dogfood fake cli diff regression | scripts/factory_dispatch.sh and .ps1 are the dispatcher; scripts/tests has fake_cli, dogfood.sh and diff_regression.sh; SMOKE_ONLY=dispatch runs its cases. | log:F06-E05-T03 | HYPOTHESIS | 0 | — |
 | LRN-009 | A lock created after a test is not exclusive | PITFALL | lock mkdir exclusive race takeover docs | Create the lock with one atomic call (mkdir), and take an old lock over behind a marker that reads its age again. | log:F06-E05-T03 | HYPOTHESIS | 0 | — |
 | LRN-010 | Try a new gate on tasks that lack its path | PITFALL | gate done advance exception none bug fast lane | Before closing a gate that forces every task through a phase, walk the tasks with no such path (Level NONE, BUG, fast lane, started before Factory mode) and give each an explicit way through or a documented refusal. | log:F06-E05-T03 | HYPOTHESIS | 0 | — |
+| LRN-011 | Fixture breaks a required header | PITFALL | fixture | A test that strips a required section for one case must restore it before asserting that check passes | log:F07-E01-T01 | HYPOTHESIS | 1 | 2026-11-07 |
+| LRN-012 | Tab inside a doc field | PITFALL | tab tsv sh field separator | sh passes fields as tab-separated lines; turn tabs in doc text into spaces before splitting, in both launchers | log:F07-E01-T01 | HYPOTHESIS | 0 | — |
+| LRN-013 | Doc text inside an HTML comment | PITFALL | html comment marker escape | Text from the docs written into an HTML comment must lose every `>` (filter or escape it), or a `-->` in it closes the comment | log:F07-E01-T01 | HYPOTHESIS | 0 | — |
+| LRN-014 | Fix every producer of a split format | PITFALL | tsv producer all_task_states | When a separator bug shows in one producer, list every producer the feature reads (shared scanners too) and test each one | log:F07-E01-T01 | HYPOTHESIS | 0 | — |

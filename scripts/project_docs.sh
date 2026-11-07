@@ -534,7 +534,12 @@ all_task_states() {
   # Red, Tests, Attempts) are read and derived from only then (BR-008).
   ats_fac=0
   if factory_on; then ats_fac=1; fi
-  awk -v stale_s="$((STALE_HOURS * 3600))" -v fac="$ats_fac" "$AWK_EPOCH"'
+  # "tabs": a tab in the ledger is read as a space, so no field splits a column; only summary
+  # asks for it, every other command reads the ledger as before (F07-E01-T01, BR-007).
+  ats_tabs=0
+  if [ "${1:-}" = "tabs" ]; then ats_tabs=1; fi
+  awk -v stale_s="$((STALE_HOURS * 3600))" -v fac="$ats_fac" -v tabs="$ats_tabs" "$AWK_EPOCH"'
+    tabs { gsub(/\t/, " ") }
     $0 == "## Entries" { in_entries=1; next }
     in_entries && /^## \[/ {
       line=$0
@@ -3955,9 +3960,11 @@ check_docs() {
   check_table_status_enum docs/Stack_Tecnologies.md "CONFIRMED HYPOTHESIS UNKNOWN" "epistemic"
   check_table_status_enum docs/Roadmap.md "TODO IN_PROGRESS PAUSE DONE" "workflow"
   check_table_name_wordlimit docs/Roadmap.md 10
+  check_open_questions
   if factory_on; then check_brain_rows; check_specs; check_factory_roster; check_working_memory; check_phase_specs; fi
 
   check_warnings
+  if factory_on; then check_summary_page; fi
 
   if [ "$CHECK_FAIL" -eq 0 ]; then
     echo "project_docs check: OK"
@@ -4139,6 +4146,565 @@ rotate_log() {
   brain_gc || true
 }
 
+# ---------------------------------------------------------------------------
+# Summary page and PO questions (F07-E01-T01, ADR-095 to ADR-097). summary
+# writes docs/summary.html from the docs; ask and answer keep the optional
+# "## Open questions" table of ProductDescription.md. Both launchers write the
+# same bytes: every doc is read through clean_stream, words split on spaces and
+# tabs only, timestamps compare as strings and nothing reads the clock.
+# ---------------------------------------------------------------------------
+OPEN_Q_HEADER='| ID | Question | Example | Blocks | Status | Answer |'
+
+# A doc read for the page: clean_stream with every tab turned into a space, since
+# the steps below pass fields as tab-separated lines.
+summary_read() {
+  clean_stream | tr '\t' ' '
+}
+
+# The ledger in reading order: the archives by byte order of their names, then
+# the live log; a line holding only \001 starts each file.
+summary_ledger_stream() {
+  if [ -d "$HISTORY_DIR" ]; then
+    for hf in "$HISTORY_DIR"/*.md; do
+      if [ -f "$hf" ] && [ -r "$hf" ]; then printf '%s\n' "$hf"; fi
+    done | LC_ALL=C sort | while IFS= read -r hf; do
+      printf '\001\n'
+      summary_read < "$hf"
+    done
+  fi
+  if [ -f "$DOCS_DIR/Agentslog.md" ]; then
+    printf '\001\n'
+    summary_read < "$DOCS_DIR/Agentslog.md"
+  fi
+}
+
+# One pass over the ledger. Prints "M<TAB>newest timestamp", "D<TAB>newest DONE
+# timestamp" and one "R<TAB>ts<TAB>seq<TAB>id<TAB>name<TAB>summary" line per task
+# whose last entry is DONE. AUDIT entries never count as a last entry, and a
+# DONE with the task and timestamp of a DONE already read is a rotation copy.
+summary_ledger_scan() {
+  summary_ledger_stream | awk -F'\t' '
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    function flush() {
+      if (cur == "") return
+      if (cst == "DONE") {
+        k = cur SUBSEP cts
+        if (!(k in seen_done)) {
+          seen_done[k] = 1
+          seq++
+          dts[cur] = cts; dname[cur] = cname; dsum[cur] = csum; dseq[cur] = seq
+          last[cur] = "DONE"
+        }
+        if (maxdone == "" || cts > maxdone) maxdone = cts
+      } else if (cst != "AUDIT") {
+        last[cur] = cst
+      }
+      if (!(cur in known)) { known[cur] = 1; order[++n] = cur }
+      cur = ""
+    }
+    $0 == "\001" { flush(); inent = 0; next }
+    $0 == "## Entries" { flush(); inent = 1; next }
+    inent && /^## \[/ {
+      flush()
+      line = $0
+      sub(/^## \[/, "", line); sub(/\] \| /, "|", line); gsub(/ \| /, "|", line)
+      split(line, f, "|")
+      cts = trim(f[1]); cur = trim(f[3]); cst = trim(f[4]); cname = trim(f[5]); csum = ""; hassum = 0
+      if (maxts == "" || cts > maxts) maxts = cts
+      next
+    }
+    inent && cur != "" && !hassum && /^- Summary:/ { csum = trim(substr($0, 11)); hassum = 1; next }
+    END {
+      flush()
+      print "M\t" maxts
+      print "D\t" maxdone
+      for (i = 1; i <= n; i++) {
+        t = order[i]
+        if (last[t] == "DONE") print "R\t" dts[t] "\t" dseq[t] "\t" t "\t" dname[t] "\t" dsum[t]
+      }
+    }
+  '
+}
+
+# Rows of the Open questions table: "id<TAB>question<TAB>example<TAB>blocks<TAB>status<TAB>answer".
+open_questions_rows() {
+  pdf="$DOCS_DIR/ProductDescription.md"
+  [ -f "$pdf" ] || return 0
+  summary_read < "$pdf" | awk '
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    /^## / { insec = ($0 == "## Open questions"); next }
+    insec && /^\|/ {
+      line = $0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line)
+      nc = split(line, c, "|")
+      for (i = 1; i <= nc; i++) c[i] = trim(c[i])
+      if (c[1] == "ID" || c[1] == "" || c[1] == "\342\200\224" || c[1] ~ /^-+$/) next
+      printf "%s\t%s\t%s\t%s\t%s\t%s\n", c[1], c[2], c[3], c[4], c[5], c[6]
+    }
+  '
+}
+
+summary_marker() {
+  # Only timestamp characters, so text from the ledger can never close the comment.
+  sm_done="$(summary_ledger_scan | awk -F'\t' '$1 == "D" { print $2 }' | tr -cd '0-9TZ:.+-')"
+  [ -n "$sm_done" ] || sm_done="none"
+  sm_q="$(open_questions_rows | awk -F'\t' '{ r++; if ($5 == "CONFIRMED") c++ } END { printf "%d/%d", r, c }')"
+  printf '<!-- project-docs-source: %s q=%s -->' "$sm_done" "$sm_q"
+}
+
+summary_labels() {
+  if [ "$1" = "es" ]; then
+    printf '%s\n' "lang=es" "title=resumen del proyecto" "updated=Actualizado" "done=Qu&eacute; se hizo" "kanban=Tareas" \
+      "questions=Preguntas para el PO" "todo=Por hacer" "doing=En curso" "review=En revisi&oacute;n" "paused=En pausa" \
+      "donecol=Hecho" "example=Ejemplo:" "blocks=Bloquea:" "answered=Respondidas" "copy=Copiar respuestas" \
+      "download=Descargar respuestas" "assigned=asignada a" "nodone=Todav&iacute;a no se cerr&oacute; ninguna tarea." \
+      "noq=No hay preguntas pendientes." "more= tareas hechas m&aacute;s est&aacute;n en el registro." \
+      "copied=Copiado." "noanswer=Escrib&iacute; al menos una respuesta."
+  else
+    printf '%s\n' "lang=en" "title=project summary" "updated=Updated" "done=What was done" "kanban=Tasks" \
+      "questions=Questions for the PO" "todo=To do" "doing=In progress" "review=In review" "paused=Paused" \
+      "donecol=Done" "example=Example:" "blocks=Blocks:" "answered=Answered" "copy=Copy answers" \
+      "download=Download answers" "assigned=assigned to" "nodone=Nothing was closed yet." \
+      "noq=No open questions." "more= more done tasks are in the ledger." \
+      "copied=Copied." "noanswer=Write at least one answer."
+  fi
+}
+
+summary_css() {
+  cat <<'EOF'
+<style>
+:root { --bg: #f6f6f4; --fg: #1d1d1f; --muted: #5d6166; --card: #ffffff; --line: #d8d8d4; --accent: #2457c5; --on-accent: #ffffff; }
+@media (prefers-color-scheme: dark) { :root { --bg: #17181a; --fg: #ececec; --muted: #a2a6ab; --card: #222326; --line: #393b40; --accent: #8db2ff; --on-accent: #10131a; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header, main { max-width: 1120px; margin: 0 auto; padding: 16px; }
+h1 { margin: 8px 0 0; font-size: 1.6rem; }
+h2 { margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); font-size: 1.2rem; }
+h3 { display: flex; justify-content: space-between; margin: 0 0 8px; font-size: .95rem; }
+.updated, .more, .empty, .meta, .label, .count, .answer { color: var(--muted); }
+.ref { color: var(--accent); font: 600 .8rem ui-monospace, Consolas, monospace; }
+p.done { max-width: 72ch; margin: 0 0 10px; }
+.board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) { .board { grid-template-columns: 1fr; } }
+.column { min-width: 0; padding: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.card { margin: 0 0 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; overflow-wrap: anywhere; }
+.card .name, .card .meta { display: block; }
+.card .meta { font-size: .8rem; }
+.question { max-width: 72ch; margin: 0 0 12px; padding: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.question p { margin: 0 0 6px; }
+textarea { width: 100%; padding: 6px; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
+button { padding: 6px 12px; color: var(--on-accent); background: var(--accent); border: 1px solid var(--accent); border-radius: 6px; font: inherit; cursor: pointer; }
+details.answered li { margin: 0 0 6px; }
+</style>
+EOF
+}
+
+summary_js() {
+  cat <<'EOF'
+<script>
+(function () {
+  var page = location.pathname;
+  var boxes = document.querySelectorAll('textarea[data-id]');
+  var copy = document.getElementById('copy-answers');
+  var down = document.getElementById('download-answers');
+  var status = document.getElementById('answers-status');
+  function key(box) { return 'project-docs:' + page + ':' + box.getAttribute('data-id'); }
+  function say(attr) { if (status && copy) status.textContent = copy.getAttribute(attr); }
+  Array.prototype.forEach.call(boxes, function (box) {
+    try { var kept = window.localStorage.getItem(key(box)); if (kept) box.value = kept; } catch (e) {}
+    box.addEventListener('input', function () {
+      try { window.localStorage.setItem(key(box), box.value); } catch (e) {}
+    });
+  });
+  function answers() {
+    var lines = [];
+    Array.prototype.forEach.call(boxes, function (box) {
+      var text = box.value.replace(/[\r\n]+/g, ' ').replace(/^\s+|\s+$/g, '');
+      if (text !== '') lines.push(box.getAttribute('data-id') + ': ' + text);
+    });
+    return lines.length ? lines.join('\n') + '\n' : '';
+  }
+  if (copy) copy.addEventListener('click', function () {
+    var text = answers();
+    if (!text) { say('data-empty'); return; }
+    function fallback() {
+      var area = document.createElement('textarea');
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      try { document.execCommand('copy'); say('data-done'); } catch (e) {}
+      document.body.removeChild(area);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { say('data-done'); }, fallback);
+    } else {
+      fallback();
+    }
+  });
+  if (down) down.addEventListener('click', function () {
+    var text = answers();
+    if (!text) { say('data-empty'); return; }
+    var url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = 'po-answers.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  });
+})();
+</script>
+EOF
+}
+
+cmd_summary() {
+  shift 2
+  sum_lang="${1:-en}"
+  case "$sum_lang" in
+    en|es) ;;
+    *) die "summary takes en or es" ;;
+  esac
+  [ -f "$DOCS_DIR/Agentslog.md" ] || die "run init first"
+  sum_tmp="$(mktemp -d "${TMPDIR:-/tmp}/project-docs-summary.XXXXXX")"
+  summary_labels "$sum_lang" > "$sum_tmp/labels"
+  summary_ledger_scan > "$sum_tmp/scan"
+  # Newest DONE first; a tie goes to the entry read later.
+  awk -F'\t' '$1 == "R"' "$sum_tmp/scan" | LC_ALL=C sort -t "$TAB" -k2,2r -k3,3nr > "$sum_tmp/done"
+  : > "$sum_tmp/roadmap"
+  if [ -f "$DOCS_DIR/Roadmap.md" ]; then
+    # One line per Roadmap row with an ID, a Name and a Status; an ID seen twice keeps its first row.
+    summary_read < "$DOCS_DIR/Roadmap.md" | awk '
+      function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+      !/^\|/ { expect = 1; next }
+      {
+        line = $0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line)
+        nc = split(line, c, "|")
+        for (i = 1; i <= nc; i++) c[i] = trim(c[i])
+        if (expect) {
+          idc = 0; namec = 0; stc = 0
+          for (i = 1; i <= nc; i++) { if (c[i] == "ID") idc = i; if (c[i] == "Name") namec = i; if (c[i] == "Status") stc = i }
+          expect = 0
+          next
+        }
+        if (idc != 1 || namec == 0 || stc == 0) next
+        id = c[1]
+        if (id == "" || id == "ID" || id == "\342\200\224" || id ~ /^-+$/ || (id in seen)) next
+        seen[id] = 1
+        printf "%s\t%s\t%s\n", id, c[namec], c[stc]
+      }
+    ' > "$sum_tmp/roadmap"
+  fi
+  all_task_states tabs > "$sum_tmp/live"
+  open_questions_rows > "$sum_tmp/questions"
+  basename "$(CDPATH= cd -- "$PROJECT" && pwd)" > "$sum_tmp/project"
+  { summary_marker; echo; } > "$sum_tmp/marker"
+  awk -F'\t' -v dir="$sum_tmp" '
+    function esc(s) { gsub(/&/, "\\&amp;", s); gsub(/</, "\\&lt;", s); gsub(/>/, "\\&gt;", s); gsub(/"/, "\\&quot;", s); return s }
+    function words(s, w,   n, i, k, a) {
+      n = split(s, a, /[ \t]+/); k = 0
+      for (i = 1; i <= n; i++) if (a[i] != "") w[++k] = a[i]
+      return k
+    }
+    function joinw(w, k,   i, s) { s = ""; for (i = 1; i <= k; i++) s = s (i > 1 ? " " : "") w[i]; return s }
+    function out(s) { print s > page }
+    function card(id, meta,   nm) {
+      nm = id
+      if ((id in rname) && rname[id] != "") nm = rname[id]
+      else if ((id in lname) && lname[id] != "") nm = lname[id]
+      return "<div class=\"card\" data-id=\"" esc(id) "\"><span class=\"ref\">" esc(id) "</span> <span class=\"name\">" esc(nm) "</span>" (meta != "" ? "<span class=\"meta\">" esc(meta) "</span>" : "") "</div>"
+    }
+    function place(id,   s, r, col, meta) {
+      if (id in placed) return
+      placed[id] = 1
+      col = ""; meta = ""
+      if (id in lst) {
+        s = lst[id]
+        if (s == "IN_PROGRESS") { col = "doing"; meta = lhold[id] }
+        else if (s == "REVIEW") { col = (lrev[id] == "FAIL" ? "doing" : "review"); meta = lhold[id] }
+        else if (s == "PAUSE") { col = "paused"; meta = lpause[id] }
+        else if (s == "ASSIGNED") { col = "todo"; meta = L["assigned"] " " lhold[id] }
+        else if (s == "DONE") col = "done"
+      }
+      if (col == "" && (id in indone)) col = "done"
+      if (col == "" && (id in rst)) {
+        r = rst[id]
+        if (r == "TODO") col = "todo"; else if (r == "IN_PROGRESS") col = "doing"; else if (r == "PAUSE") col = "paused"; else if (r == "DONE") col = "done"
+      }
+      if (col == "") return
+      if (col == "done") { isdone[id] = 1; return }
+      cn[col]++; cid[col, cn[col]] = id; cmeta[col, cn[col]] = meta
+    }
+    BEGIN {
+      page = dir "/page.html"; dash = "\342\200\224"
+      while ((getline l < (dir "/labels")) > 0) { p = index(l, "="); L[substr(l, 1, p - 1)] = substr(l, p + 1) }
+      getline project < (dir "/project")
+      getline marker < (dir "/marker")
+      maxts = ""
+      while ((getline l < (dir "/scan")) > 0) { split(l, f, "\t"); if (f[1] == "M") maxts = f[2] }
+      nd = 0
+      while ((getline l < (dir "/done")) > 0) {
+        split(l, f, "\t"); nd++
+        did[nd] = f[4]; dnm[nd] = f[5]; dsm[nd] = f[6]; indone[f[4]] = 1
+        if (f[5] != "" && !(f[4] in lname)) lname[f[4]] = f[5]
+      }
+      nr = 0
+      while ((getline l < (dir "/roadmap")) > 0) { split(l, f, "\t"); nr++; rid[nr] = f[1]; rname[f[1]] = f[2]; rst[f[1]] = f[3] }
+      nl = 0
+      while ((getline l < (dir "/live")) > 0) {
+        split(l, f, "\t"); nl++; lid[nl] = f[1]
+        lst[f[1]] = f[2]; lpause[f[1]] = f[5]; lhold[f[1]] = f[9]; lrev[f[1]] = f[11]
+        if (f[8] != "") lname[f[1]] = f[8]
+      }
+      nq = 0
+      while ((getline l < (dir "/questions")) > 0) { split(l, f, "\t"); nq++; for (i = 1; i <= 6; i++) Q[nq, i] = f[i] }
+
+      out("<!DOCTYPE html>")
+      out("<html lang=\"" L["lang"] "\">")
+      out("<head>")
+      out("<meta charset=\"utf-8\">")
+      out("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
+      out("<title>" esc(project) " - " L["title"] "</title>")
+      out("@@CSS@@")
+      out("</head>")
+      out("<body>")
+      out(marker)
+      out("<header>")
+      out("<h1>" esc(project) "</h1>")
+      out("<p class=\"updated\">" L["updated"] ": " (maxts != "" ? esc(maxts) : "-") "</p>")
+      out("</header>")
+      out("<main>")
+
+      out("<section id=\"done\">")
+      out("<h2>" L["done"] "</h2>")
+      if (nd == 0) out("<p class=\"empty\">" L["nodone"] "</p>")
+      for (i = 1; i <= nd && i <= 30; i++) {
+        id = did[i]; nm = dnm[i]
+        if (nm == "" && (id in rname)) nm = rname[id]
+        split("", nw); split("", sw)
+        kn = words(nm, nw); ks = words(dsm[i], sw)
+        keepn = (kn > 30 ? 30 : kn); keeps = 30 - keepn
+        if (keeps > ks) keeps = ks
+        cut = (kn > keepn || ks > keeps)
+        if (cut) print "WARN: " id " paragraph is " (kn + ks) " words; the page shows 30" > (dir "/warn")
+        nt = joinw(nw, keepn); st = joinw(sw, keeps)
+        s = "<p class=\"done\"><span class=\"ref\">" esc(id) "</span>"
+        if (nt != "") { s = s " <strong>" esc(nt) "</strong>"; if (st != "") s = s ": " esc(st) }
+        else if (st != "") s = s " " esc(st)
+        if (cut) s = s " ..."
+        out(s "</p>")
+      }
+      if (nd > 30) out("<p class=\"more\">" (nd - 30) L["more"] "</p>")
+      out("</section>")
+
+      for (i = 1; i <= nr; i++) place(rid[i])
+      for (i = 1; i <= nl; i++) place(lid[i])
+      for (i = 1; i <= nd; i++) place(did[i])
+      ndone = 0
+      for (i = 1; i <= nd; i++) if (did[i] in isdone) { dlist[++ndone] = did[i]; listed[did[i]] = 1 }
+      for (i = 1; i <= nr; i++) if ((rid[i] in isdone) && !(rid[i] in listed)) { dlist[++ndone] = rid[i]; listed[rid[i]] = 1 }
+      for (i = 1; i <= nl; i++) if ((lid[i] in isdone) && !(lid[i] in listed)) { dlist[++ndone] = lid[i]; listed[lid[i]] = 1 }
+      out("<section id=\"kanban\">")
+      out("<h2>" L["kanban"] "</h2>")
+      out("<div class=\"board\">")
+      split("todo doing review paused done", cols, " ")
+      for (k = 1; k <= 5; k++) {
+        col = cols[k]
+        total = (col == "done" ? ndone : cn[col] + 0)
+        out("<div class=\"column\" id=\"col-" col "\">")
+        out("<h3>" L[col == "done" ? "donecol" : col] " <span class=\"count\">" total "</span></h3>")
+        if (col == "done") {
+          for (i = 1; i <= ndone && i <= 15; i++) out(card(dlist[i], ""))
+          if (ndone > 15) out("<div class=\"more\">+" (ndone - 15) "</div>")
+        } else {
+          for (i = 1; i <= total; i++) out(card(cid[col, i], cmeta[col, i]))
+        }
+        out("</div>")
+      }
+      out("</div>")
+      out("</section>")
+
+      out("<section id=\"questions\">")
+      out("<h2>" L["questions"] "</h2>")
+      nopen = 0; nans = 0
+      for (i = 1; i <= nq; i++) if (Q[i, 5] == "CONFIRMED") nans++; else nopen++
+      if (nopen == 0) out("<p class=\"empty\">" L["noq"] "</p>")
+      for (i = 1; i <= nq; i++) {
+        if (Q[i, 5] == "CONFIRMED") continue
+        qid = esc(Q[i, 1])
+        out("<article class=\"question\" data-id=\"" qid "\">")
+        out("<p class=\"q\"><span class=\"ref\">" qid "</span> " esc(Q[i, 2]) "</p>")
+        out("<p class=\"example\"><span class=\"label\">" L["example"] "</span> " esc(Q[i, 3]) "</p>")
+        if (Q[i, 4] != "" && Q[i, 4] != dash) out("<p class=\"blocks\"><span class=\"label\">" L["blocks"] "</span> " esc(Q[i, 4]) "</p>")
+        out("<textarea data-id=\"" qid "\" rows=\"3\" placeholder=\"" esc(Q[i, 3]) "\"></textarea>")
+        out("</article>")
+      }
+      if (nopen > 0) out("<div class=\"actions\"><button type=\"button\" id=\"copy-answers\" data-done=\"" L["copied"] "\" data-empty=\"" L["noanswer"] "\">" L["copy"] "</button> <button type=\"button\" id=\"download-answers\">" L["download"] "</button> <span id=\"answers-status\" role=\"status\"></span></div>")
+      if (nans > 0) {
+        out("<details class=\"answered\"><summary>" L["answered"] " (" nans ")</summary>")
+        out("<ul>")
+        for (i = 1; i <= nq; i++) if (Q[i, 5] == "CONFIRMED") out("<li data-id=\"" esc(Q[i, 1]) "\"><span class=\"ref\">" esc(Q[i, 1]) "</span> " esc(Q[i, 2]) " <span class=\"answer\">" esc(Q[i, 6]) "</span></li>")
+        out("</ul>")
+        out("</details>")
+      }
+      out("</section>")
+      out("</main>")
+      out("@@JS@@")
+      out("</body>")
+      out("</html>")
+      close(page)
+    }
+  ' /dev/null
+  summary_css > "$sum_tmp/css"
+  summary_js > "$sum_tmp/js"
+  awk -v css="$sum_tmp/css" -v js="$sum_tmp/js" '
+    $0 == "@@CSS@@" { while ((getline l < css) > 0) print l; next }
+    $0 == "@@JS@@" { while ((getline l < js) > 0) print l; next }
+    { print }
+  ' "$sum_tmp/page.html" > "$sum_tmp/final.html"
+  mv "$sum_tmp/final.html" "$DOCS_DIR/summary.html"
+  if [ -s "$sum_tmp/warn" ]; then cat "$sum_tmp/warn" >&2; fi
+  rm -rf "$sum_tmp"
+  echo "project_docs summary: docs/summary.html written"
+}
+
+# ask <question> <example> [blocks]: a new open row in "## Open questions" of
+# ProductDescription.md, the section added before "## Out of scope" (or at the
+# end) when missing. The number is the highest one plus one.
+cmd_ask() {
+  shift 2
+  [ "$#" -ge 2 ] || die "ask requires: question example [blocks]"
+  dash="$(printf '\342\200\224')"
+  ask_q="$(clean_field_text "$1")"
+  ask_ex="$(clean_field_text "$2")"
+  ask_bl="$(clean_field_text "${3:-}")"
+  if [ -z "$ask_q" ] || [ "$ask_q" = "$dash" ]; then die "ask requires a question"; fi
+  if [ -z "$ask_ex" ] || [ "$ask_ex" = "$dash" ]; then die "ask requires an example of the answer"; fi
+  [ -n "$ask_bl" ] || ask_bl="$dash"
+  pdf="$DOCS_DIR/ProductDescription.md"
+  [ -f "$pdf" ] || die "run init first"
+  with_lock
+  ask_n="$(open_questions_rows | awk -F'\t' '$1 ~ /^Q-[0-9]+$/ { n = substr($1, 3) + 0; if (n > m) m = n } END { print m + 1 }')"
+  ask_id="$(printf 'Q-%03d' "$ask_n")"
+  ASK_ROW="| $ask_id | $ask_q | $ask_ex | $ask_bl | UNKNOWN | $dash |"
+  ASK_HDR="$OPEN_Q_HEADER"
+  export ASK_ROW ASK_HDR
+  clean_stream < "$pdf" | awk '
+    function emit(a, b,   i) { for (i = a; i <= b; i++) print lines[i] }
+    { lines[++n] = $0 }
+    END {
+      row = ENVIRON["ASK_ROW"]; hdr = ENVIRON["ASK_HDR"]; sep = "|---|---|---|---|---|---|"
+      s = 0
+      for (i = 1; i <= n; i++) if (lines[i] == "## Open questions") { s = i; break }
+      if (s) {
+        e = n + 1
+        for (i = s + 1; i <= n; i++) if (lines[i] ~ /^## /) { e = i; break }
+        last = 0
+        for (i = s + 1; i < e; i++) if (lines[i] ~ /^\|/) last = i
+        if (last) { emit(1, last); print row; emit(last + 1, n) }
+        else { emit(1, s); print ""; print hdr; print sep; print row; emit(s + 1, n) }
+        exit
+      }
+      o = 0
+      for (i = 1; i <= n; i++) if (lines[i] == "## Out of scope") { o = i; break }
+      if (o) emit(1, o - 1); else { emit(1, n); if (n > 0 && lines[n] != "") print "" }
+      print "## Open questions"
+      print ""
+      print "Questions only the PO can answer: `ask` adds one, `answer` closes it, and docs/summary.html shows the open ones."
+      print ""
+      print hdr
+      print sep
+      print row
+      if (o) { print ""; emit(o, n) }
+    }
+  ' > "$pdf.tmp"
+  mv "$pdf.tmp" "$pdf"
+  echo "project_docs ask: $ask_id recorded"
+}
+
+# answer <Q-ID> <text>: the Answer of an open question, which becomes CONFIRMED.
+cmd_answer() {
+  shift 2
+  [ "$#" -ge 2 ] || die "answer requires: question-id text"
+  dash="$(printf '\342\200\224')"
+  ans_id="$(clean_field_text "$1")"
+  ans_text="$(clean_field_text "$2")"
+  if [ -z "$ans_text" ] || [ "$ans_text" = "$dash" ]; then die "answer requires a text"; fi
+  pdf="$DOCS_DIR/ProductDescription.md"
+  [ -f "$pdf" ] || die "run init first"
+  with_lock
+  ANS_ID="$ans_id"; ANS_TEXT="$ans_text"
+  export ANS_ID ANS_TEXT
+  ans_status="$(open_questions_rows | awk -F'\t' '$1 == ENVIRON["ANS_ID"] { print ($5 == "" ? "-" : $5); exit }')"
+  [ -n "$ans_status" ] || die "answer: $ans_id is not in ## Open questions"
+  [ "$ans_status" != "CONFIRMED" ] || die "answer: $ans_id is already answered"
+  clean_stream < "$pdf" | awk '
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    /^## / { insec = ($0 == "## Open questions"); print; next }
+    insec && /^\|/ && !done {
+      line = $0; gsub(/\t/, " ", line); sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line)
+      nc = split(line, c, "|")
+      for (i = 1; i <= nc; i++) c[i] = trim(c[i])
+      if (c[1] == ENVIRON["ANS_ID"]) {
+        t = ENVIRON["ANS_TEXT"]; gsub(/\t/, " ", t)
+        print "| " c[1] " | " c[2] " | " c[3] " | " c[4] " | CONFIRMED | " t " |"
+        done = 1
+        next
+      }
+    }
+    { print }
+  ' > "$pdf.tmp"
+  mv "$pdf.tmp" "$pdf"
+  echo "project_docs answer: $ans_id answered"
+}
+
+# check, only when "## Open questions" exists (BR-007): the header, the ID
+# format, a Question and an Example, and an Answer on every CONFIRMED row.
+check_open_questions() {
+  pdf="$DOCS_DIR/ProductDescription.md"
+  [ -f "$pdf" ] || return 0
+  OQ_HDR="$OPEN_Q_HEADER"; export OQ_HDR
+  out="$(clean_stream < "$pdf" | awk '
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    BEGIN { hdr = ENVIRON["OQ_HDR"]; dash = "\342\200\224"; p = "ERROR: docs/ProductDescription.md " }
+    /^## / { insec = ($0 == "## Open questions"); if (insec) found = 1; next }
+    insec && /^\|/ {
+      if (!hdrseen) {
+        hdrseen = 1; t = $0; sub(/[ \t]+$/, "", t)
+        if (t != hdr) { print p "## Open questions needs the header " hdr; bad = 1 }
+        next
+      }
+      if (bad) next
+      line = $0; sub(/^\|/, "", line); sub(/\|[ \t]*$/, "", line)
+      nc = split(line, c, "|")
+      for (i = 1; i <= nc; i++) c[i] = trim(c[i])
+      id = c[1]
+      if (id == "" || id == dash || id ~ /^-+$/) next
+      if (id !~ /^Q-[0-9][0-9][0-9]+$/) print p "Open questions has invalid ID format: " id
+      if (c[2] == "" || c[2] == dash) print p "question \047" id "\047 has an empty Question"
+      if (c[3] == "" || c[3] == dash) print p "question \047" id "\047 has an empty Example"
+      if (c[5] == "CONFIRMED" && (c[6] == "" || c[6] == dash)) print p "question \047" id "\047 is CONFIRMED without an Answer"
+    }
+    END { if (found && !hdrseen) print p "## Open questions needs the header " hdr }
+  ')"
+  if [ -n "$out" ]; then
+    printf '%s\n' "$out" >&2
+    CHECK_FAIL=1
+  fi
+}
+
+# Factory mode only: the page exists and its source marker matches the docs.
+check_summary_page() {
+  if [ ! -f "$DOCS_DIR/summary.html" ]; then
+    echo "WARN: docs/summary.html is missing; run summary" >&2
+    return 0
+  fi
+  csp_have="$(clean_stream < "$DOCS_DIR/summary.html" | awk 'index($0, "<!-- project-docs-source: ") == 1 { print; exit }')"
+  if [ "$csp_have" != "$(summary_marker)" ]; then
+    echo "WARN: docs/summary.html is older than the ledger; run summary" >&2
+  fi
+}
+
 case "$COMMAND" in
   init) init_docs "$@" ;;
   check) check_docs ;;
@@ -4162,7 +4728,10 @@ case "$COMMAND" in
   assign) cmd_assign "$@" ;;
   done) cmd_done "$@" ;;
   status) cmd_status ;;
+  summary) cmd_summary "$@" ;;
+  ask) cmd_ask "$@" ;;
+  answer) cmd_answer "$@" ;;
   *)
-    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint|advance|recall|learn|retro|next|digest} <project> [args]"
+    echo "Usage: project_docs.sh {init|check|context|append-log|rotate|migrate|link|claim|pause|handoff|review|assign|done|status|mode|checkpoint|advance|recall|learn|retro|next|digest|summary|ask|answer} <project> [args]"
     ;;
 esac

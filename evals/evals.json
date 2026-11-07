@@ -708,6 +708,23 @@
         "SMOKE-T77 is refused while only SMOKE-T7 is in the history, and accepted once its own DONE is there"
       ],
       "smoke": "check reads the rotated history once, however many archives there are (F06-DEBT-05)"
+    },
+    {
+      "id": 60,
+      "prompt": "A project has tasks in every state, DONE tasks in the live ledger and in an archive (one audited, one copied forward by a rotation, one with a 39-word Name and Summary), and the PO must decide two things. Record both questions with ask, answer one with answer, and write the summary page with summary, in English and in Spanish, from sh and from PowerShell.",
+      "expected_output": "docs/summary.html has three sections in order: what was done (one paragraph per DONE task, newest first, naming the task, at most 30 words of Name and Summary), a kanban with To do, In progress, In review, Paused and Done, and the open PO questions with the question, an example, what it blocks and a textarea, plus Copy and Download buttons. The questions live in an Open questions table of ProductDescription.md that check validates. Both launchers write the same bytes, and a Factory check warns when the page is missing or stale.",
+      "files": [],
+      "expectations": [
+        "summary prints project_docs summary: docs/summary.html written",
+        "Sections done, kanban and questions come in that order",
+        "The long paragraph keeps 30 words and summary warns about it",
+        "Each card lands in its column; an audited and an archived DONE are in Done",
+        "ask records Q-001 and Q-002 as UNKNOWN; answer makes Q-002 CONFIRMED with the cleaned text",
+        "The open question has a textarea; the answered one is listed with its answer",
+        "sh and ps1 write the same bytes",
+        "A Factory check warns that docs/summary.html is missing, then that it is older than the ledger"
+      ],
+      "smoke": "summary page, ask and answer (F07-E01-T01)"
     }
   ]
 }

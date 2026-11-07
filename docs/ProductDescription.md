@@ -34,6 +34,7 @@
 | BR-011 | The brain never exceeds Brain max entries after rotate | CONFIRMED | docs/features/ia-factory.md |
 | BR-012 | A FAST task never reaches DONE when its diff exceeded the lane limits or touched a protected path | CONFIRMED | docs/features/ia-factory.md |
 | BR-013 | An agent quota limit never blocks a task: either the covering agent takes it or it stays in PAUSE LIMITE and is retakeable when the cooldown ends | CONFIRMED | docs/features/ia-factory.md |
+| BR-014 | The summary page has at least three sections: what was done (one idea per paragraph, at most 30 words, naming the task), a kanban of every task with its state, and the open PO questions, each with its question, an example and a place to answer it | HYPOTHESIS | User request 2026-11-07; scripts/smoke_test.sh F07-E01-T01 block |
 
 ## Main flows
 

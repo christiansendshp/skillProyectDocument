@@ -128,7 +128,15 @@ for the detailed flow.
    it. Use `append-log` only for entries outside the lifecycle.
 3. Run `rotate`. It archives and verifies an oversized ledger before resetting
    the hot log, carrying forward any still-open task.
-4. Run `check`. Do not report completion while it fails.
+4. Run `summary` (`summary es` for a project written in Spanish). It writes
+   `docs/summary.html` for the people who follow the project: what was done,
+   a kanban of every task and the open questions of the PO, answerable on the
+   page. Write each `done` summary as one plain idea that fits 30 words with
+   the task Name, since the page is built from them. When only the PO can
+   decide something, `ask <question> <example> [blocks]` records it; when the
+   PO hands back the answers the page produced (`Q-001: ...` lines), apply
+   each with `answer <Q-ID> <text>`.
+5. Run `check`. Do not report completion while it fails.
 
 Do not duplicate implementation detail already discoverable in code, tests,
 commits, or issues. Record stable facts, decisions, verification commands,
