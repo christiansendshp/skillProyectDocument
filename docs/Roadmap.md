@@ -19,6 +19,7 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
+| F08-E01-T01 | Factory mode works with one agent, two stay accepted | User request 2026-11-16: no step needs a second agent. Detail in the spec. | Spec scenarios pass in sh and ps1; differential vs 9302b58 fail=0; full smoke 0 failed; context <= 8192. | IN_PROGRESS | claude-sonnet-5-5@2026-11-16T15:48:23Z | — | — |
 
 <!-- context:end -->
 
@@ -110,6 +111,15 @@ Spec: docs/features/ia-factory.md (closed decisions D-01 to D-21 are ADR-023 onw
 Spec: docs/specs/F07-E01-T01.md.
 
 #### F07-E01 — Summary page with PO questions
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+
+### F08 — Single-agent Factory
+
+Spec: docs/specs/F08-E01-T01.md.
+
+#### F08-E01 — One agent covers every role
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|

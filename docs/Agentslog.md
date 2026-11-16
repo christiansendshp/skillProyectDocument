@@ -406,3 +406,75 @@ segments live in `docs/history/`.
 - Verify: full smoke sh 1529/0 ps1 1527/0; diff vs 9302b58 fail=0; review PASS claude-qa; exit=0
 - Brain: used LRN-011; learned LRN-011, LRN-012, LRN-013, LRN-014
 - Cross-model: NO
+
+## [2026-11-16T15:07:58Z] | claude-sonnet-5-5 | F08-E01-T01 | IN_PROGRESS | Factory mode works with one agent, two stay accepted
+- Summary: Spec for one-agent Factory mode
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-16T15:08:57Z] | claude-sonnet-5-5 | F08-E01-T01 | REVIEW | Factory mode works with one agent, two stay accepted
+- Summary: Spec for one-agent Factory mode
+- Verify: check OK; spec rules pass; exit=0
+- Handoff: claude-qa
+- Spec-sha: 7cab0111a876b770bcab7bd1f2417ad8775eb790862402e147c7a741d615e920
+
+## [2026-11-16T15:18:29Z] | claude-qa | F08-E01-T01 | REVIEW | Factory mode works with one agent, two stay accepted
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: read spec, ADR-098, BR-015/016, sh+ps1 code, F08 smoke block; lone-agent flow on patched scratch copy; unpatched next returns none; exit=0
+- Review: FAIL - next role reading untested (S04 next runs after claim); AGENTS.md sentence cap contradicts required content
+- Cross-model: NO
+
+## [2026-11-16T15:19:00Z] | claude-sonnet-5-5 | F08-E01-T01 | IN_PROGRESS | Factory mode works with one agent, two stay accepted
+- Summary: Fix the spec after QA review
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-16T15:24:02Z] | claude-sonnet-5-5 | F08-E01-T01 | REVIEW | Factory mode works with one agent, two stay accepted
+- Summary: Spec fixed after QA review
+- Verify: check OK; RED focus sh 23/21; exit=0
+- Handoff: claude-qa
+- Spec-sha: 7daadfb1802fb0932476eba1a1482bdc0d5060abf6f682f2c503a6b3fc413478
+
+## [2026-11-16T15:36:13Z] | claude-qa | F08-E01-T01 | REVIEW | Factory mode works with one agent, two stay accepted
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: read spec and F08 tests; trimmed smoke on spec-faithful scratch scripts: 50 pass, 1 fail (S14); RED run 21 failed; exit=0
+- Review: FAIL - S14 HUMAN-row fixture awk lacks escaped pipes, floods AGENTS.md; its QA-error assertion cannot pass in GREEN
+- Cross-model: NO
+
+## [2026-11-16T15:41:04Z] | claude-sonnet-5-5 | F08-E01-T01 | IN_PROGRESS | Factory mode works with one agent, two stay accepted
+- Summary: Fix S14 fixture escapes
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-16T15:41:24Z] | claude-sonnet-5-5 | F08-E01-T01 | REVIEW | Factory mode works with one agent, two stay accepted
+- Summary: S14 fixture escapes fixed
+- Verify: check OK; RED focus sh 24/20; exit=0
+- Handoff: claude-qa
+- Spec-sha: 7daadfb1802fb0932476eba1a1482bdc0d5060abf6f682f2c503a6b3fc413478
+
+## [2026-11-16T15:48:04Z] | claude-qa | F08-E01-T01 | REVIEW | Factory mode works with one agent, two stay accepted
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: trimmed smoke on scratch scripts patched per spec: 51 passed, 0 failed; fixture check; CR bytes 0; exit=0
+- Review: PASS - S14 fixture fixed (one HUMAN row, QA error); spec and F08 tests hold on a spec-faithful prototype
+- Cross-model: NO
+
+## [2026-11-16T15:48:17Z] | claude-sonnet-5-5 | F08-E01-T01 | IN_PROGRESS | Factory mode works with one agent, two stay accepted
+- Summary: Advance spec to RED
+- Verify: pending
+- Phase: SPEC
+- Lane: NORMAL
+
+## [2026-11-16T15:48:20Z] | claude-sonnet-5-5 | F08-E01-T01 | ASSIGNED | Factory mode works with one agent, two stay accepted
+- Summary: Moved to RED, assigned to claude-sonnet-5-5
+- Phase: RED
+- Assign: claude-sonnet-5-5
+- Verify: spec review PASS claude-qa; exit=0
+
+## [2026-11-16T15:48:23Z] | claude-sonnet-5-5 | F08-E01-T01 | IN_PROGRESS | Factory mode works with one agent, two stay accepted
+- Summary: RED tests
+- Verify: pending
+- Phase: RED
+- Lane: NORMAL
