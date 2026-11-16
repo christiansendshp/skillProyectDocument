@@ -62,7 +62,7 @@ Salen de los propios `BR`/`ADR` de la skill. Romper una es un bug.
 |---|---|
 | `AGENTS.md` hoy dice "Escalate to the human when a choice affects product behavior, cost, security or an external commitment" | En Factory mode se reemplaza por la **política de autonomía** (4.2). Comportamiento de producto ambiguo → el agente decide, lo registra como `BR` en `HYPOTHESIS` cubierto por tests, y aparece en `digest`. Solo las red lines esperan a un humano, sin bloquear la fábrica |
 | El gate humano del spec (propuesto antes) | Lo reemplaza un **review independiente de otro agente** (`spec-critic`, rol QA o SPEC, id distinto del autor) |
-| Revisión independiente sin humanos | Factory mode exige al menos dos ids en `## Agent identity` (uno con rol QA). Un subagente con id propio cuenta |
+| Revisión independiente sin humanos | Factory mode exige al menos un id en `## Agent identity`; desde dos ids, uno con rol QA. Un solo agente cubre todos los roles y revisa su trabajo en un paso aparte (F08-E01-T01, BR-015). Un subagente con id propio cuenta |
 | Más reglas en `AGENTS.md` = más bytes en `context` | La sección `## Factory` del template no supera ~1,2 KiB. El repo de la skill (7573 B) tiene que compactar su `## Active work`/summaries **antes** de adoptar Factory mode |
 | BR-007 (nada cambia sin opt-in) vs "obligar a los agentes del futuro" | Los **scripts** respetan BR-007 (sin `## Factory`, modo clásico). El **SKILL.md** obliga: `init` crea proyectos nuevos en Factory mode por defecto, y un agente que abre un proyecto sin `## Factory` corre `migrate --factory`, salvo que `AGENTS.md` declare `Mode: CLASSIC` |
 | El ciclo completo cuesta demasiado en tareas chicas | **Carril rápido** (D-17): sin spec formal ni RED, con límites de tamaño que el script verifica en `handoff` |
@@ -448,7 +448,7 @@ tareas al iniciar sesión.
 `BR` nuevos para `docs/ProductDescription.md` de la skill:
 
 - `BR-008`: Sin sección `## Factory` (o con `Mode: CLASSIC`) los scripts se comportan exactamente como antes. Reformula BR-007 incluyendo Factory.
-- `BR-009`: En Factory, ninguna tarea llega a `DONE` sin spec válido, evidencia RED (`exit` ≠ 0), evidencia GREEN (`exit=0`), tests intactos desde RED y review PASS de otro agente.
+- `BR-009`: En Factory, ninguna tarea llega a `DONE` sin spec válido, evidencia RED (`exit` ≠ 0), evidencia GREEN (`exit=0`), tests intactos desde RED y review PASS de otro agente (con un solo agente en la tabla, ese agente revisa en el rol QA, BR-015).
 - `BR-010`: `recall` nunca supera `Recall budget bytes` y nunca corta una fila.
 - `BR-011`: El brain nunca supera `Brain max entries` después de `rotate`.
 - `BR-012`: Una tarea FAST nunca llega a `DONE` si su diff superó los límites del carril o tocó un path protegido.
@@ -531,7 +531,7 @@ Cada caso, en sh **y** ps1 (la paridad de bytes se compara donde ya se hace hoy)
 2. `init` por defecto → siete archivos + `## Factory` + carpetas; `init --classic` → seis.
 3. `migrate --factory` dos veces → la segunda no cambia nada; nunca pisa contenido.
 4. `claim` falla por WIP, por rol que no coincide con la fase y por intentos agotados.
-5. `advance SPEC→RED` falla sin spec, con `UNKNOWN`, sin escenarios, con `NONE` sin justificación y sin review PASS de otro agente; pasa con todo en regla.
+5. `advance SPEC→RED` falla sin spec, con `UNKNOWN`, sin escenarios, con `NONE` sin justificación y sin review PASS (de otro agente, o del único agente de la tabla); pasa con todo en regla.
 6. `advance RED→GREEN` falla con `exit=0` o sin `## Tests`; pasa con `exit=1` y registra `- Red:`.
 7. `handoff` falla si cambió un test registrado desde el sha de RED (fixture con git); pasa si no cambió; sin git, WARN.
 8. `handoff`/`done` en Factory fallan sin `exit=0`; self-review falla.

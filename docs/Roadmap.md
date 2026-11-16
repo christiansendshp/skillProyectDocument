@@ -19,7 +19,7 @@ stable for positional edits.
 
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
-| F08-E01-T01 | Factory mode works with one agent, two stay accepted | User request 2026-11-16: no step needs a second agent. Detail in the spec. | Spec scenarios pass in sh and ps1; differential vs 9302b58 fail=0; full smoke 0 failed; context <= 8192. | IN_PROGRESS | claude-sonnet-5-5@2026-11-16T15:48:23Z | — | — |
+| F08-E01-T01 | Factory mode works with one agent, two stay accepted | User request 2026-11-16: no step needs a second agent. Detail in the spec. | Spec scenarios pass in sh and ps1; differential vs 9302b58 fail=0; full smoke 0 failed; context <= 8192. | IN_PROGRESS | claude-sonnet-5-5@2026-11-16T15:48:38Z | — | — |
 
 <!-- context:end -->
 

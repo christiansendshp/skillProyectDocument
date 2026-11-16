@@ -725,6 +725,23 @@
         "A Factory check warns that docs/summary.html is missing, then that it is older than the ledger"
       ],
       "smoke": "summary page, ask and answer (F07-E01-T01)"
+    },
+    {
+      "id": 61,
+      "prompt": "A Factory project has one agent in its Agent identity table, with role DEV, and a normal-lane task. There is no second agent anywhere. Take the task from next to done.",
+      "expected_output": "check passes with one row. The agent claims the SPEC phase, hands the spec off, reviews it itself in a separate step (PASS, Cross-model: NO, no self-review warning), advances to RED and GREEN, hands the code off, reviews it PASS and closes it with done. With two agents nothing changes: a self-review is refused and a QA or BOTH role is needed.",
+      "files": [],
+      "expectations": [
+        "check passes for one agent whatever its valid role, and fails with no agent (at least 1 agent, found 0)",
+        "Two agents with no QA or BOTH role still fail check, and a HUMAN row next to the AI agent counts as a row",
+        "next gives the lone agent an assigned task, a TODO row and the review of its own handoff",
+        "review by the holder is accepted for a lone agent, writes Cross-model: NO and prints no self-review warning",
+        "advance to RED accepts the review of the same agent, but not a spec edited after its handoff",
+        "With five agents a review by the developer is still refused as before",
+        "PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1 still refuses the review of a lone agent",
+        "A classic project with a one-row table keeps the self-review and DEVELOPER warnings"
+      ],
+      "smoke": "one agent in the table, two stay accepted (F08-E01-T01)"
     }
   ]
 }

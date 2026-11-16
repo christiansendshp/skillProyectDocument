@@ -155,8 +155,9 @@ In Factory mode:
   the phase needs. A task that was already started before the project moved to Factory
   mode keeps having no phase and no lane when it is retaken (ADR-092). A task assigned to another agent id can be claimed without a
   warning when the role matches.
-- `check` fails when the roster has fewer than two agents, none with the role
-  `QA` (or `BOTH`), or a role outside the list above (roles are upper case).
+- `check` fails when the roster has no agent, when it has two or more and none
+  has the role `QA` (or `BOTH`), or when a role is outside the list above (roles
+  are upper case). One agent is enough: see "Working with one agent" below.
 
 A task whose phase is none of those four is refused whoever asks. `rotate` carries
 the phase of every open task into the new ledger segment.
@@ -222,9 +223,36 @@ working memory (`checkpoint`) and is for SPEC and GREEN only; RED leaves with
 
 **Reviews are independent.** In Factory mode the warnings of classic mode are
 errors: a review by the agent that holds the task (unless `Independent review` is
-`NO`), a reviewer whose role is not `QA` or `BOTH` (a `SPEC` agent may review a
-spec), a reviewer that is not in the roster, and a `done` with no `Review: PASS`,
-with no ledger entries or whose verify has no `exit=0`.
+`NO` or the roster has one agent), a reviewer whose role is not `QA` or `BOTH` (a
+`SPEC` agent may review a spec), a reviewer that is not in the roster, and a `done`
+with no `Review: PASS`, with no ledger entries or whose verify has no `exit=0`.
+
+## Working with one agent
+
+The skill never needs a second agent. It may ask the one agent to act in another
+role, one phase after the other. A roster with exactly one row (any Kind) is
+a lone agent:
+
+- Replace the default rows of `## Agent identity` in `AGENTS.md` by one row for
+  yourself: `| <id> | AI | <model> | BOTH | — |`. Any valid role is accepted;
+  `BOTH` says what happens. `check` may then warn, up to ten lines, about ledger
+  entries written by the ids you removed.
+- Every Factory path reads that agent as `BOTH`: `claim` (the role of each phase),
+  `next` (its task, an assigned task, the first `TODO` row, the review of its own
+  handoff) and `advance` (the next phase goes back to the same agent).
+- `review` accepts a review by the agent that holds the task, prints no
+  self-review warning and writes `- Cross-model: NO`, as for any review by the
+  same model, so `digest` counts it as a review of one model.
+- The review is still a separate step: after `handoff`, stop writing, reread the
+  spec, the tests and the diff as a reviewer in the QA role, run the checks
+  again, then `review ... PASS|FAIL`. The SPEC to RED gate still wants that
+  `Review: PASS` and, with `Independent review` YES, the spec hash that `handoff`
+  recorded. `exit=` markers, RED evidence, tests unchanged since RED and the limits
+  per agent and task stand.
+- With two or more rows nothing changes: another agent reviews, one has the role
+  `QA` or `BOTH`. A `HUMAN` row counts as a row, so an AI agent next to the
+  product owner is not alone and the table needs a `QA` or `BOTH` role.
+  `PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1` still refuses a lone agent's review.
 
 **Limits per agent and per task.** `claim` refuses an agent that already has
 `WIP per agent` tasks in progress (a task waiting for review does not count) and

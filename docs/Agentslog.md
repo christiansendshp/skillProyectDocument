@@ -478,3 +478,17 @@ segments live in `docs/history/`.
 - Verify: pending
 - Phase: RED
 - Lane: NORMAL
+
+## [2026-11-16T15:48:35Z] | claude-sonnet-5-5 | F08-E01-T01 | ASSIGNED | Factory mode works with one agent, two stay accepted
+- Summary: Moved to GREEN, assigned to claude-sonnet-5-5
+- Phase: GREEN
+- Assign: claude-sonnet-5-5
+- Verify: RED focus sh 24 passed 20 failed; exit=1
+- Red: f4f71466f0d17cfe18bb5a5de36ef0eb54bb09c1
+- Tests: scripts/smoke_test.sh
+
+## [2026-11-16T15:48:38Z] | claude-sonnet-5-5 | F08-E01-T01 | IN_PROGRESS | Factory mode works with one agent, two stay accepted
+- Summary: GREEN code
+- Verify: pending
+- Phase: GREEN
+- Lane: NORMAL
