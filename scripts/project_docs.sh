@@ -737,6 +737,7 @@ require_phase_role() {
     die "$rp_verb failed: $1 is not in the Agent identity table; Factory mode needs a role for each agent"
   fi
   rp_norm="$(role_norm "$rp_role")"
+  if roster_solo; then rp_norm="BOTH"; fi
   rp_need="$(phase_role "$2")"
   if [ -z "$rp_need" ]; then
     die "$rp_verb failed: $3 is in phase $2, which has no role (use SPEC, RED, GREEN or REVIEW)"
@@ -772,6 +773,12 @@ canonical_agent() {
 # roster_role ID: prints the Role (DEVELOPER, QA or BOTH) of a roster id.
 roster_role() {
   roster_rows | awk -F'\t' -v id="$1" '$1==id { print $4; exit }'
+}
+
+# roster_solo: true when the Agent identity table has exactly one row, whatever its Kind. The Factory
+# paths then read that agent as BOTH and accept its review of its own work (BR-015, BR-016).
+roster_solo() {
+  [ "$(roster_rows | awk 'END { print NR }')" = "1" ]
 }
 
 # Timestamp of the first IN_PROGRESS entry of a task in the hot ledger.
@@ -1863,6 +1870,8 @@ cmd_next() {
   nx_max="$(factory_number "Max fix attempts")"
   nx_indep=1
   if ! factory_yes "Independent review"; then nx_indep=0; fi
+  # A lone agent covers every role and reviews its own handoff (BR-015, BR-016).
+  if roster_solo; then nx_role="BOTH"; nx_indep=0; fi
   nx_states="$(all_task_states)"
   nx_pref="$(factory_setting "Preferred reviewer")"
   nx_best="$(printf '%s\n' "$nx_states" | awk -F'\t' -v agent="$nx_agent" -v role="$nx_role" -v maxatt="$nx_max" -v indep="$nx_indep" -v pref="$nx_pref" '
@@ -2250,15 +2259,18 @@ cmd_review() {
   fi
   [ "$status" = "REVIEW" ] || die "review failed: $task has no pending handoff (current: $status)"
   [ -z "$reviewed" ] || die "review failed: $task was already reviewed ($reviewed); the holder must claim it again"
+  review_solo=0
   if factory_on; then
     review_phase="$(printf '%s' "$state" | cut -f12)"
     [ -n "$review_phase" ] || review_phase="SPEC"
-    if [ "$agent" = "$holder" ] && factory_yes "Independent review"; then
+    if roster_solo; then review_solo=1; else review_solo=0; fi
+    if [ "$agent" = "$holder" ] && [ "$review_solo" -eq 0 ] && factory_yes "Independent review"; then
       die "review failed: $agent developed $task; an independent review is required"
     fi
     review_role="$(roster_role "$agent")"
     [ -n "$review_role" ] || die "review failed: $agent is not in the Agent identity table; Factory mode needs a role for each agent"
     review_norm="$(role_norm "$review_role")"
+    if [ "$review_solo" -eq 1 ]; then review_norm="BOTH"; fi
     if [ "$review_norm" != "QA" ] && [ "$review_norm" != "BOTH" ] && { [ "$review_phase" != "SPEC" ] || [ "$review_norm" != "SPEC" ]; }; then
       die "review failed: $agent has role $review_role, but a review of phase $review_phase needs QA (or BOTH)"
     fi
@@ -2272,9 +2284,9 @@ cmd_review() {
     if [ "${PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW:-0}" = "1" ]; then
       die "review failed: $agent developed $task; an independent review is required"
     fi
-    echo "WARN: self-review: $agent reviews its own handoff of $task" >&2
+    if [ "$review_solo" -eq 0 ]; then echo "WARN: self-review: $agent reviews its own handoff of $task" >&2; fi
   fi
-  if [ "$(roster_role "$agent")" = "DEVELOPER" ]; then
+  if [ "$(roster_role "$agent")" = "DEVELOPER" ] && [ "$review_solo" -eq 0 ]; then
     echo "WARN: $agent has role DEVELOPER in the Agent identity table, not QA or BOTH" >&2
   fi
   name="$(require_valid_name "$task" review)"
@@ -2351,6 +2363,7 @@ spec_tests() {
 # default_assignee PHASE: the first roster id whose role is the one of the phase,
 # else the first BOTH.
 default_assignee() {
+  if roster_solo; then roster_rows | awk -F'\t' 'NR == 1 { print $1 }'; return 0; fi
   da_need="$(phase_role "$1")"
   roster_rows | awk -F'\t' -v need="$da_need" '
     {
@@ -2376,7 +2389,9 @@ advance_gate_spec() {
   if factory_yes "Independent review"; then
     ag_by="$(printf '%s' "$state" | cut -f13)"
     [ -n "$ag_by" ] || die "advance failed: the spec of $1 has no Review: PASS yet (hand it off to a reviewer first)"
-    [ "$ag_by" != "$2" ] || die "advance failed: the Review: PASS of the spec of $1 comes from $2 itself; another agent must review it"
+    if [ "$ag_by" = "$2" ] && ! roster_solo; then
+      die "advance failed: the Review: PASS of the spec of $1 comes from $2 itself; another agent must review it"
+    fi
     ag_rec="$(spec_sha_of "$1")"
     if [ -n "$ag_rec" ]; then
       ag_now="$(file_hash "$ag_spec" | awk '{ print $1 }')"
@@ -3816,8 +3831,8 @@ check_specs() {
   done
 }
 
-# Roster rules of Factory mode (F06-E02-T03): valid roles, at least two agents and
-# one that can review. The 047 escapes below are apostrophes.
+# Roster rules of Factory mode (F06-E02-T03, F08-E01-T01): valid roles, at least one agent and,
+# from two agents, one that can review. The 047 escapes below are apostrophes.
 check_factory_roster() {
   cr_out="$(roster_rows | awk -F'\t' '
     NF == 0 { next }
@@ -3827,8 +3842,8 @@ check_factory_roster() {
       if (r == "QA" || r == "BOTH") qa=1
     }
     END {
-      if (n < 2) print "ERROR: Agent identity needs at least 2 agents in Factory mode (found " n + 0 ")"
-      if (!qa) print "ERROR: Agent identity needs an agent with role QA (or BOTH) in Factory mode"
+      if (n < 1) print "ERROR: Agent identity needs at least 1 agent in Factory mode (found " n + 0 ")"
+      else if (n >= 2 && !qa) print "ERROR: Agent identity needs an agent with role QA (or BOTH) in Factory mode"
     }
   ')"
   if [ -n "$cr_out" ]; then

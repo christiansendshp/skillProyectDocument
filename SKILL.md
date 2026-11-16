@@ -150,7 +150,7 @@ Read `references/factory.md` once. The cycle needs no question to a person:
 2. Normal lane: SPEC (write `docs/specs/<TASK-ID>.md`, `handoff` it to a reviewer)
    -> `advance ... RED` (tests written, they fail: `exit=N`, N not 0) ->
    `advance ... GREEN` -> implement without touching the tests -> `handoff ...
-   exit=0` -> `review` by another agent -> `retro` -> `done`.
+   exit=0` -> `review` by another agent (by yourself in the QA role when you work alone, step 7) -> `retro` -> `done`.
    Fast lane (`Lane: FAST` in the row Description): no spec and no RED, still
    tested and reviewed; a task that outgrows the lane goes back to SPEC.
 3. `checkpoint` before each long step so another agent can resume. `learn` what
@@ -169,6 +169,14 @@ Read `references/factory.md` once. The cycle needs no question to a person:
 6. A person reads `digest` now and then. CLIs that cannot call each other
    (Claude Code, Gemini CLI) take turns through `scripts/factory_dispatch.sh` or
    `.ps1`, which read the ledger with `next` and need no API key.
+7. **Working alone is valid.** Nothing in this cycle needs a second agent. With
+   one row in the `## Agent identity` table of `AGENTS.md` (replace the default
+   rows by one for yourself, role `BOTH` is the clearest) you cover every role,
+   `review` accepts your review of your own work and writes `Cross-model: NO`.
+   Do the review as a separate step in the QA role: stop writing, reread the
+   spec, the tests and the diff as a reviewer, run the checks again, then
+   `review`. With two or more rows nothing changes: another agent reviews and
+   one of them has the role `QA` or `BOTH`. Two agents are accepted, never required.
 
 ## Agent identity
 

@@ -810,6 +810,7 @@ function Assert-PhaseRole([string]$Agent, [string]$Phase, [string]$Task, [string
         throw "$Verb failed: $Agent is not in the Agent identity table; Factory mode needs a role for each agent"
     }
     $norm = Get-RoleNorm $role
+    if (Test-RosterSolo) { $norm = "BOTH" }
     $need = Get-PhaseRole $Phase
     if (-not $need) {
         throw "$Verb failed: $Task is in phase $Phase, which has no role (use SPEC, RED, GREEN or REVIEW)"
@@ -823,6 +824,12 @@ function Assert-PhaseRole([string]$Agent, [string]$Phase, [string]$Task, [string
 function Get-RosterRole([string]$Id) {
     foreach ($r in @(Get-RosterRows)) { if ($r.Id -ceq $Id) { return $r.Role } }
     return ""
+}
+
+# Test-RosterSolo: true when the Agent identity table has exactly one row, whatever its Kind. The
+# Factory paths then read that agent as BOTH and accept its review of its own work (BR-015, BR-016).
+function Test-RosterSolo {
+    return (@(Get-RosterRows).Count -eq 1)
 }
 
 # Seconds between two ledger timestamps, or -1 when either does not parse.
@@ -1998,6 +2005,8 @@ function Invoke-Next {
     $role = Get-RoleNorm $rawRole
     $maxAtt = [int](Get-FactoryNumber "Max fix attempts")
     $indep = Test-FactoryYes "Independent review"
+    # A lone agent covers every role and reviews its own handoff (BR-015, BR-016).
+    if (Test-RosterSolo) { $role = "BOTH"; $indep = $false }
     $states = @(Get-TaskStates)
     $best = ""
     $bestP = 99
@@ -2453,15 +2462,18 @@ function Invoke-Review {
         if (-not $state) { throw "review failed: $task has no handoff to review" }
         if ($state.Status -ne "REVIEW") { throw "review failed: $task has no pending handoff (current: $($state.Status))" }
         if ($state.Review) { throw "review failed: $task was already reviewed ($($state.Review)); the holder must claim it again" }
+        $reviewSolo = $false
         if (Test-FactoryOn) {
             $reviewPhase = "SPEC"
             if ($state.Phase) { $reviewPhase = $state.Phase }
-            if ($agent -ceq $state.Holder -and (Test-FactoryYes "Independent review")) {
+            $reviewSolo = Test-RosterSolo
+            if ($agent -ceq $state.Holder -and -not $reviewSolo -and (Test-FactoryYes "Independent review")) {
                 throw "review failed: $agent developed $task; an independent review is required"
             }
             $reviewRole = Get-RosterRole $agent
             if (-not $reviewRole) { throw "review failed: $agent is not in the Agent identity table; Factory mode needs a role for each agent" }
             $reviewNorm = Get-RoleNorm $reviewRole
+            if ($reviewSolo) { $reviewNorm = "BOTH" }
             if ($reviewNorm -cne "QA" -and $reviewNorm -cne "BOTH" -and ($reviewPhase -cne "SPEC" -or $reviewNorm -cne "SPEC")) {
                 throw "review failed: $agent has role $reviewRole, but a review of phase $reviewPhase needs QA (or BOTH)"
             }
@@ -2475,9 +2487,9 @@ function Invoke-Review {
             if ($env:PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW -eq "1") {
                 throw "review failed: $agent developed $task; an independent review is required"
             }
-            [Console]::Error.WriteLine("WARN: self-review: $agent reviews its own handoff of $task")
+            if (-not $reviewSolo) { [Console]::Error.WriteLine("WARN: self-review: $agent reviews its own handoff of $task") }
         }
-        if ((Get-RosterRole $agent) -ceq "DEVELOPER") {
+        if ((Get-RosterRole $agent) -ceq "DEVELOPER" -and -not $reviewSolo) {
             [Console]::Error.WriteLine("WARN: $agent has role DEVELOPER in the Agent identity table, not QA or BOTH")
         }
         $name = Assert-ValidName $task "review"
@@ -2567,6 +2579,8 @@ function Get-SpecTests([string]$Path) {
 
 # The first roster id whose role is the one of the phase, else the first BOTH.
 function Get-DefaultAssignee([string]$Phase) {
+    $only = @(Get-RosterRows)
+    if ($only.Count -eq 1) { return $only[0].Id }
     $need = Get-PhaseRole $Phase
     $exact = ""
     $both = ""
@@ -2593,7 +2607,7 @@ function Assert-AdvanceGateSpec([string]$Task, [string]$Agent, $State) {
     if (Test-FactoryYes "Independent review") {
         $by = $State.SpecPass
         if (-not $by) { throw "advance failed: the spec of $Task has no Review: PASS yet (hand it off to a reviewer first)" }
-        if ($by -ceq $Agent) { throw "advance failed: the Review: PASS of the spec of $Task comes from $Agent itself; another agent must review it" }
+        if ($by -ceq $Agent -and -not (Test-RosterSolo)) { throw "advance failed: the Review: PASS of the spec of $Task comes from $Agent itself; another agent must review it" }
         $rec = Get-SpecSha $Task
         if ($rec) {
             $now = (Get-FileHash -LiteralPath $spec -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -3945,8 +3959,8 @@ function Test-Specs {
     }
 }
 
-# Roster rules of Factory mode (F06-E02-T03): valid roles, at least two agents and
-# one that can review.
+# Roster rules of Factory mode (F06-E02-T03, F08-E01-T01): valid roles, at least one agent and,
+# from two agents, one that can review.
 function Test-FactoryRoster {
     $rows = @(Get-RosterRows)
     $qa = $false
@@ -3957,11 +3971,11 @@ function Test-FactoryRoster {
         }
         if ($r.Role -ceq "QA" -or $r.Role -ceq "BOTH") { $qa = $true }
     }
-    if ($rows.Count -lt 2) {
-        [Console]::Error.WriteLine("ERROR: Agent identity needs at least 2 agents in Factory mode (found $($rows.Count))")
+    if ($rows.Count -lt 1) {
+        [Console]::Error.WriteLine("ERROR: Agent identity needs at least 1 agent in Factory mode (found $($rows.Count))")
         $script:CheckFail = $true
     }
-    if (-not $qa) {
+    elseif ($rows.Count -ge 2 -and -not $qa) {
         [Console]::Error.WriteLine("ERROR: Agent identity needs an agent with role QA (or BOTH) in Factory mode")
         $script:CheckFail = $true
     }

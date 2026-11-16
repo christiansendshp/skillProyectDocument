@@ -7,7 +7,8 @@ OpenCode, Antigravity, others) take tasks without overlapping.
 
 **IA Factory mode** turns that protocol into a production line the scripts
 enforce. New projects start in it: executable specs and tests come first, a
-second agent reviews every change, lessons are kept in a small brain that is
+separate review step follows every change (by another agent, or by the only
+agent in the QA role), lessons are kept in a small brain that is
 recalled instead of re-read, small changes take a fast lane, and a dispatcher
 lets CLIs that cannot call each other (Claude Code and Gemini CLI on their own
 subscriptions, no API) pass the turn through the ledger. A person only reads
@@ -119,7 +120,9 @@ Environment variables (all optional):
 
 An optional `## Agent identity` table in `AGENTS.md` lists one stable id per
 agent plus aliases; with it, `claim`, `pause`, `handoff`, `review`, `assign`
-and `done` normalise an alias to the id and warn about unknown names.
+and `done` normalise an alias to the id and warn about unknown names. In Factory
+mode one row is enough: that agent covers every role and reviews its own work in
+a separate step (`Cross-model: NO`); from two rows, one needs the role `QA` or `BOTH`.
 
 ## Changelog
 
@@ -127,7 +130,7 @@ and `done` normalise an alias to the id and warn about unknown names.
   enforce. `## Factory` in `AGENTS.md` switches it on (`mode` says what applies);
   a roster gives each agent a role (SPEC, TEST, DEV, QA, OPS, BOTH) that must
   match the phase it claims. `advance` moves a task through SPEC, RED and GREEN
-  behind gates (a spec without `UNKNOWN` and reviewed by another agent, failing
+  behind gates (a spec without `UNKNOWN` and with a review PASS, failing
   tests committed first, tests unchanged afterwards, `exit=0` evidence);
   `handoff`, `review` and `done` turn their warnings into errors. A fast lane
   skips the spec for small changes and measures the size at `handoff`. A brain

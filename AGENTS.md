@@ -107,7 +107,7 @@ skill's `references/factory.md`.
 
 One stable id per agent, always the same text; aliases match case-insensitively.
 Kind: HUMAN or AI. Role: SPEC, TEST, DEV, QA, OPS or BOTH (DEVELOPER is a legacy
-alias of DEV). Factory mode needs two ids at least, one with role QA.
+alias of DEV). One id works alone; two or more need a QA role.
 
 | Agent id | Kind | Model | Role | Aliases |
 |---|---|---|---|---|

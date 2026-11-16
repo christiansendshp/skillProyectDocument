@@ -114,6 +114,15 @@ Spec: docs/specs/F07-E01-T01.md.
 | ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
 |---|---|---|---|---|---|---|---|
 
+### F08 — Single-agent Factory
+
+Spec: docs/specs/F08-E01-T01.md.
+
+#### F08-E01 — One agent covers every role
+
+| ID | Name | Description | Acceptance check | Status | Owner | Depends on | Pause reason |
+|---|---|---|---|---|---|---|---|
+
 ## Gaps, Bugs & Technical Debt
 
 Errors, defects, or significant technical debt found by any agent. Same

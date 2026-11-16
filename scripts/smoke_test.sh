@@ -1589,11 +1589,10 @@ SPEC
   ro_proj none
   drop_rows "$ro/AGENTS.md" '^| claude-\|^| gemini-'
   assert_failure "$label a Factory project without agents fails check" run check "$ro"
-  grep -q "ERROR: Agent identity needs at least 2 agents in Factory mode (found 0)" "$WORK/.out" && grep -q "ERROR: Agent identity needs an agent with role QA (or BOTH) in Factory mode" "$WORK/.out" && ok "$label both roster errors are named" || bad "$label empty roster errors wrong: $(grep Agent "$WORK/.out")"
+  grep -q "ERROR: Agent identity needs at least 1 agent in Factory mode (found 0)" "$WORK/.out" && ! grep -q "role QA" "$WORK/.out" && ! grep -q "at least 2" "$WORK/.out" && ok "$label the empty roster names one agent and no QA role" || bad "$label empty roster errors wrong: $(grep Agent "$WORK/.out")"
   ro_proj one
   drop_rows "$ro/AGENTS.md" '^| claude-spec\|^| claude-test\|^| claude-dev\|^| gemini-'
-  assert_failure "$label a Factory project with one agent fails check" run check "$ro"
-  grep -q "(found 1)" "$WORK/.out" && ! grep -q "role QA" "$WORK/.out" && ok "$label one agent is counted and its QA role is accepted" || bad "$label one agent text wrong: $(grep Agent "$WORK/.out")"
+  assert_success "$label a Factory project with one QA agent passes check" run check "$ro"
   ro_proj noqa
   drop_rows "$ro/AGENTS.md" '^| claude-qa\|^| gemini-qa'
   assert_failure "$label a Factory roster with no QA fails check" run check "$ro"
@@ -3217,6 +3216,133 @@ SPEC
   runo ask "$fs" "Ship on Fridays?" "No, only Monday to Thursday"
   runo check "$fs"
   out_has "WARN: docs/summary.html is older than the ledger; run summary" && ok "$label Factory check warns after a new question" || bad "$label no stale-page warning after ask: $(cat "$WORK/.out")"
+
+  echo "== $label: one agent in the table, two stay accepted (F08-E01-T01) =="
+  sa_table() {  # sa_table <project> <role>: the Agent identity table keeps one agent, claude-dev, with the given role
+    drop_rows "$1/AGENTS.md" '^| claude-spec\|^| claude-test\|^| claude-qa\|^| gemini-'
+    seed_replace "$1/AGENTS.md" "| claude-dev | AI | Claude | DEV |" "| claude-dev | AI | Claude | $2 |"
+  }
+  sa_proj() {  # sa_proj <name> <role>: only claude-dev is in the table; it holds a task in SPEC with a valid spec and a working memory
+    av="$WORK/${label}_sa_$1"; rm -rf "$av"; mkdir -p "$av"; run init "$av" >/dev/null 2>&1
+    sa_table "$av" "$2"
+    seed_plan_row "$av" F09-E01-T01 "Solo task"
+    run claim "$av" claude-dev F09-E01-T01 "write the spec" >/dev/null 2>&1
+    mkspec "$av" F09-E01-T01
+    run checkpoint "$av" claude-dev F09-E01-T01 "spec written" "ask for review" >/dev/null 2>&1
+  }
+  sa_reviewed() {  # sa_reviewed: the lone agent hands the spec off, reviews it PASS and takes it back
+    run handoff "$av" claude-dev F09-E01-T01 "spec ready" "exit=0" claude-dev >/dev/null 2>&1
+    run review "$av" claude-dev F09-E01-T01 PASS "spec checked" "exit=0" >/dev/null 2>&1
+    run claim "$av" claude-dev F09-E01-T01 "advance it" >/dev/null 2>&1
+  }
+
+  # S01 and S02: check
+  ro_proj sa_both
+  sa_table "$ro" BOTH
+  assert_success "$label one agent with role BOTH passes check" run check "$ro"
+  ro_proj sa_dev
+  sa_table "$ro" DEV
+  assert_success "$label one agent with role DEV passes check" run check "$ro"
+  ro_proj sa_bad
+  sa_table "$ro" TESTER
+  assert_failure "$label one agent with an invalid role fails check" run check "$ro"
+  grep -q "ERROR: Agent identity row 'claude-dev' has invalid Role: TESTER" "$WORK/.out" && ok "$label the invalid role of a lone agent is named" || bad "$label invalid role text wrong: $(grep Agent "$WORK/.out")"
+  ro_proj sa_human
+  sa_table "$ro" DEV
+  printf '%s\n' "| po | HUMAN | — | SPEC | — |" > "$WORK/.row"
+  awk -v rowfile="$WORK/.row" 'BEGIN { getline r < rowfile } { print } /^\| claude-dev \|/ { print r }' "$ro/AGENTS.md" > "$ro/AGENTS.md.tmp" && mv "$ro/AGENTS.md.tmp" "$ro/AGENTS.md"
+  assert_failure "$label an AI agent next to a HUMAN row is not a lone agent" run check "$ro"
+  grep -q "ERROR: Agent identity needs an agent with role QA (or BOTH) in Factory mode" "$WORK/.out" && ok "$label the table with a HUMAN row needs a QA role" || bad "$label human row text wrong: $(grep Agent "$WORK/.out")"
+  ro_proj sa_two
+  drop_rows "$ro/AGENTS.md" '^| claude-spec\|^| claude-qa\|^| gemini-'
+  assert_failure "$label two agents with no QA role fail check" run check "$ro"
+  grep -q "ERROR: Agent identity needs an agent with role QA (or BOTH) in Factory mode" "$WORK/.out" && ! grep -q "at least" "$WORK/.out" && ok "$label the missing QA role of two agents is named, with no count" || bad "$label two agents text wrong: $(grep Agent "$WORK/.out")"
+
+  # S03: the spec of a lone DEV agent, reviewed by itself in the QA role
+  sa_proj s_spec DEV
+  assert_success "$label a lone DEV agent claims the SPEC phase and hands the spec off to itself" run handoff "$av" claude-dev F09-E01-T01 "spec ready" "exit=0" claude-dev
+  assert_success "$label a lone agent reviews its own spec PASS" run review "$av" claude-dev F09-E01-T01 PASS "spec checked" "exit=0"
+  out_has "self-review" && bad "$label a lone agent got the self-review warning: $(cat "$WORK/.out")" || ok "$label a lone agent gets no self-review warning"
+  last_entry > "$WORK/.last"
+  grep -q '^- Cross-model: NO$' "$WORK/.last" && grep -q '^- Review: PASS - spec checked$' "$WORK/.last" && ok "$label the review of a lone agent is marked Cross-model: NO" || bad "$label review entry wrong: $(cat "$WORK/.last")"
+  sa_proj s_dev_warn DEV
+  seed_replace "$av/AGENTS.md" "| claude-dev | AI | Claude | DEV |" "| claude-dev | AI | Claude | DEVELOPER |"
+  run handoff "$av" claude-dev F09-E01-T01 "spec ready" "exit=0" claude-dev >/dev/null 2>&1
+  runo review "$av" claude-dev F09-E01-T01 PASS "spec checked" "exit=0"
+  out_has "has role DEVELOPER" && bad "$label a lone DEVELOPER agent got the role warning: $(cat "$WORK/.out")" || ok "$label a lone agent gets no role warning"
+
+  # S04: advance and claim of the next phase, and next
+  sa_proj s_adv DEV
+  sa_reviewed
+  assert_success "$label advance moves a spec reviewed by the lone agent to RED" run advance "$av" claude-dev F09-E01-T01 RED "spec reviewed, exit=0"
+  grep -q '^project_docs advance: F09-E01-T01 moved to RED, assigned to claude-dev$' "$WORK/.out" && ok "$label the task is assigned to the lone agent" || bad "$label advance output wrong: $(cat "$WORK/.out")"
+  runo next "$av" claude-dev
+  [ "$(head -n 1 "$WORK/.out" | tr -d '\r')" = "F09-E01-T01" ] && ok "$label next gives the lone agent a task assigned to it before any claim" || bad "$label next on an assigned task wrong: $(cat "$WORK/.out")"
+  assert_success "$label the lone DEV agent claims the RED phase" run claim "$av" claude-dev F09-E01-T01 "write the failing tests"
+  runo next "$av" claude-dev
+  [ "$(head -n 1 "$WORK/.out" | tr -d '\r')" = "F09-E01-T01" ] && ok "$label next gives the lone agent its task" || bad "$label next wrong: $(cat "$WORK/.out")"
+
+  # S12 and S13: the first command of a lone agent, and Independent review NO
+  st="$WORK/${label}_sa_todo"; rm -rf "$st"; mkdir -p "$st"; run init "$st" >/dev/null 2>&1
+  sa_table "$st" DEV
+  seed_plan_row "$st" F09-E01-T01 "Todo task"
+  runo next "$st" claude-dev
+  [ "$(head -n 1 "$WORK/.out" | tr -d '\r')" = "F09-E01-T01" ] && ok "$label next gives a lone DEV agent the first TODO row" || bad "$label next on a TODO row wrong: $(cat "$WORK/.out")"
+  sa_proj s_indep_no DEV
+  seed_replace "$av/AGENTS.md" "| Independent review | YES |" "| Independent review | NO |"
+  run handoff "$av" claude-dev F09-E01-T01 "spec ready" "exit=0" claude-dev >/dev/null 2>&1
+  assert_success "$label a lone agent reviews its own spec with Independent review NO" run review "$av" claude-dev F09-E01-T01 PASS "spec checked" "exit=0"
+  out_has "WARN" && bad "$label a lone agent got a warning with Independent review NO: $(cat "$WORK/.out")" || ok "$label a lone agent gets no warning with Independent review NO"
+  run claim "$av" claude-dev F09-E01-T01 "advance it" >/dev/null 2>&1
+  assert_success "$label advance passes with Independent review NO" run advance "$av" claude-dev F09-E01-T01 RED "spec reviewed, exit=0"
+
+  # S05: the spec changed after its review
+  sa_proj s_edit DEV
+  sa_reviewed
+  printf -- '- Extra item\n' >> "$av/docs/specs/F09-E01-T01.md"
+  adv_refused "a lone agent cannot advance a spec that changed after its review" "changed after it was handed off for review" claude-dev F09-E01-T01 RED "exit=0"
+
+  # S06: GREEN to done with one agent and Independent review YES
+  gr_proj s_green git
+  sa_table "$av" DEV
+  grep -q '| Independent review | YES |' "$av/AGENTS.md" && ok "$label the lone agent runs with Independent review YES" || bad "$label Independent review changed"
+  assert_success "$label a lone agent hands its code off to itself" run handoff "$av" claude-dev F09-E01-T01 "implemented" "exit=0" claude-dev
+  assert_success "$label a lone agent reviews its own code PASS" run review "$av" claude-dev F09-E01-T01 PASS "Looks right, tests unchanged" "exit=0"
+  run retro "$av" claude-dev F09-E01-T01 none none >/dev/null 2>&1
+  assert_success "$label a lone agent closes its reviewed task" run done "$av" claude-dev F09-E01-T01 "implemented" "src/" "suite passes, exit=0"
+
+  # S07: an agent that is not in the table is still refused
+  sa_proj s_unknown BOTH
+  seed_plan_row "$av" F09-E01-T02 "Other task"
+  assert_failure "$label an agent outside a one-agent table is refused" run claim "$av" nobody F09-E01-T02 "not in the table"
+  out_has "nobody is not in the Agent identity table" && ok "$label the refusal names the table" || bad "$label refusal text wrong: $(cat "$WORK/.out")"
+
+  # S08: the default table keeps the independent review
+  gr_proj s_default git
+  run handoff "$av" claude-dev F09-E01-T01 "implemented" "exit=0" claude-qa >/dev/null 2>&1
+  refused "with five agents a self-review is still an error" "review failed: claude-dev developed F09-E01-T01; an independent review is required" review "$av" claude-dev F09-E01-T01 PASS "mine is fine" "exit=0"
+
+  # S09: the explicit strict request wins
+  sa_proj s_strict DEV
+  run handoff "$av" claude-dev F09-E01-T01 "spec ready" "exit=0" claude-dev >/dev/null 2>&1
+  run_env PROJECT_DOCS_REQUIRE_INDEPENDENT_REVIEW=1 review "$av" claude-dev F09-E01-T01 PASS "spec checked" "exit=0" >"$WORK/.out" 2>&1 && bad "$label the strict variable did not refuse a lone agent" || ok "$label the strict variable still refuses a lone agent"
+  out_has "an independent review is required" && ok "$label the strict refusal says why" || bad "$label strict text wrong: $(cat "$WORK/.out")"
+
+  # S10: classic mode is not touched
+  sc="$WORK/${label}_sa_classic"; rm -rf "$sc"; mkdir -p "$sc"
+  run_env PROJECT_DOCS_MODE=classic init "$sc" >/dev/null 2>&1
+  seed_plan_row "$sc" F09-E01-T01 "Classic solo"
+  seed_replace "$sc/AGENTS.md" "| — | — | — | — | — |" "| a-dev | AI | Claude | DEVELOPER | — |"
+  run_env PROJECT_DOCS_MODE=classic claim "$sc" a-dev F09-E01-T01 "work" >/dev/null 2>&1
+  run_env PROJECT_DOCS_MODE=classic handoff "$sc" a-dev F09-E01-T01 "done coding" "tests pass" a-dev >/dev/null 2>&1
+  run_env PROJECT_DOCS_MODE=classic review "$sc" a-dev F09-E01-T01 PASS "fine" "tests pass" >"$WORK/.out" 2>&1
+  out_has "WARN: self-review: a-dev reviews its own handoff of F09-E01-T01" && out_has "WARN: a-dev has role DEVELOPER in the Agent identity table, not QA or BOTH" && ok "$label classic mode keeps both warnings for a one-row table" || bad "$label classic warnings changed: $(cat "$WORK/.out")"
+
+  # S11: next offers a lone agent the review of its own handoff
+  sa_proj s_next DEV
+  run handoff "$av" claude-dev F09-E01-T01 "spec ready" "exit=0" >/dev/null 2>&1
+  runo next "$av" claude-dev
+  [ "$(head -n 1 "$WORK/.out" | tr -d '\r')" = "F09-E01-T01" ] && ok "$label next offers a lone agent the review of its own handoff" || bad "$label next wrong: $(cat "$WORK/.out")"
 #FACTORY_CASES
 }
 
