@@ -6,7 +6,7 @@ used, `rotate` archives the least used rows when the file passes its cap.
 
 ## Operational summary
 
-- Entries: 14 of 80
+- Entries: 16 of 80
 - Last gc: —
 
 <!-- context:end -->
@@ -18,14 +18,16 @@ used, `rotate` archives the least used rows when the file passes its cap.
 | LRN-001 | Prefer the most reversible option | DEFAULT | * | When two options are equivalent choose the one cheaper to undo and record it as an ADR | seed | CONFIRMED | 0 | — |
 | LRN-002 | Ambiguous product rule takes the stricter behavior | DEFAULT | * | Record it as a HYPOTHESIS BR row and pin it with a scenario | seed | CONFIRMED | 0 | — |
 | LRN-003 | Reproduce a bug before fixing it | PATTERN | bug fix regression | The RED test of a BUG task reproduces the reported failure first | seed | CONFIRMED | 0 | — |
-| LRN-004 | A shell heredoc loses backslashes in a patch script | PITFALL | heredoc backslash patch script node | Write patch scripts with the file tool, use String.raw for the text, and replace with split and join, never a string with a dollar sign. | log:F06-E05-T03 | HYPOTHESIS | 0 | — |
+| LRN-004 | A shell heredoc loses backslashes in a patch script | PITFALL | heredoc backslash patch script node | Write patch scripts with the file tool, use String.raw for the text, and replace with split and join, never a string with a dollar sign. | log:F06-E05-T03 | HYPOTHESIS | 1 | 2026-11-16 |
 | LRN-005 | git shows only the new name of a renamed file | PITFALL | git diff rename protected path tests | Pass --no-renames wherever a check decides from the files that changed, or a move hides the old path. | log:F06-E05-T03 | HYPOTHESIS | 0 | — |
 | LRN-006 | PowerShell comparisons and hashtables ignore letter case | PITFALL | powershell ps1 compare eq match hashtable | Use -ceq, -cin and -cmatch when the case matters and remember that hashtable keys are case insensitive. | log:F06-E05-T03 | HYPOTHESIS | 0 | — |
-| LRN-007 | Run every case through both launchers and focus the runs | PATTERN | smoke test sh ps1 parity focus | Write each case once for sh and ps1, run only the new block while iterating (SMOKE_ONLY), and the full smoke once at the end. | log:F06-E05-T03 | HYPOTHESIS | 1 | 2026-10-28 |
+| LRN-007 | Run every case through both launchers and focus the runs | PATTERN | smoke test sh ps1 parity focus | Write each case once for sh and ps1, run only the new block while iterating (SMOKE_ONLY), and the full smoke once at the end. | log:F06-E05-T03 | HYPOTHESIS | 2 | 2026-11-16 |
 | LRN-008 | Where the dispatcher and its tests live | MAP | dispatcher dogfood fake cli diff regression | scripts/factory_dispatch.sh and .ps1 are the dispatcher; scripts/tests has fake_cli, dogfood.sh and diff_regression.sh; SMOKE_ONLY=dispatch runs its cases. | log:F06-E05-T03 | HYPOTHESIS | 0 | — |
 | LRN-009 | A lock created after a test is not exclusive | PITFALL | lock mkdir exclusive race takeover docs | Create the lock with one atomic call (mkdir), and take an old lock over behind a marker that reads its age again. | log:F06-E05-T03 | HYPOTHESIS | 0 | — |
-| LRN-010 | Try a new gate on tasks that lack its path | PITFALL | gate done advance exception none bug fast lane | Before closing a gate that forces every task through a phase, walk the tasks with no such path (Level NONE, BUG, fast lane, started before Factory mode) and give each an explicit way through or a documented refusal. | log:F06-E05-T03 | HYPOTHESIS | 0 | — |
+| LRN-010 | Try a new gate on tasks that lack its path | PITFALL | gate done advance exception none bug fast lane | Before closing a gate that forces every task through a phase, walk the tasks with no such path (Level NONE, BUG, fast lane, started before Factory mode) and give each an explicit way through or a documented refusal. | log:F06-E05-T03 | HYPOTHESIS | 1 | 2026-11-16 |
 | LRN-011 | Fixture breaks a required header | PITFALL | fixture | A test that strips a required section for one case must restore it before asserting that check passes | log:F07-E01-T01 | HYPOTHESIS | 1 | 2026-11-07 |
 | LRN-012 | Tab inside a doc field | PITFALL | tab tsv sh field separator | sh passes fields as tab-separated lines; turn tabs in doc text into spaces before splitting, in both launchers | log:F07-E01-T01 | HYPOTHESIS | 0 | — |
 | LRN-013 | Doc text inside an HTML comment | PITFALL | html comment marker escape | Text from the docs written into an HTML comment must lose every `>` (filter or escape it), or a `-->` in it closes the comment | log:F07-E01-T01 | HYPOTHESIS | 0 | — |
 | LRN-014 | Fix every producer of a split format | PITFALL | tsv producer all_task_states | When a separator bug shows in one producer, list every producer the feature reads (shared scanners too) and test each one | log:F07-E01-T01 | HYPOTHESIS | 0 | — |
+| LRN-015 | Roster rule is read by many commands | PATTERN | roster role solo agent identity gate next review claim advance | When a rule about who may act changes, grep every reader of the roster (claim, advance, next, review, default assignee, check) and give each a test, including the state before any claim. | log:F08-E01-T01 | HYPOTHESIS | 0 | — |
+| LRN-016 | Bash tool collapses backslashes in commands | PITFALL | bash backslash awk printf tr escape cr command collapse | Do not type awk, printf or tr with a backslash in a Bash command; the backslash is lost and the pattern or the CR byte changes. Write the command with the file tool, and reread it. | log:F08-E01-T01 | HYPOTHESIS | 0 | — |

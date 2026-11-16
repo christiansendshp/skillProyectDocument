@@ -492,3 +492,27 @@ segments live in `docs/history/`.
 - Verify: pending
 - Phase: GREEN
 - Lane: NORMAL
+
+## [2026-11-16T17:11:38Z] | claude-sonnet-5-5 | F08-E01-T01 | IN_PROGRESS | Factory mode works with one agent, two stay accepted
+- Summary: code on GREEN, full smoke done, handing off for review
+- Verify: pending
+- Phase: GREEN
+- Lane: NORMAL
+
+## [2026-11-16T17:11:44Z] | claude-sonnet-5-5 | F08-E01-T01 | REVIEW | Factory mode works with one agent, two stay accepted
+- Summary: A lone agent in the table runs Factory from claim to done in sh and ps1
+- Verify: full smoke sh 1566/0 ps1 1564/0; diff 9302b58 fail=0; focus 44/0; exit=0
+- Handoff: claude-qa
+
+## [2026-11-16T18:21:16Z] | claude-qa | F08-E01-T01 | REVIEW | Factory mode works with one agent, two stay accepted
+- Summary: Review of the handoff from claude-sonnet-5-5
+- Verify: parity A-F sh==ps1 diff empty; focused factory smoke sh 1150/0 ps1 1148/0; context 8189 B; exit=0
+- Review: PASS - Solo rule gated by Factory and roster size; sh/ps1 parity identical; classic and 2+ rows unchanged; docs consistent.
+- Cross-model: NO
+
+## [2026-11-16T18:22:03Z] | claude-sonnet-5-5 | F08-E01-T01 | DONE | Factory mode works with one agent, two stay accepted
+- Summary: Factory mode works with one agent: a lone table row covers every role, reviews its own work apart, and two agents stay accepted
+- Files: scripts/ docs/ SKILL.md references/ templates/ evals/ README.md AGENTS.md
+- Verify: full smoke sh 1566/0 ps1 1564/0; diff 9302b58 fail=0; QA PASS; exit=0
+- Brain: used LRN-004, LRN-007, LRN-010; learned LRN-015, LRN-016
+- Cross-model: NO
